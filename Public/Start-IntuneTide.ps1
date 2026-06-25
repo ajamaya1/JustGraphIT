@@ -12,7 +12,7 @@ function Start-IntuneTide {
         Connect-IntuneTide -UseDeviceCode; Start-IntuneTide
     #>
     [CmdletBinding()]
-    param([ValidateSet('green', 'amber', 'lego', 'deepsea')][string]$Theme = 'green')
+    param([ValidateSet('green', 'amber', 'lego', 'deepsea')][string]$Theme = 'deepsea')
 
     if (-not (Get-Command Read-SpectreSelection -ErrorAction SilentlyContinue)) {
         throw "The TUI needs PwshSpectreConsole. Install it with: Install-Module PwshSpectreConsole -Scope CurrentUser"
