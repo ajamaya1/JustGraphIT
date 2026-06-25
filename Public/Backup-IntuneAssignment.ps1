@@ -10,7 +10,9 @@ function Backup-IntuneAssignment {
         drift. Pair with Restore-IntuneAssignment and Get-IntuneAssignmentDrift.
 
     .PARAMETER Path
-        Where to write the JSON snapshot.
+        Where to write the JSON snapshot. Optional — when omitted, a standard
+        timestamped name (intunetide-assignments-yyyy-MM-dd-HHmm.json) is created
+        in the current directory.
 
     .PARAMETER Area
         Limit the snapshot to one or more areas.
@@ -41,11 +43,12 @@ function Backup-IntuneAssignment {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$Path,
+        [string]$Path,
         [string[]]$Area,
         [string[]]$Type,
         [switch]$AssignedOnly
     )
+    if (-not $Path) { $Path = Get-IaBackupName }
     $items = Get-IaInventory -Area $Area -Type $Type -AssignedOnly:$AssignedOnly
     $tenant = try { (Get-MgContext).TenantId } catch { $null }
     $snap = [pscustomobject]@{

@@ -61,3 +61,19 @@ function Read-IaSnapshot {
     if (-not (Test-Path $Path)) { throw "Snapshot file not found: $Path" }
     Get-Content -Path $Path -Raw | ConvertFrom-Json
 }
+
+function Get-IaBackupName {
+    # Standard, sortable backup name so callers never have to invent one.
+    # e.g. intunetide-assignments-2026-06-25-1430.json
+    param([string]$Prefix = 'intunetide-assignments', [string]$Extension = 'json')
+    $stamp = (Get-Date).ToString('yyyy-MM-dd-HHmm')
+    if ($Extension) { "$Prefix-$stamp.$Extension" } else { "$Prefix-$stamp" }
+}
+
+function Find-IaLatestBackup {
+    # Newest backup in a directory matching the standard naming scheme — used to
+    # pre-fill restore/drift prompts so the common case is one keypress.
+    param([string]$Directory = '.', [string]$Prefix = 'intunetide-assignments', [string]$Extension = 'json')
+    Get-ChildItem -Path $Directory -Filter "$Prefix-*.$Extension" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+}
