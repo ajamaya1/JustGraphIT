@@ -28,23 +28,12 @@ function Start-IntuneTide {
 
     $accent = switch ($Theme) { 'amber' { 'orange1' } 'lego' { 'yellow' } 'deepsea' { 'turquoise2' } default { 'green' } }
     $script:IaTuiInventory = $null
-    $script:IaTuiShowLog   = $false  # graph-call pane off by default; 'Toggle graph-call pane' turns it on
     $script:IaCaps         = @{}     # cmdlet/param capability cache
 
     function Get-IaTuiInventory {
         if ($null -eq $script:IaTuiInventory) {
-            if ($script:IaTuiShowLog) {
-                Write-SpectreHost "[grey]reading intune — live graph calls:[/]"
-                Set-IaCallSink {
-                    param($c)
-                    $items = if ($c.Count) { " · $($c.Count) items" } else { '' }
-                    Write-Host ("  → {0,-6} {1}  {2}ms{3}" -f $c.Method, $c.Uri, $c.Ms, $items)
-                }
-                try { $script:IaTuiInventory = Get-IaInventory } finally { Set-IaCallSink $null }
-            } else {
-                $script:IaTuiInventory = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading Intune assignments…' -ScriptBlock {
-                    Get-IaInventory
-                }
+            $script:IaTuiInventory = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading Intune assignments…' -ScriptBlock {
+                Get-IaInventory
             }
         }
         $script:IaTuiInventory
@@ -82,7 +71,6 @@ function Start-IntuneTide {
             'Elevate (PIM) — activate an eligible role',
             'Audit',
             'Export report (HTML · Excel · Rich HTML)',
-            'Toggle graph-call pane',
             'Refresh data',
             'Quit'
         )
@@ -102,15 +90,12 @@ function Start-IntuneTide {
                 'Export*'         { Invoke-IaTuiExport      -Accent $accent }
                 'Refresh*'        { $script:IaTuiInventory = $null; Get-IaTuiInventory | Out-Null
                                     Write-SpectreHost "[$accent]Refreshed.[/]" }
-                'Toggle graph*'   { $script:IaTuiShowLog = -not $script:IaTuiShowLog
-                                    Write-SpectreHost "graph-call pane: $(if ($script:IaTuiShowLog) { "[$accent]on[/]" } else { '[grey]off[/]' })" }
                 'Quit'            { try { $host.UI.RawUI.WindowTitle = 'pwsh' } catch { }; return }
             }
         } catch {
             Write-SpectreHost "[red]Error:[/] $($_.Exception.Message)"
         }
         if ($choice -ne 'Quit') {
-            if ($script:IaTuiShowLog) { Show-IaTuiCallLog -Accent $accent }
             Read-SpectrePause | Out-Null
             Show-IaTuiSplash
         }
@@ -561,39 +546,6 @@ function Invoke-IaTuiElevate {
         Write-SpectreHost '[yellow]Activation needs approval / is provisioning — re-check with Get-IntuneActiveRole.[/]'
     }
     Get-IntuneActiveRole | Format-IaTable -Color $Accent
-}
-
-# ─── graph call pane ──────────────────────────────────────────────────────────
-
-function Show-IaTuiCallLog {
-    param([string]$Accent, [int]$Tail = 12)
-    $calls = Get-IaCallLogEntries | Select-Object -Last $Tail
-    if (-not $calls) { return }
-    $rows = foreach ($c in $calls) {
-        $methodColor = switch ($c.Method) {
-            'POST'   { 'gold1' }
-            'PATCH'  { 'orange1' }
-            'DELETE' { 'coral' }
-            'PUT'    { 'orange1' }
-            default  { 'grey' }
-        }
-        $statusColor = if ($c.Status -ge 200 -and $c.Status -lt 300) { $Accent }
-                       elseif ($c.Status -ge 400) { 'coral' }
-                       elseif ($c.Status) { 'yellow' }
-                       else { 'grey' }
-        [pscustomobject]@{
-            Time     = $c.Time.ToString('HH:mm:ss')
-            Method   = "[$methodColor]$($c.Method)[/]"
-            Endpoint = $c.Uri
-            Status   = "[$statusColor]$($c.Status)[/]"
-            Ms       = [int]$c.Ms
-            Items    = $c.Count
-        }
-    }
-    $okCount = @($calls | Where-Object { $_.Status -ge 200 -and $_.Status -lt 300 }).Count
-    Write-SpectreHost "[grey]── graph calls ── last $($rows.Count) · $okCount ok · session total $((Get-IaCallLogEntries).Count) ──[/]"
-    $rows | Format-IaTable -Color $Accent
-    Write-SpectreHost "[grey]toggle with 'Toggle graph-call pane'  ·  Get-IntuneCallLog -Tail 20  ·  -Errors[/]"
 }
 
 # ─── reports submenu ──────────────────────────────────────────────────────────
