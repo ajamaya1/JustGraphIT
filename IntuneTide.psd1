@@ -38,6 +38,9 @@
         'Get-IntuneDeploymentSummary',
         'Get-IntuneAuditLog',
         'Get-IntuneApprovalRequest',
+        # --- device reporting ---
+        'Get-IntuneDeviceInventory',
+        'Get-IntuneTenantSummary',
         # --- PIM (privileged role elevation) ---
         'Get-IntuneEligibleRole',
         'Enable-IntuneAdminRole',

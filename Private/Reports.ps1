@@ -153,6 +153,58 @@ function Resolve-IaResourceId {
     $hit.id
 }
 
+function Get-IaDeviceSummary {
+    # Device-health roll-up for the dashboard: totals, compliance, per-platform
+    # compliance, ownership split, and stale-device count. Pages managedDevices
+    # once with a minimal projection so the dashboard stays cheap.
+    [CmdletBinding()]
+    param([int]$StaleDays = 30)
+
+    $now     = (Get-Date).ToUniversalTime()
+    $devices = Get-IaCollection "deviceManagement/managedDevices?`$select=operatingSystem,complianceState,managedDeviceOwnerType,lastSyncDateTime"
+
+    $compliant = 0; $noncompliant = 0; $other = 0; $stale = 0
+    $platform = @{}; $ownership = @{}
+    foreach ($d in $devices) {
+        $state = "$($d.complianceState)"
+        switch ($state) {
+            'compliant'    { $compliant++ }
+            'noncompliant' { $noncompliant++ }
+            default        { $other++ }
+        }
+        $p = if ($d.operatingSystem) { "$($d.operatingSystem)" } else { 'Unknown' }
+        if (-not $platform.ContainsKey($p)) { $platform[$p] = @{ Total = 0; Compliant = 0 } }
+        $platform[$p].Total++
+        if ($state -eq 'compliant') { $platform[$p].Compliant++ }
+        $o = if ($d.managedDeviceOwnerType) { "$($d.managedDeviceOwnerType)" } else { 'unknown' }
+        $ownership[$o] = 1 + ($ownership[$o] ?? 0)
+        if ($d.lastSyncDateTime) {
+            try { if (($now - ([datetime]$d.lastSyncDateTime).ToUniversalTime()).TotalDays -ge $StaleDays) { $stale++ } } catch { }
+        }
+    }
+    $total = @($devices).Count
+    [pscustomobject][ordered]@{
+        DeviceCount       = $total
+        CompliantCount    = $compliant
+        NonCompliantCount = $noncompliant
+        OtherCount        = $other
+        CompliancePercent = if ($total) { [math]::Round($compliant / $total * 100, 1) } else { 0 }
+        StaleDays         = $StaleDays
+        StaleCount        = $stale
+        ByPlatform        = @($platform.GetEnumerator() | ForEach-Object {
+                [pscustomobject]@{
+                    Platform         = $_.Key
+                    Total            = $_.Value.Total
+                    Compliant        = $_.Value.Compliant
+                    CompliantPercent = if ($_.Value.Total) { [math]::Round($_.Value.Compliant / $_.Value.Total * 100, 0) } else { 0 }
+                }
+            } | Sort-Object Total -Descending)
+        ByOwnership       = @($ownership.GetEnumerator() | ForEach-Object {
+                [pscustomobject]@{ Owner = $_.Key; Count = $_.Value }
+            } | Sort-Object Count -Descending)
+    }
+}
+
 function Get-IaReportCatalog {
     # A curated catalog of common Intune export report names. ANY valid report
     # name works with Export-IntuneReport; this is for discovery/auto-complete.
