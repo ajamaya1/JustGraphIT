@@ -671,9 +671,37 @@ function Invoke-IaTuiReports {
             $by  = Read-SpectreSelection -Title 'Pivot by' -Choices @('Device', 'User') -Color $Accent
             Write-IaTuiHeader -Screen 'App install status' -Sub "app: $($app.Name)  ·  by: $by" -Accent $Accent
             $name = $app.Name
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
+            $rows = Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
                 Get-IntuneAppInstallStatus -App $using:name -By $using:by
-            } | Format-IaTable -Color $Accent
+            }
+            if ($by -eq 'Device') {
+                $rows | ForEach-Object {
+                    $sc = switch ($_.Status) {
+                        'installed'     { $Accent }
+                        'failed'        { 'coral'  }
+                        'pending'       { 'yellow' }
+                        default         { 'grey'   }
+                    }
+                    [pscustomobject]@{
+                        Device      = $_.Device
+                        Status      = "[$sc]$($_.Status)[/]"
+                        Detail      = $_.Detail
+                        ErrorCode   = $_.ErrorCode
+                        ErrorReason = $_.ErrorReason
+                        User        = $_.User
+                    }
+                } | Format-IaTable -Color $Accent
+                $failHints = @($rows | Where-Object { $_.Hint })
+                if ($failHints) {
+                    Write-SpectreRule -Title 'Remediation hints' -Color $Accent
+                    foreach ($fh in $failHints | Select-Object -First 5) {
+                        Write-SpectreHost "[$Accent]$($fh.ErrorCode)[/]  $($fh.ErrorReason)"
+                        Write-SpectreHost "  [grey]→ $($fh.Hint)[/]"
+                    }
+                }
+            } else {
+                $rows | Format-IaTable -Color $Accent
+            }
         }
         'Configuration*' {
             $p = Select-IaInventoryItem -Accent $Accent -Area 'Configuration' -Title 'Which configuration profile?'
