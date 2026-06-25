@@ -62,12 +62,34 @@ function Read-IaSnapshot {
     Get-Content -Path $Path -Raw | ConvertFrom-Json
 }
 
+function Get-IaTenantSlug {
+    # Short, filesystem-safe label derived from the signed-in account or tenant id.
+    # "user@contoso.onmicrosoft.com" → "contoso"
+    # "user@tailspin.com"           → "tailspin"
+    # Falls back to the first 8 chars of the tenant GUID, then empty string.
+    try {
+        $ctx = Get-MgContext -ErrorAction SilentlyContinue
+        if ($ctx) {
+            if ($ctx.Account) {
+                $domain = ($ctx.Account -split '@', 2)[-1]   # contoso.onmicrosoft.com
+                $slug   = ($domain -split '\.')[0]           # contoso
+                $safe   = $slug -replace '[^A-Za-z0-9\-]', ''
+                if ($safe) { return $safe }
+            }
+            if ($ctx.TenantId) { return $ctx.TenantId.Replace('-','').Substring(0,8) }
+        }
+    } catch { }
+    return ''
+}
+
 function Get-IaBackupName {
     # Standard, sortable backup name so callers never have to invent one.
-    # e.g. intunetide-assignments-2026-06-25-1430.json
+    # e.g. intunetide-assignments-contoso-2026-06-25-1430.json
     param([string]$Prefix = 'intunetide-assignments', [string]$Extension = 'json')
     $stamp = (Get-Date).ToString('yyyy-MM-dd-HHmm')
-    if ($Extension) { "$Prefix-$stamp.$Extension" } else { "$Prefix-$stamp" }
+    $slug  = Get-IaTenantSlug
+    $name  = if ($slug) { "$Prefix-$slug-$stamp" } else { "$Prefix-$stamp" }
+    if ($Extension) { "$name.$Extension" } else { $name }
 }
 
 function Find-IaLatestBackup {
