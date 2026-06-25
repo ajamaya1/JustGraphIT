@@ -68,6 +68,7 @@ function Start-IntuneTide {
             'Templates (capture / apply)',
             'Backup / Restore / Drift',
             'Reports (status · audit · approvals)',
+            'Windows 365 (Cloud PCs · provisioning · connections)',
             'Elevate (PIM) — activate an eligible role',
             'Audit',
             'Export report (HTML · Excel · Rich HTML)',
@@ -85,6 +86,7 @@ function Start-IntuneTide {
                 'Templates*'      { Invoke-IaTuiTemplates   -Accent $accent }
                 'Backup*'         { Invoke-IaTuiBackup      -Accent $accent }
                 'Reports*'        { Invoke-IaTuiReports     -Accent $accent }
+                'Windows 365*'    { Invoke-IaTuiCloudPC     -Accent $accent }
                 'Elevate*'        { Invoke-IaTuiElevate     -Accent $accent }
                 'Audit'           { Invoke-IaTuiAudit       -Accent $accent }
                 'Export*'         { Invoke-IaTuiExport      -Accent $accent }
@@ -888,5 +890,200 @@ function Invoke-IaTuiExport {
             Export-IntuneHtmlReport -Path $p
             Write-SpectreHost "[$Accent]Wrote[/] $p"
         }
+    }
+}
+
+# ─── Windows 365 / Cloud PC ───────────────────────────────────────────────────
+
+function Invoke-IaTuiCloudPC {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Windows 365 Cloud PCs' -Sub 'browse · actions · policies · connections' -Accent $Accent
+    $pick = Read-SpectreSelection -Title 'Windows 365' -Color $Accent -PageSize 12 -Choices @(
+        'Browse Cloud PCs',
+        'Cloud PC actions',
+        'Provisioning policies',
+        'Network connections',
+        'User settings',
+        'Images (gallery · custom)',
+        'Service plans (available SKUs)',
+        'Snapshots',
+        'Reports',
+        'Back'
+    )
+    switch -Wildcard ($pick) {
+        'Browse*' {
+            Write-IaTuiHeader -Screen 'Cloud PCs' -Accent $Accent
+            $pcs = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock {
+                Get-IntuneCloudPC
+            }
+            if (-not $pcs) { Write-SpectreHost '[grey]No Cloud PCs found.[/]'; return }
+            $pcs | ForEach-Object {
+                [pscustomobject]@{
+                    'Cloud PC'   = $_.CloudPC
+                    Status       = Format-IaCloudPCStatus -Status $_.Status -Accent $Accent
+                    User         = $_.User
+                    'Plan'       = $_.ServicePlan
+                    Policy       = $_.ProvisioningPolicy
+                    LastLogin    = if ($_.LastLogin) { ([datetime]$_.LastLogin).ToString('yyyy-MM-dd HH:mm') } else { '—' }
+                    GracePeriod  = if ($_.GracePeriodEnd) { ([datetime]$_.GracePeriodEnd).ToString('yyyy-MM-dd') } else { '—' }
+                }
+            } | Format-IaTable -Color $Accent
+        }
+        'Cloud PC actions*' {
+            $pcs = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
+            if (-not $pcs) { Write-SpectreHost '[grey]No Cloud PCs found.[/]'; return }
+            $pcNames = @($pcs | ForEach-Object { $_.CloudPC })
+            $pcName = Read-SpectreSelection -Title 'Select Cloud PC' -Choices $pcNames -Color $Accent
+            $action = Read-SpectreSelection -Title 'Select action' -Color $Accent -Choices @(
+                'Restart', 'Reprovision', 'Troubleshoot', 'EndGracePeriod',
+                'CreateSnapshot', 'Resize', 'Rename', 'Restore', 'PowerOn', 'PowerOff'
+            )
+            $extraParams = @{}
+            switch ($action) {
+                'Resize' {
+                    $plans = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading service plans…' -ScriptBlock { Get-IntuneCloudPCServicePlan }
+                    $planChoice = Read-SpectreSelection -Title 'Target service plan' -Color $Accent `
+                        -Choices @($plans | ForEach-Object { "$($_.vCPU)vCPU / $($_.RAM)GB RAM / $($_.Storage)GB  —  $($_.Name)" })
+                    $planIndex  = @($plans | ForEach-Object { "$($_.vCPU)vCPU / $($_.RAM)GB RAM / $($_.Storage)GB  —  $($_.Name)" }).IndexOf($planChoice)
+                    $extraParams.ServicePlanId = $plans[$planIndex].Id
+                }
+                'Rename' {
+                    $extraParams.NewName = Read-SpectreText -Question 'New display name'
+                }
+                'Restore' {
+                    $snaps = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
+                        Get-IntuneCloudPCSnapshot -CloudPC $using:pcName
+                    }
+                    if (-not $snaps) { Write-SpectreHost '[yellow]No snapshots found for this Cloud PC.[/]'; return }
+                    $snapChoice = Read-SpectreSelection -Title 'Restore from snapshot' -Color $Accent `
+                        -Choices @($snaps | ForEach-Object { "$($_.CreatedAt)  ($($_.SnapshotType))" })
+                    $snapIndex  = @($snaps | ForEach-Object { "$($_.CreatedAt)  ($($_.SnapshotType))" }).IndexOf($snapChoice)
+                    $extraParams.SnapshotId = $snaps[$snapIndex].Id
+                }
+            }
+            Write-IaTuiHeader -Screen "Cloud PC action: $action" -Sub $pcName -Accent $Accent
+            $result = Invoke-IntuneCloudPCAction -CloudPC $pcName -Action $action @extraParams -Confirm:$false
+            if ($result.Submitted) {
+                Write-SpectreHost "[$Accent]Submitted.[/] Action '$action' is queued for [$Accent]$pcName[/]."
+            }
+        }
+        'Provisioning policies*' {
+            Write-IaTuiHeader -Screen 'Provisioning Policies' -Accent $Accent
+            $sub = Read-SpectreSelection -Title 'Provisioning policies' -Color $Accent -Choices @(
+                'List all', 'Create new', 'Delete', 'Back'
+            )
+            switch -Wildcard ($sub) {
+                'List*' {
+                    $pols = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
+                        Get-IntuneCloudPCProvisioningPolicy -IncludeAssignments
+                    }
+                    $pols | Select-Object Name, JoinType, ImageType, ImageName, Region, Id | Format-IaTable -Color $Accent
+                }
+                'Create*' {
+                    $name  = Read-SpectreText -Question 'Policy name'
+                    $imgs  = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock { Get-IntuneCloudPCImage }
+                    $imgC  = Read-SpectreSelection -Title 'OS image' -Color $Accent `
+                        -Choices @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" })
+                    $imgIdx= @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" }).IndexOf($imgC)
+                    $img   = $imgs[$imgIdx]
+                    $join  = Read-SpectreSelection -Title 'Azure AD join type' -Color $Accent `
+                        -Choices @('azureADJoin', 'hybridAzureADJoin')
+                    Write-IaTuiHeader -Screen 'Create provisioning policy' -Sub $name -Accent $Accent
+                    New-IntuneCloudPCProvisioningPolicy -Name $name -ImageId $img.Id `
+                        -ImageType ($img.Type.ToLower()) -DomainJoinType $join -WhatIf
+                    if ((Read-SpectreSelection -Title 'Apply?' -Choices @('Yes','No') -Color $Accent) -eq 'Yes') {
+                        New-IntuneCloudPCProvisioningPolicy -Name $name -ImageId $img.Id `
+                            -ImageType ($img.Type.ToLower()) -DomainJoinType $join -Confirm:$false
+                        Write-SpectreHost "[$Accent]Policy created.[/]"
+                    }
+                }
+                'Delete*' {
+                    $pols = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCProvisioningPolicy }
+                    $polC = Read-SpectreSelection -Title 'Policy to delete' -Color $Accent `
+                        -Choices @($pols | ForEach-Object { $_.Name })
+                    Remove-IntuneCloudPCProvisioningPolicy -Policy $polC -Confirm:$false
+                    Write-SpectreHost "[$Accent]Deleted[/] $polC"
+                }
+            }
+        }
+        'Network connections*' {
+            Write-IaTuiHeader -Screen 'Network Connections' -Accent $Accent
+            $sub = Read-SpectreSelection -Title 'Network connections' -Color $Accent -Choices @(
+                'List all', 'Run health check', 'Back'
+            )
+            switch -Wildcard ($sub) {
+                'List*' {
+                    $conns = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
+                    $conns | ForEach-Object {
+                        $hc = switch ($_.HealthStatus) {
+                            'passed'  { "[$Accent]passed[/]" }
+                            'failed'  { '[coral]failed[/]' }
+                            'warning' { '[yellow]warning[/]' }
+                            default   { "[grey]$($_.HealthStatus)[/]" }
+                        }
+                        [pscustomobject]@{
+                            Name        = $_.Name
+                            Health      = $hc
+                            Type        = $_.Type
+                            DomainName  = $_.DomainName
+                            Region      = $_.Region
+                            Id          = $_.Id
+                        }
+                    } | Format-IaTable -Color $Accent
+                }
+                'Run*' {
+                    $conns = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
+                    $connC = Read-SpectreSelection -Title 'Select connection' -Color $Accent `
+                        -Choices @($conns | ForEach-Object { $_.Name })
+                    Test-IntuneCloudPCConnection -Connection $connC
+                    Write-SpectreHost "[$Accent]Health check triggered.[/] Check connection status in a few minutes."
+                }
+            }
+        }
+        'User settings*' {
+            Write-IaTuiHeader -Screen 'Cloud PC User Settings' -Accent $Accent
+            Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
+                Get-IntuneCloudPCUserSetting
+            } | Format-IaTable -Color $Accent
+        }
+        'Images*' {
+            Write-IaTuiHeader -Screen 'Cloud PC Images' -Sub 'gallery · custom' -Accent $Accent
+            $type = Read-SpectreSelection -Title 'Image type' -Choices @('All','Gallery','Custom') -Color $Accent
+            Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock {
+                Get-IntuneCloudPCImage -Type $using:type
+            } | Format-IaTable -Color $Accent
+        }
+        'Service plans*' {
+            Write-IaTuiHeader -Screen 'Cloud PC Service Plans' -Accent $Accent
+            Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
+                Get-IntuneCloudPCServicePlan
+            } | Sort-Object vCPU, RAM | Format-IaTable -Color $Accent
+        }
+        'Snapshots*' {
+            Write-IaTuiHeader -Screen 'Cloud PC Snapshots' -Accent $Accent
+            $pcs   = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
+            $scope = Read-SpectreSelection -Title 'Scope' -Color $Accent -Choices (@('All Cloud PCs') + @($pcs | ForEach-Object { $_.CloudPC }))
+            $snaps = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
+                if ($using:scope -eq 'All Cloud PCs') { Get-IntuneCloudPCSnapshot }
+                else { Get-IntuneCloudPCSnapshot -CloudPC $using:scope }
+            }
+            $snaps | Format-IaTable -Color $Accent
+        }
+        'Reports*' {
+            Write-IaTuiHeader -Screen 'Cloud PC Reports' -Accent $Accent
+            $rpt = Read-SpectreSelection -Title 'Report' -Color $Accent -Choices @(
+                'Remote connections', 'Daily aggregate', 'Connection quality', 'Shared PC overview'
+            )
+            $rptName = switch -Wildcard ($rpt) {
+                'Remote*'     { 'RemoteConnection' }
+                'Daily*'      { 'DailyAggregate' }
+                'Connection*' { 'ConnectionQuality' }
+                'Shared*'     { 'SharedPCOverview' }
+            }
+            Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Running $rpt report…" -ScriptBlock {
+                Get-IntuneCloudPCReport -Report $using:rptName
+            } | Select-Object -First 100 | Format-IaTable -Color $Accent
+        }
+        default { return }
     }
 }

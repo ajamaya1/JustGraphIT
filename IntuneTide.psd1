@@ -51,6 +51,20 @@
         # --- diagnostics ---
         'Get-IntuneCallLog',
         'Clear-IntuneCallLog',
+        # --- Windows 365 Cloud PC ---
+        'Get-IntuneCloudPC',
+        'Invoke-IntuneCloudPCAction',
+        'Get-IntuneCloudPCProvisioningPolicy',
+        'New-IntuneCloudPCProvisioningPolicy',
+        'Set-IntuneCloudPCProvisioningPolicy',
+        'Remove-IntuneCloudPCProvisioningPolicy',
+        'Get-IntuneCloudPCConnection',
+        'Test-IntuneCloudPCConnection',
+        'Get-IntuneCloudPCImage',
+        'Get-IntuneCloudPCServicePlan',
+        'Get-IntuneCloudPCSnapshot',
+        'Get-IntuneCloudPCReport',
+        'Get-IntuneCloudPCUserSetting',
         'Start-IntuneTide'
     )
     CmdletsToExport   = @()
