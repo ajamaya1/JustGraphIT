@@ -51,6 +51,10 @@
         # --- diagnostics ---
         'Get-IntuneCallLog',
         'Clear-IntuneCallLog',
+        # --- device actions & detail ---
+        'Invoke-IntuneDeviceAction',
+        'Get-IntuneDeviceDetail',
+        'Get-IntuneBitLockerKey',
         # --- Windows 365 Cloud PC ---
         'Get-IntuneCloudPC',
         'Invoke-IntuneCloudPCAction',
