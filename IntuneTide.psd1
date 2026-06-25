@@ -88,6 +88,41 @@
         'New-IntuneRemediation',
         'Remove-IntuneRemediation',
         'Invoke-IntuneRemediation',
+        # --- apps (Win32, Store, LOB, VPP, iOS, Android, macOS) ---
+        'Get-IntuneApp',
+        'Get-IntuneWin32App',
+        'Set-IntuneAppAssignment',
+        'Remove-IntuneApp',
+        # --- Windows Update (rings, feature, driver) ---
+        'Get-IntuneUpdateRing',
+        'New-IntuneUpdateRing',
+        'Remove-IntuneUpdateRing',
+        'Get-IntuneFeatureUpdate',
+        'New-IntuneFeatureUpdate',
+        'Get-IntuneDriverUpdate',
+        # --- assignment filters ---
+        'Get-IntuneAssignmentFilter',
+        'New-IntuneAssignmentFilter',
+        'Remove-IntuneAssignmentFilter',
+        # --- RBAC ---
+        'Get-IntuneRbacRole',
+        'Get-IntuneRbacAssignment',
+        # --- Autopilot & enrollment ---
+        'Get-IntuneAutopilotDevice',
+        'Set-IntuneAutopilotDevice',
+        'Get-IntuneAutopilotProfile',
+        'Get-IntuneEnrollmentRestriction',
+        'Get-IntuneESP',
+        # --- legacy device configurations ---
+        'Get-IntuneDeviceConfiguration',
+        'Remove-IntuneDeviceConfiguration',
+        # --- administrative templates (ADMX) ---
+        'Get-IntuneAdminTemplate',
+        # --- endpoint security baselines ---
+        'Get-IntuneSecurityBaseline',
+        'New-IntuneSecurityBaseline',
+        # --- monitoring ---
+        'Watch-IntuneTenant',
         'Start-IntuneTide'
     )
     CmdletsToExport   = @()
