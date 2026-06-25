@@ -36,14 +36,3 @@ function Get-IntuneCallLog {
     $log
 }
 
-function Clear-IntuneCallLog {
-    <#
-    .SYNOPSIS
-        Clear the in-memory Graph call log.
-    .EXAMPLE
-        Clear-IntuneCallLog
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param()
-    if ($PSCmdlet.ShouldProcess('Graph call log', 'Clear')) { Clear-IaCallLog }
-}

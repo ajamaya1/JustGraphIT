@@ -55,8 +55,8 @@
     PrivateData = @{
         PSData = @{
             Tags       = @('Intune', 'MicrosoftGraph', 'MEM', 'Assignments', 'Endpoint', 'TUI', 'Spectre')
-            ProjectUri = 'https://github.com/ajamaya1/patch-tracker'
-            LicenseUri = 'https://github.com/ajamaya1/patch-tracker/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/ajamaya1/IntuneTide'
+            LicenseUri = 'https://github.com/ajamaya1/IntuneTide/blob/main/LICENSE'
         }
     }
 }

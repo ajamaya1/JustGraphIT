@@ -99,8 +99,8 @@ function Resolve-IaGroup {
     $key = $Value.ToLower()
     if (-not $script:IaGroupByName.ContainsKey($key)) {
         $esc = $Value.Replace("'", "''")
-        $matches = Get-IaCollection -V1 -Path ("groups?`$filter=displayName eq '$esc'&`$select=id,displayName,membershipRule")
-        foreach ($m in $matches) { [void](Add-IaGroupToCache -Group $m) }
+        $groupResults = Get-IaCollection -V1 -Path ("groups?`$filter=displayName eq '$esc'&`$select=id,displayName,membershipRule")
+        foreach ($m in $groupResults) { [void](Add-IaGroupToCache -Group $m) }
     }
     $found = $script:IaGroupByName[$key]
     if (-not $found) { throw "No group found matching '$Value'." }
@@ -151,8 +151,8 @@ function Resolve-IaDevice {
         } catch { }
     }
     $esc = $Value.Replace("'", "''")
-    $matches = Get-IaCollection -V1 -Path ("devices?`$filter=displayName eq '$esc'&`$select=id,displayName,deviceId")
-    if ($matches.Count -eq 1) { return [pscustomobject]@{ Id = $matches[0].id; DisplayName = $matches[0].displayName } }
-    if (-not $matches) { throw "No Entra device found matching '$Value'." }
-    throw "'$Value' matches multiple devices: $((($matches | ForEach-Object displayName) -join ', '))"
+    $deviceResults = Get-IaCollection -V1 -Path ("devices?`$filter=displayName eq '$esc'&`$select=id,displayName,deviceId")
+    if ($deviceResults.Count -eq 1) { return [pscustomobject]@{ Id = $deviceResults[0].id; DisplayName = $deviceResults[0].displayName } }
+    if (-not $deviceResults) { throw "No Entra device found matching '$Value'." }
+    throw "'$Value' matches multiple devices: $((($deviceResults | ForEach-Object displayName) -join ', '))"
 }
