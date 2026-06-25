@@ -58,9 +58,16 @@ function Get-IntuneAppInstallStatus {
                 NotInstalled = $r.notInstalledDeviceCount; LastModified = $r.lastModifiedDateTime
             }
         } else {
+            $resolved = Resolve-IaErrorCode -Code $r.errorCode
             [pscustomobject]@{
-                Device = $r.deviceName; Status = $r.installState; Detail = $r.installStateDetail
-                User = $r.userPrincipalName; ErrorCode = $r.errorCode; LastModified = $r.lastModifiedDateTime
+                Device      = $r.deviceName
+                Status      = $r.installState
+                Detail      = Resolve-IaInstallDetail -Detail $r.installStateDetail
+                ErrorCode   = if ($r.errorCode) { '0x{0:X8}' -f ($r.errorCode -band 0xFFFFFFFF) } else { $null }
+                ErrorReason = $resolved?.Short
+                Hint        = $resolved?.Hint
+                User        = $r.userPrincipalName
+                LastModified = $r.lastModifiedDateTime
             }
         }
         if ($Status -and $out.Status -ne $Status) { continue }
