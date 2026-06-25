@@ -8,10 +8,9 @@ function Find-IaResourceType {
 
 function ConvertTo-IaAssignBody {
     param([Parameter(Mandatory)][object]$ResourceType, [object[]]$Assignments)
-    $entries = @()
-    foreach ($a in $Assignments) {
-        $entries += , (ConvertTo-IaAssignmentBody -Assignment $a -AssignmentODataType $ResourceType.AssignmentODataType)
-    }
+    $entries = @(foreach ($a in $Assignments) {
+        ConvertTo-IaAssignmentBody -Assignment $a -AssignmentODataType $ResourceType.AssignmentODataType
+    })
     @{ $ResourceType.AssignBodyKey = $entries }
 }
 

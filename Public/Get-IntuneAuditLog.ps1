@@ -66,11 +66,11 @@ function Get-IntuneAuditLog {
     $events = Get-IaCollection $q
     $n = 0
     foreach ($e in $events) {
-        $actor = $e.actor.userPrincipalName
-        if (-not $actor) { $actor = $e.actor.applicationDisplayName }
+        $actorVal = $e.actor.userPrincipalName
+        if (-not $actorVal) { $actorVal = $e.actor.applicationDisplayName }
         $resource = ($e.resources | Select-Object -First 1).displayName
         $row = [pscustomobject]@{
-            When = $e.activityDateTime; Actor = $actor; ActorType = $e.actor.type
+            When = $e.activityDateTime; Actor = $actorVal; ActorType = $e.actor.type
             Activity = $e.displayName; Operation = $e.activityOperationType
             Result = $e.activityResult; Category = $e.category; Resource = $resource
         }

@@ -35,7 +35,8 @@ function New-IaHtmlReport {
     )
     $kpiHtml = ($kpis | ForEach-Object { "<div class='kpi'><div class='n'>$($_.n)</div><div class='l'>$($_.l)</div></div>" }) -join ''
     $data = ($rows | ConvertTo-Json -Depth 5 -Compress)
-    if ($rows.Count -le 1) { $data = "[$data]" }  # ConvertTo-Json unwraps single element
+    if ($rows.Count -eq 0)    { $data = '[]' }
+    elseif ($rows.Count -eq 1) { $data = "[$data]" }  # ConvertTo-Json unwraps single element
 
     $tpl = Get-IaHtmlTemplate
     $tpl.Replace('__TITLE__', [System.Net.WebUtility]::HtmlEncode($Title)).Replace('__KPIS__', $kpiHtml).Replace('__DATA__', $data)
