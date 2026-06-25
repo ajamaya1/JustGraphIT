@@ -41,7 +41,7 @@ function Invoke-IaRequest {
     # response as a PSObject (so .value / '@odata.nextLink' are property access).
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PATCH', 'DELETE')][string]$Method,
+        [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PATCH', 'PUT', 'DELETE')][string]$Method,
         [Parameter(Mandatory)][string]$Uri,
         [object]$Body,
         [hashtable]$Headers

@@ -69,6 +69,25 @@
         'Get-IntuneCloudPCSnapshot',
         'Get-IntuneCloudPCReport',
         'Get-IntuneCloudPCUserSetting',
+        # --- settings catalog (configurationPolicies) ---
+        'Get-IntuneConfigurationPolicy',
+        'New-IntuneConfigurationPolicy',
+        'Set-IntuneConfigurationPolicy',
+        'Remove-IntuneConfigurationPolicy',
+        'Copy-IntuneConfigurationPolicy',
+        # --- compliance policies ---
+        'Get-IntuneCompliancePolicy',
+        'New-IntuneCompliancePolicy',
+        'Remove-IntuneCompliancePolicy',
+        # --- scripts (Windows PowerShell + macOS shell) ---
+        'Get-IntuneScript',
+        'New-IntuneScript',
+        'Remove-IntuneScript',
+        # --- remediations (device health scripts) ---
+        'Get-IntuneRemediation',
+        'New-IntuneRemediation',
+        'Remove-IntuneRemediation',
+        'Invoke-IntuneRemediation',
         'Start-IntuneTide'
     )
     CmdletsToExport   = @()
