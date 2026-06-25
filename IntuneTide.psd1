@@ -29,6 +29,8 @@
         'Backup-IntuneAssignment',
         'Restore-IntuneAssignment',
         'Get-IntuneAssignmentDrift',
+        'Backup-IntuneConfig',
+        'Restore-IntuneConfig',
         # --- reporting & auditing ---
         'Get-IntuneReportCatalog',
         'Export-IntuneReport',

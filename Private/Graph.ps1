@@ -48,7 +48,7 @@ function Invoke-IaRequest {
     )
     $params = @{ Method = $Method; Uri = $Uri; OutputType = 'PSObject'; ErrorAction = 'Stop' }
     if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
-        $params.Body = ($Body | ConvertTo-Json -Depth 20 -Compress)
+        $params.Body = ($Body | ConvertTo-Json -Depth 30 -Compress)
         $params.ContentType = 'application/json'
     }
     if ($Headers) { $params.Headers = $Headers }

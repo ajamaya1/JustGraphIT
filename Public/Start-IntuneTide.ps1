@@ -201,6 +201,28 @@ function Write-IaTuiHeader {
     Write-SpectreRule -Color darkslategray1
 }
 
+# ─── shared change-plan renderer ──────────────────────────────────────────────
+
+function Show-IaRestorePlan {
+    # Render restore/apply change plans (OK / FAIL / SKIP / PREVIEW) for both the
+    # assignment-restore and full-config-restore flows.
+    param([object[]]$Plans, [string]$Accent)
+    $rows = @($Plans) | ForEach-Object {
+        $status = if ($_.Skipped) { '[grey]SKIP[/]' }
+                  elseif ($_.Error) { '[coral]FAIL[/]' }
+                  elseif ($_.Applied) { "[$Accent]OK[/]" }
+                  else { '[grey]PREVIEW[/]' }
+        [pscustomobject]@{
+            Status   = $status
+            Area     = "[$Accent]$($_.Area)[/]"
+            Resource = $_.ResourceName
+            Detail   = if ($_.Skipped) { $_.Skipped } elseif ($_.Error) { $_.Error } else { ($_.Added -join '; ') }
+        }
+    }
+    if (-not $rows) { Write-SpectreHost '[yellow]Nothing to restore.[/]'; return }
+    $rows | Format-IaTable -Color $Accent
+}
+
 # ─── view all ─────────────────────────────────────────────────────────────────
 
 function Invoke-IaTuiViewAll {
@@ -729,18 +751,30 @@ function Invoke-IaTuiReports {
 
 function Invoke-IaTuiBackup {
     param([string]$Accent)
-    $pick = Read-SpectreSelection -Title 'Backup / Restore / Drift' -Color $Accent -Choices @(
-        'Backup all assignments to a file',
+    $pick = Read-SpectreSelection -Title 'Backup / Restore / Drift' -Color $Accent -PageSize 8 -Choices @(
+        'Backup assignments to a file',
+        'Backup full config (one file per config)',
+        'Restore assignments from a snapshot',
+        'Restore full config (from a folder)',
         'Drift — compare current vs a snapshot',
-        'Restore from a snapshot',
         'Back'
     )
     switch -Wildcard ($pick) {
-        'Backup*' {
+        'Backup assignments*' {
             $p    = Read-SpectreText -Question 'Save snapshot to' -DefaultAnswer (Get-IaBackupName)
             Write-IaTuiHeader -Screen 'Backup' -Sub "→ $p" -Accent $Accent
             $snap = Backup-IntuneAssignment -Path $p
             Write-SpectreHost "[$Accent]Backed up[/] $($snap.count) resource(s) → $p"
+        }
+        'Backup full config*' {
+            $p = Read-SpectreText -Question 'Backup folder' -DefaultAnswer (Get-IaBackupName -Prefix 'intunetide-config' -Extension '')
+            Write-IaTuiHeader -Screen 'Full config backup' -Sub "→ $p (one file per config)" -Accent $Accent
+            $res = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Exporting every config…' -ScriptBlock {
+                $ProgressPreference = 'SilentlyContinue'
+                Backup-IntuneConfig -Path $using:p
+            }
+            Write-SpectreHost "[$Accent]Backed up[/] $($res.Count) config(s) across $(@($res.Areas).Count) area(s) → $($res.Path)"
+            Write-SpectreHost "[grey]Each config is its own JSON, grouped by area, with a manifest.json index.[/]"
         }
         'Drift*' {
             $latest = Find-IaLatestBackup
@@ -761,7 +795,7 @@ function Invoke-IaTuiBackup {
             } | Format-IaTable -Color $Accent
             Write-SpectreHost "[grey]Added = [$Accent]sea-green[/]  ·  Removed = [coral]coral[/]  ·  use Restore to revert[/]"
         }
-        'Restore*' {
+        'Restore assignments*' {
             $latest = Find-IaLatestBackup
             $p    = if ($latest) { Read-SpectreText -Question 'Snapshot file to restore' -DefaultAnswer $latest }
                     else { Read-SpectreText -Question 'Snapshot file to restore' }
@@ -769,19 +803,26 @@ function Invoke-IaTuiBackup {
             Write-IaTuiHeader -Screen 'Restore' -Sub "snapshot: $p" -Accent $Accent
             $plans = if ($mode -like 'Apply*') { Restore-IntuneAssignment -Path $p -Confirm:$false }
                      else { Restore-IntuneAssignment -Path $p -WhatIf }
-            @($plans) | ForEach-Object {
-                $status = if ($_.Skipped) { '[grey]SKIP[/]' }
-                          elseif ($_.Error) { '[coral]FAIL[/]' }
-                          elseif ($_.Applied) { "[$Accent]OK[/]" }
-                          else { '[grey]PREVIEW[/]' }
-                [pscustomobject]@{
-                    Status   = $status
-                    Area     = "[$Accent]$($_.Area)[/]"
-                    Resource = $_.ResourceName
-                    Detail   = if ($_.Skipped) { $_.Skipped } elseif ($_.Error) { $_.Error } else { ($_.Added -join '; ') }
-                }
-            } | Format-IaTable -Color $Accent
+            Show-IaRestorePlan -Plans $plans -Accent $Accent
             if ($mode -like 'Apply*') { $script:IaTuiInventory = $null }
+        }
+        'Restore full config*' {
+            $dir = Find-IaLatestConfigBackup
+            $p   = if ($dir) { Read-SpectreText -Question 'Backup folder to restore' -DefaultAnswer $dir }
+                   else { Read-SpectreText -Question 'Backup folder to restore' }
+            $mode = Read-SpectreSelection -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
+            $create = Read-SpectreSelection -Title 'Re-create configs that were deleted?' -Color $Accent `
+                -Choices @('Update existing only', 'Also create missing (where supported)')
+            $createMissing = $create -like 'Also create*'
+            Write-IaTuiHeader -Screen 'Full config restore' -Sub "folder: $p" -Accent $Accent
+            $apply = $mode -like 'Apply*'
+            $plans = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Restoring configs…' -ScriptBlock {
+                if ($using:apply) { Restore-IntuneConfig -Path $using:p -CreateMissing:$using:createMissing -Confirm:$false }
+                else { Restore-IntuneConfig -Path $using:p -CreateMissing:$using:createMissing -WhatIf }
+            }
+            Show-IaRestorePlan -Plans $plans -Accent $Accent
+            if (-not $apply) { Write-SpectreHost "[grey]Preview only — re-run and choose 'Apply now' to write.[/]" }
+            if ($apply) { $script:IaTuiInventory = $null }
         }
         default { return }
     }
