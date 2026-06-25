@@ -67,6 +67,7 @@ function Start-IntuneTide {
             'Assign a group to many (pick which)',
             'Templates (capture / apply)',
             'Backup / Restore / Drift',
+            'Policies (configuration · compliance · scripts · remediations)',
             'Reports (status · audit · approvals)',
             'Windows 365 (Cloud PCs · provisioning · connections)',
             'Elevate (PIM) — activate an eligible role',
@@ -85,6 +86,7 @@ function Start-IntuneTide {
                 'Assign a group*' { Invoke-IaTuiBulkAssign  -Accent $accent }
                 'Templates*'      { Invoke-IaTuiTemplates   -Accent $accent }
                 'Backup*'         { Invoke-IaTuiBackup      -Accent $accent }
+                'Policies*'       { Invoke-IaTuiPolicies    -Accent $accent }
                 'Reports*'        { Invoke-IaTuiReports     -Accent $accent }
                 'Windows 365*'    { Invoke-IaTuiCloudPC     -Accent $accent }
                 'Elevate*'        { Invoke-IaTuiElevate     -Accent $accent }
@@ -570,6 +572,273 @@ function Invoke-IaTuiElevate {
         Write-SpectreHost '[yellow]Activation needs approval / is provisioning — re-check with Get-IntuneActiveRole.[/]'
     }
     Get-IntuneActiveRole | Format-IaTable -Color $Accent
+}
+
+# ─── policies submenu ─────────────────────────────────────────────────────────
+
+function Invoke-IaTuiPolicies {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Policies' -Sub 'configuration · compliance · scripts · remediations' -Accent $Accent
+
+    while ($true) {
+        $pick = Read-SpectreSelection -Title 'Policies' -Color $Accent -PageSize 14 -Choices @(
+            'Configuration policies (Settings Catalog)',
+            'Compliance policies',
+            'Scripts (Windows PowerShell · macOS shell)',
+            'Remediations (device health scripts)',
+            'Back'
+        )
+
+        switch -Wildcard ($pick) {
+            'Configuration*' { Invoke-IaTuiConfigPolicies  -Accent $Accent }
+            'Compliance*'    { Invoke-IaTuiCompliancePol   -Accent $Accent }
+            'Scripts*'       { Invoke-IaTuiScripts         -Accent $Accent }
+            'Remediations*'  { Invoke-IaTuiRemediations    -Accent $Accent }
+            'Back'           { return }
+        }
+    }
+}
+
+function Invoke-IaTuiConfigPolicies {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Configuration Policies' -Sub 'Settings Catalog' -Accent $Accent
+
+    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+        'List all',
+        'Filter by platform',
+        'View a policy (with settings)',
+        'Copy a policy',
+        'Delete a policy',
+        'Back'
+    )
+
+    switch -Wildcard ($action) {
+        'List all' {
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_pols = @(Get-IntuneConfigurationPolicy)
+            }
+            if (-not $script:_pols) { Write-SpectreHost "[yellow]No configuration policies found.[/]"; return }
+            $rows = $script:_pols | ForEach-Object {
+                [ordered]@{ Name = $_.Name; Platform = $_.Platform; Technologies = $_.Technologies; Settings = $_.SettingCount; Modified = $_.Modified }
+            }
+            Format-IaTable -Data $rows -Accent $Accent -Title 'Configuration Policies'
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Filter by platform' {
+            $plat = Read-SpectreSelection -Title 'Platform' -Color $Accent -Choices @('windows10','macOS','iOS','android','linux')
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_pols = @(Get-IntuneConfigurationPolicy -Platform $using:plat)
+            }
+            if (-not $script:_pols) { Write-SpectreHost "[yellow]No $plat policies found.[/]"; return }
+            $rows = $script:_pols | ForEach-Object {
+                [ordered]@{ Name = $_.Name; Platform = $_.Platform; Settings = $_.SettingCount; Modified = $_.Modified }
+            }
+            Format-IaTable -Data $rows -Accent $Accent -Title "$plat Configuration Policies"
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'View a policy*' {
+            $name = Read-SpectreText -Question 'Policy name or GUID'
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_pol = Get-IntuneConfigurationPolicy -Id $using:name
+            }
+            if (-not $script:_pol) { return }
+            Write-SpectreHost "[$Accent]$($script:_pol.Name)[/]  Platform: $($script:_pol.Platform)  Settings: $($script:_pol.SettingCount)"
+            Write-SpectreHost "Description: $($script:_pol.Description)"
+            Write-SpectreHost "Created: $($script:_pol.Created)  Modified: $($script:_pol.Modified)"
+            $script:_pol.Settings | ForEach-Object { Write-SpectreHost "  - $($_.settingInstance.'@odata.type' -replace '.*\.', '')" }
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Copy a policy' {
+            $src  = Read-SpectreText -Question 'Source policy name or GUID'
+            $dest = Read-SpectreText -Question 'New policy name'
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Copying '$src'…" -Color $Accent -ScriptBlock {
+                $script:_copy = Copy-IntuneConfigurationPolicy -SourceId $using:src -NewName $using:dest
+            }
+            Write-SpectreHost "[$Accent]Created:[/] $($script:_copy.Name) ($($script:_copy.Id))"
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Delete a policy' {
+            $name = Read-SpectreText -Question 'Policy name or GUID to delete'
+            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            if ($confirm -eq 'Yes, delete') {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneConfigurationPolicy -Id $using:name -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Deleted.[/]"
+            }
+        }
+        'Back' { return }
+    }
+}
+
+function Invoke-IaTuiCompliancePol {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Compliance Policies' -Accent $Accent
+
+    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+        'List all',
+        'Filter by platform',
+        'Delete a policy',
+        'Back'
+    )
+
+    switch -Wildcard ($action) {
+        'List all' {
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_cpols = @(Get-IntuneCompliancePolicy)
+            }
+            if (-not $script:_cpols) { Write-SpectreHost "[yellow]No compliance policies found.[/]"; return }
+            $rows = $script:_cpols | ForEach-Object {
+                [ordered]@{ Name = $_.Name; Platform = $_.Platform; Modified = $_.Modified }
+            }
+            Format-IaTable -Data $rows -Accent $Accent -Title 'Compliance Policies'
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Filter by platform' {
+            $plat = Read-SpectreSelection -Title 'Platform' -Color $Accent -Choices @('Windows','macOS','iOS','Android','AndroidWorkProfile')
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_cpols = @(Get-IntuneCompliancePolicy -Platform $using:plat)
+            }
+            $rows = $script:_cpols | ForEach-Object { [ordered]@{ Name = $_.Name; Platform = $_.Platform; Modified = $_.Modified } }
+            Format-IaTable -Data $rows -Accent $Accent -Title "$plat Compliance Policies"
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Delete a policy' {
+            $name = Read-SpectreText -Question 'Policy name or GUID to delete'
+            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            if ($confirm -eq 'Yes, delete') {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneCompliancePolicy -Id $using:name -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Deleted.[/]"
+            }
+        }
+        'Back' { return }
+    }
+}
+
+function Invoke-IaTuiScripts {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Scripts' -Sub 'Windows PowerShell · macOS shell' -Accent $Accent
+
+    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+        'List all',
+        'List Windows scripts',
+        'List macOS scripts',
+        'View script content',
+        'Delete a script',
+        'Back'
+    )
+
+    switch -Wildcard ($action) {
+        'List all' {
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_scripts = @(Get-IntuneScript -Platform Both)
+            }
+            $rows = $script:_scripts | ForEach-Object { [ordered]@{ Name = $_.Name; Platform = $_.Platform; RunAs = $_.RunAs; Modified = $_.Modified } }
+            Format-IaTable -Data $rows -Accent $Accent -Title 'Scripts'
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'List Windows*' {
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_scripts = @(Get-IntuneScript -Platform Windows)
+            }
+            $rows = $script:_scripts | ForEach-Object { [ordered]@{ Name = $_.Name; FileName = $_.FileName; RunAs = $_.RunAs; Modified = $_.Modified } }
+            Format-IaTable -Data $rows -Accent $Accent -Title 'Windows Scripts'
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'List macOS*' {
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_scripts = @(Get-IntuneScript -Platform macOS)
+            }
+            $rows = $script:_scripts | ForEach-Object { [ordered]@{ Name = $_.Name; FileName = $_.FileName; RetryCount = $_.RetryCount; Modified = $_.Modified } }
+            Format-IaTable -Data $rows -Accent $Accent -Title 'macOS Scripts'
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'View script content' {
+            $name = Read-SpectreText -Question 'Script name or GUID'
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_scr = Get-IntuneScript -Id $using:name -IncludeContent
+            }
+            if ($script:_scr) {
+                Write-SpectreHost "[$Accent]$($script:_scr.Name)[/]  Platform: $($script:_scr.Platform)  RunAs: $($script:_scr.RunAs)"
+                Write-SpectreHost "---"
+                Write-SpectreHost ($script:_scr.Content ?? '(no content)')
+            }
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Delete a script' {
+            $name = Read-SpectreText -Question 'Script name or GUID to delete'
+            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            if ($confirm -eq 'Yes, delete') {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneScript -Id $using:name -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Deleted.[/]"
+            }
+        }
+        'Back' { return }
+    }
+}
+
+function Invoke-IaTuiRemediations {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Remediations' -Sub 'device health scripts' -Accent $Accent
+
+    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+        'List all',
+        'View remediation (with content)',
+        'Run on-demand on a device',
+        'Delete a remediation',
+        'Back'
+    )
+
+    switch -Wildcard ($action) {
+        'List all' {
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_rems = @(Get-IntuneRemediation)
+            }
+            $rows = $script:_rems | ForEach-Object { [ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; RunAs = $_.RunAs; Modified = $_.Modified } }
+            Format-IaTable -Data $rows -Accent $Accent -Title 'Remediations'
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'View remediation*' {
+            $name = Read-SpectreText -Question 'Remediation name or GUID'
+            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_rem = Get-IntuneRemediation -Id $using:name -IncludeContent
+            }
+            if ($script:_rem) {
+                Write-SpectreHost "[$Accent]$($script:_rem.Name)[/]  Publisher: $($script:_rem.Publisher)  v$($script:_rem.Version)"
+                Write-SpectreHost "--- Detection ---"
+                Write-SpectreHost ($script:_rem.DetectionContent ?? '(none)')
+                Write-SpectreHost "--- Remediation ---"
+                Write-SpectreHost ($script:_rem.RemediationContent ?? '(none)')
+            }
+            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+        }
+        'Run on-demand*' {
+            $remName = Read-SpectreText -Question 'Remediation name or GUID'
+            $devName = Read-SpectreText -Question 'Device name or GUID'
+            $confirm = Read-SpectreSelection -Title "Run '$remName' on '$devName'?" -Color $Accent -Choices @('Yes, run it', 'Cancel')
+            if ($confirm -eq 'Yes, run it') {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Submitting…" -Color $Accent -ScriptBlock {
+                    Invoke-IntuneRemediation -RemediationId $using:remName -Device $using:devName -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Submitted.[/]"
+            }
+        }
+        'Delete a remediation' {
+            $name = Read-SpectreText -Question 'Remediation name or GUID to delete'
+            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            if ($confirm -eq 'Yes, delete') {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneRemediation -Id $using:name -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Deleted.[/]"
+            }
+        }
+        'Back' { return }
+    }
 }
 
 # ─── reports submenu ──────────────────────────────────────────────────────────
