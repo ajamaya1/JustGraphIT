@@ -77,3 +77,11 @@ function Find-IaLatestBackup {
     Get-ChildItem -Path $Directory -Filter "$Prefix-*.$Extension" -File -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 }
+
+function Find-IaLatestConfigBackup {
+    # Newest full-config backup *folder* (Backup-IntuneConfig output), to pre-fill
+    # the restore prompt.
+    param([string]$Directory = '.', [string]$Prefix = 'intunetide-config')
+    Get-ChildItem -Path $Directory -Directory -Filter "$Prefix-*" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+}

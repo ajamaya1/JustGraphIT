@@ -56,8 +56,8 @@ Import-IntuneAssignmentTemplate -Path gold.json -Group "New Store Devices" -What
 Export-IntuneAssignmentReport -Format Html -Path assignments.html
 
 # The interactive retro TUI (pick what to mirror with a checklist)
-Start-IntuneTide            # green phosphor
-Start-IntuneTide -Theme amber
+Start-IntuneTide                 # deep-sea theme (default)
+Start-IntuneTide -Theme amber    # or: green, lego
 ```
 
 ## Selective mirror (your "config profiles but not endpoint security")
@@ -99,6 +99,10 @@ for that area and skipped — the rest of the sweep continues.
 | `Export-/Import-IntuneAssignmentTemplate` | Save / apply a template |
 | `Get-IntuneAssignmentAudit` | Tenant audit (+ empty groups) |
 | `Export-IntuneAssignmentReport` | HTML / CSV / JSON report |
+| `Get-IntuneTenantSummary` | Dashboard KPIs: device health + assignment posture |
+| `Get-IntuneDeviceInventory` | Managed-device inventory (compliance, last sync) |
+| `Backup-/Restore-IntuneAssignment` | Snapshot & restore assignments |
+| `Backup-/Restore-IntuneConfig` | Full config backup — one file per config — & restore |
 | `Start-IntuneTide` | Interactive retro TUI |
 
 ## Tests
