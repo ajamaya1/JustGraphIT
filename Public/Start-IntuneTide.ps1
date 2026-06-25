@@ -553,7 +553,9 @@ function Invoke-IaTuiElevate {
 function Invoke-IaTuiReports {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Reports' -Sub 'status · audit · approvals · any report' -Accent $Accent
-    $pick = Read-SpectreSelection -Title 'Reports' -Color $Accent -PageSize 10 -Choices @(
+    $pick = Read-SpectreSelection -Title 'Reports' -Color $Accent -PageSize 12 -Choices @(
+        'Tenant dashboard (devices · compliance · posture)',
+        'Device inventory (compliance · last check-in)',
         'App install status (device / user)',
         'Configuration profile status',
         'Compliance status',
@@ -565,6 +567,82 @@ function Invoke-IaTuiReports {
         'Back'
     )
     switch -Wildcard ($pick) {
+        'Tenant dashboard*' {
+            $items = Get-IaTuiInventory
+            $sum = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading device health…' -ScriptBlock {
+                Get-IaDeviceSummary -StaleDays 30
+            }
+            Write-IaTuiHeader -Screen 'Tenant dashboard' -Sub 'device health · assignment posture' -Accent $Accent
+
+            $pctColor = if ($sum.CompliancePercent -ge 90) { $Accent } elseif ($sum.CompliancePercent -ge 75) { 'yellow' } else { 'coral' }
+            Write-SpectreHost (
+                "[$Accent]Devices  $($sum.DeviceCount)[/]    " +
+                "Compliant  [$pctColor]$($sum.CompliancePercent)%[/]    " +
+                "[coral]Non-compliant  $($sum.NonCompliantCount)[/]    " +
+                "[grey]Other  $($sum.OtherCount)[/]    " +
+                "Stale >$($sum.StaleDays)d  $($sum.StaleCount)"
+            )
+            $assignedCount = @($items | Where-Object { $_.Assignments.Count -gt 0 }).Count
+            $byArea = @($items | Group-Object Area | ForEach-Object {
+                    [pscustomobject]@{ Area = $_.Name; Total = $_.Count
+                        Assigned = @($_.Group | Where-Object { $_.Assignments.Count -gt 0 }).Count }
+                })
+            Write-SpectreHost (
+                "[$Accent]Resources  $(@($items).Count)[/]    " +
+                "Assigned  $assignedCount    " +
+                "[grey]Unassigned  $(@($items).Count - $assignedCount)[/]"
+            )
+
+            if ($sum.ByPlatform) {
+                Write-SpectreHost ""
+                Write-SpectreHost "[$Accent]Compliance by platform[/]"
+                foreach ($p in $sum.ByPlatform) {
+                    $w   = [int][math]::Round(($p.CompliantPercent / 100) * 28)
+                    $bar = '█' * [math]::Max($w, 0)
+                    $bc  = if ($p.CompliantPercent -ge 90) { $Accent } elseif ($p.CompliantPercent -ge 75) { 'yellow' } else { 'coral' }
+                    Write-SpectreHost ("[grey]{0,-10}[/] [$bc]{1,-28}[/] {2,3}%  [grey]({3})[/]" -f $p.Platform, $bar, $p.CompliantPercent, $p.Total)
+                }
+            }
+            if ($byArea) {
+                Write-SpectreHost ""
+                Write-SpectreHost "[$Accent]Assigned by area[/]"
+                $max = ($byArea | Measure-Object -Property Assigned -Maximum).Maximum
+                foreach ($r in ($byArea | Sort-Object Assigned -Descending)) {
+                    $w   = if ($max) { [int][math]::Round(($r.Assigned / $max) * 28) } else { 0 }
+                    $bar = '█' * [math]::Max($w, 1)
+                    Write-SpectreHost ("[grey]{0,-16}[/] [$Accent]{1}[/] {2}/{3}" -f $r.Area, $bar, $r.Assigned, $r.Total)
+                }
+            }
+        }
+        'Device inventory*' {
+            $scope = Read-SpectreSelection -Title 'Scope' -Color $Accent -Choices @('All devices', 'Non-compliant only', 'Stale (no sync 30d+)')
+            Write-IaTuiHeader -Screen 'Device inventory' -Sub $scope.ToLower() -Accent $Accent
+            $rows = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading managed devices…' -ScriptBlock {
+                switch -Wildcard ($using:scope) {
+                    'Non-compliant*' { Get-IntuneDeviceInventory -ComplianceState noncompliant }
+                    'Stale*'         { Get-IntuneDeviceInventory -StaleDays 30 }
+                    default          { Get-IntuneDeviceInventory }
+                }
+            }
+            if (-not $rows) { Write-SpectreHost '[yellow]No devices match.[/]'; return }
+            Write-SpectreHost "[$Accent]$(@($rows).Count)[/] device(s)"
+            @($rows) | Select-Object -First 200 | ForEach-Object {
+                $cs = "$($_.Compliance)"
+                $cc = switch ($cs) { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
+                $dsc = if ($null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 30) { 'coral' }
+                       elseif ($null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 7) { 'yellow' } else { 'grey' }
+                [pscustomobject]@{
+                    Device     = $_.Device
+                    OS         = "[$Accent]$($_.OS)[/]"
+                    Version    = $_.OSVersion
+                    Compliance = "[$cc]$cs[/]"
+                    Owner      = $_.Owner
+                    User       = $_.User
+                    'Sync(d)'  = if ($null -ne $_.DaysSinceSync) { "[$dsc]$($_.DaysSinceSync)[/]" } else { '[grey]—[/]' }
+                }
+            } | Format-IaTable -Color $Accent
+            if (@($rows).Count -gt 200) { Write-SpectreHost "[grey]Showing first 200 of $(@($rows).Count) — use Get-IntuneDeviceInventory for the full list.[/]" }
+        }
         'App install*' {
             $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
             if (-not $app) { return }
@@ -659,13 +737,15 @@ function Invoke-IaTuiBackup {
     )
     switch -Wildcard ($pick) {
         'Backup*' {
-            $p    = Read-SpectreText -Question 'Save snapshot to' -DefaultAnswer 'intune-assignments.json'
+            $p    = Read-SpectreText -Question 'Save snapshot to' -DefaultAnswer (Get-IaBackupName)
             Write-IaTuiHeader -Screen 'Backup' -Sub "→ $p" -Accent $Accent
             $snap = Backup-IntuneAssignment -Path $p
             Write-SpectreHost "[$Accent]Backed up[/] $($snap.count) resource(s) → $p"
         }
         'Drift*' {
-            $p = Read-SpectreText -Question 'Snapshot file to compare against'
+            $latest = Find-IaLatestBackup
+            $p = if ($latest) { Read-SpectreText -Question 'Snapshot file to compare against' -DefaultAnswer $latest }
+                 else { Read-SpectreText -Question 'Snapshot file to compare against' }
             Write-IaTuiHeader -Screen 'Drift' -Sub "snapshot: $p" -Accent $Accent
             $d = @(Get-IntuneAssignmentDrift -Path $p)
             if (-not $d) { Write-SpectreHost "[$Accent]No drift — current state matches the snapshot.[/]"; return }
@@ -682,7 +762,9 @@ function Invoke-IaTuiBackup {
             Write-SpectreHost "[grey]Added = [$Accent]sea-green[/]  ·  Removed = [coral]coral[/]  ·  use Restore to revert[/]"
         }
         'Restore*' {
-            $p    = Read-SpectreText -Question 'Snapshot file to restore'
+            $latest = Find-IaLatestBackup
+            $p    = if ($latest) { Read-SpectreText -Question 'Snapshot file to restore' -DefaultAnswer $latest }
+                    else { Read-SpectreText -Question 'Snapshot file to restore' }
             $mode = Read-SpectreSelection -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
             Write-IaTuiHeader -Screen 'Restore' -Sub "snapshot: $p" -Accent $Accent
             $plans = if ($mode -like 'Apply*') { Restore-IntuneAssignment -Path $p -Confirm:$false }
