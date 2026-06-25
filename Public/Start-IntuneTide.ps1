@@ -121,7 +121,7 @@ function Invoke-IaTuiCompare {
     param([string]$Accent)
     $a = Resolve-IaGroup -Value (Read-SpectreText -Question 'Group A')
     $b = Resolve-IaGroup -Value (Read-SpectreText -Question 'Group B')
-    $rows = foreach ($it in (Get-IaTuiInventory)) {
+    $rows = @(foreach ($it in (Get-IaTuiInventory)) {
         $am = Get-IaItemGroupMode -Item $it -GroupId $a.Id
         $bm = Get-IaItemGroupMode -Item $it -GroupId $b.Id
         if ($am -eq 'none' -and $bm -eq 'none') { continue }
@@ -129,10 +129,27 @@ function Invoke-IaTuiCompare {
                elseif ($bm -ne 'none' -and $am -eq 'none') { 'OnlyB' }
                elseif (($am -eq 'include' -and $bm -eq 'exclude') -or ($am -eq 'exclude' -and $bm -eq 'include')) { 'Conflict' }
                else { 'Both' }
-        [pscustomobject]@{ Area = $it.Area; Resource = $it.Name; Relationship = $rel; A = $am; B = $bm }
-    }
+        [pscustomobject]@{ Area = $it.Area; Resource = $it.Name; Relationship = $rel; AMode = $am; BMode = $bm }
+    })
     Write-SpectreHost "A = [$Accent]$($a.DisplayName)[/]   B = [$Accent]$($b.DisplayName)[/]"
-    $rows | Format-SpectreTable -Color $Accent
+    if ($rows) { $rows | Format-SpectreTable -Color $Accent }
+    else { Write-SpectreHost '[yellow]No assignments differ between these groups.[/]'; return }
+
+    $export = Read-SpectreSelection -Title 'Export comparison?' -Color $Accent `
+        -Choices @('Skip', 'CSV', 'Excel', 'HTML')
+    if ($export -eq 'Skip') { return }
+
+    $ext  = switch ($export) { 'Excel' { 'xlsx' } 'HTML' { 'html' } default { 'csv' } }
+    $path = Read-SpectreText -Question 'Save to' -DefaultAnswer "group-diff.$ext"
+
+    switch ($export) {
+        'CSV'   { $rows | Export-Csv -Path $path -NoTypeInformation -Encoding utf8 }
+        'Excel' { $rows | Export-IntuneExcel -Path $path -WorksheetName 'Comparison' `
+                      -Title "Group diff: $($a.DisplayName) vs $($b.DisplayName)" }
+        'HTML'  { New-IaGroupComparisonHtml -Rows $rows -GroupA $a.DisplayName -GroupB $b.DisplayName |
+                      Set-Content -Path $path -Encoding utf8 }
+    }
+    Write-SpectreHost "[$Accent]Wrote[/] $path"
 }
 
 function Invoke-IaTuiWhatIf {
