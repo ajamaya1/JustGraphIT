@@ -8,6 +8,10 @@ function Start-IntuneTide {
         headline — MIRROR a group's assignments onto another with a multi-select
         checklist so you choose exactly which ones (e.g. config profiles but not
         endpoint security). Cross-platform; needs the PwshSpectreConsole module.
+
+        Entity pickers (groups, apps, profiles, policies) are arrow-key
+        selection lists, not free-text fields — pick from what's there instead
+        of typing names that might 404.
     .EXAMPLE
         Connect-IntuneTide -UseDeviceCode; Start-IntuneTide
     #>
@@ -24,7 +28,8 @@ function Start-IntuneTide {
 
     $accent = switch ($Theme) { 'amber' { 'orange1' } 'lego' { 'yellow' } 'deepsea' { 'turquoise2' } default { 'green' } }
     $script:IaTuiInventory = $null
-    $script:IaTuiShowLog   = $true
+    $script:IaTuiShowLog   = $false  # graph-call pane off by default; 'Toggle graph-call pane' turns it on
+    $script:IaCaps         = @{}     # cmdlet/param capability cache
 
     function Get-IaTuiInventory {
         if ($null -eq $script:IaTuiInventory) {
@@ -45,19 +50,26 @@ function Start-IntuneTide {
         $script:IaTuiInventory
     }
 
-    Clear-Host
-    Write-SpectreFigletText -Text 'TIDE' -Color $accent
     $ctx  = Get-MgContext
     $elev = try { if (Test-IaPrivileged) { "[green]● elevated[/]" } else { "[yellow]○ not elevated[/]" } } catch { '' }
-    Write-SpectreHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev"
-    Write-SpectreRule -Title 'TIDE · targeted intune deployment & endpoints' -Color $accent
-
-    # Store for per-screen sub-lines
     $script:IaTuiAccount = $ctx.Account
     $script:IaTuiElev    = $elev
 
+    function Show-IaTuiSplash {
+        Clear-Host
+        Write-SpectreFigletText -Text 'TIDE' -Color $accent
+        Write-SpectreHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev"
+        Write-SpectreRule -Title 'TIDE · targeted intune deployment & endpoints' -Color $accent
+    }
+
+    Show-IaTuiSplash
+    # One-time inventory load: watch the graph calls stream in, then wipe to a clean workspace
+    # so every screen renders as a tidy bordered table instead of below a wall of GET lines.
+    Get-IaTuiInventory | Out-Null
+    Show-IaTuiSplash
+
     while ($true) {
-        $choice = Read-SpectreSelection -Title "Choose an action" -Color $accent -Choices @(
+        $choice = Read-SpectreSelection -Title "Choose an action" -Color $accent -PageSize 16 -Choices @(
             'View all assignments',
             'Group lookup (what is a group assigned to)',
             'Compare two groups',
@@ -76,23 +88,23 @@ function Start-IntuneTide {
         )
         try {
             switch -Wildcard ($choice) {
-                'View all*'       { Invoke-IaTuiViewAll    -Accent $accent }
+                'View all*'       { Invoke-IaTuiViewAll     -Accent $accent }
                 'Group lookup*'   { Invoke-IaTuiGroupLookup -Accent $accent }
                 'Compare*'        { Invoke-IaTuiCompare     -Accent $accent }
                 'What-if*'        { Invoke-IaTuiWhatIf      -Accent $accent }
-                'Mirror*'         { Invoke-IaTuiMirror       -Accent $accent }
-                'Assign a group*' { Invoke-IaTuiBulkAssign   -Accent $accent }
-                'Templates*'      { Invoke-IaTuiTemplates    -Accent $accent }
-                'Backup*'         { Invoke-IaTuiBackup       -Accent $accent }
-                'Reports*'        { Invoke-IaTuiReports      -Accent $accent }
-                'Elevate*'        { Invoke-IaTuiElevate      -Accent $accent }
-                'Audit'           { Invoke-IaTuiAudit        -Accent $accent }
-                'Export*'         { Invoke-IaTuiExport       -Accent $accent }
+                'Mirror*'         { Invoke-IaTuiMirror      -Accent $accent }
+                'Assign a group*' { Invoke-IaTuiBulkAssign  -Accent $accent }
+                'Templates*'      { Invoke-IaTuiTemplates   -Accent $accent }
+                'Backup*'         { Invoke-IaTuiBackup      -Accent $accent }
+                'Reports*'        { Invoke-IaTuiReports     -Accent $accent }
+                'Elevate*'        { Invoke-IaTuiElevate     -Accent $accent }
+                'Audit'           { Invoke-IaTuiAudit       -Accent $accent }
+                'Export*'         { Invoke-IaTuiExport      -Accent $accent }
                 'Refresh*'        { $script:IaTuiInventory = $null; Get-IaTuiInventory | Out-Null
                                     Write-SpectreHost "[$accent]Refreshed.[/]" }
                 'Toggle graph*'   { $script:IaTuiShowLog = -not $script:IaTuiShowLog
                                     Write-SpectreHost "graph-call pane: $(if ($script:IaTuiShowLog) { "[$accent]on[/]" } else { '[grey]off[/]' })" }
-                'Quit'            { $host.UI.RawUI.WindowTitle = 'pwsh'; return }
+                'Quit'            { try { $host.UI.RawUI.WindowTitle = 'pwsh' } catch { }; return }
             }
         } catch {
             Write-SpectreHost "[red]Error:[/] $($_.Exception.Message)"
@@ -100,21 +112,106 @@ function Start-IntuneTide {
         if ($choice -ne 'Quit') {
             if ($script:IaTuiShowLog) { Show-IaTuiCallLog -Accent $accent }
             Read-SpectrePause | Out-Null
+            Show-IaTuiSplash
         }
     }
+}
+
+# ─── capability-aware wrappers ────────────────────────────────────────────────
+# PwshSpectreConsole's parameter surface varies by version. Detect once, degrade
+# gracefully — so a colored cell renders where supported and never leaks raw
+# "[grey]…[/]" markup where it isn't.
+
+function Test-IaCap {
+    param([string]$Command, [string]$Parameter)
+    $key = "$Command/$Parameter"
+    if (-not $script:IaCaps) { $script:IaCaps = @{} }
+    if (-not $script:IaCaps.ContainsKey($key)) {
+        $script:IaCaps[$key] = try { (Get-Command $Command -ErrorAction Stop).Parameters.ContainsKey($Parameter) } catch { $false }
+    }
+    $script:IaCaps[$key]
+}
+
+function Format-IaTable {
+    # Format-SpectreTable, but render inline [color] markup when the installed
+    # version supports -AllowMarkup; otherwise strip the tags so nothing leaks.
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)]$InputObject, [string]$Color)
+    begin { $rows = [System.Collections.Generic.List[object]]::new() }
+    process { foreach ($i in @($InputObject)) { if ($null -ne $i) { $rows.Add($i) } } }
+    end {
+        if ($rows.Count -eq 0) { return }
+        if (Test-IaCap 'Format-SpectreTable' 'AllowMarkup') {
+            $rows | Format-SpectreTable -Color $Color -AllowMarkup
+        } else {
+            $clean = foreach ($r in $rows) {
+                $o = [ordered]@{}
+                foreach ($p in $r.PSObject.Properties) {
+                    $o[$p.Name] = if ($p.Value -is [string]) { [regex]::Replace($p.Value, '\[/?[^\[\]]*\]', '') } else { $p.Value }
+                }
+                [pscustomobject]$o
+            }
+            $clean | Format-SpectreTable -Color $Color
+        }
+    }
+}
+
+function Read-IaSelection {
+    # Read-SpectreSelection with type-to-filter search on long lists when available.
+    param([string]$Title, [object[]]$Choices, [string]$Color, [int]$PageSize = 0)
+    $list = @($Choices)
+    $p = @{ Title = $Title; Choices = $list; Color = $Color }
+    if     ($PageSize -gt 0)  { $p.PageSize = $PageSize }
+    elseif ($list.Count -gt 15) { $p.PageSize = 15 }
+    if ($list.Count -gt 12 -and (Test-IaCap 'Read-SpectreSelection' 'EnableSearch')) { $p.EnableSearch = $true }
+    Read-SpectreSelection @p
+}
+
+# ─── entity pickers (lists, not typing) ───────────────────────────────────────
+
+function Select-IaGroup {
+    # Pick a group from a searchable list. Falls back to typing only if the
+    # directory can't be read (Group.Read.All not consented → 403).
+    param([string]$Accent, [string]$Title = 'Select a group')
+    if ($script:IaDirectoryBlocked) {
+        throw "Can't read directory groups — Group.Read.All isn't consented. A Global Admin must grant admin consent to the Microsoft Graph PowerShell app, then reconnect."
+    }
+    $groups = $null
+    try {
+        $groups = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock {
+            Get-IaCollection -V1 -Path "groups?`$select=id,displayName&`$top=999"
+        }
+    } catch { $groups = $null }
+    $groups = @($groups | Where-Object displayName)
+    if (-not $groups.Count) {
+        throw "Can't list groups — directory read is blocked (needs Group.Read.All admin consent), or no groups exist."
+    }
+    $map = @{}; foreach ($g in $groups) { $map[$g.displayName] = $g.id }
+    $name = Read-IaSelection -Title $Title -Choices (@($map.Keys) | Sort-Object) -Color $Accent
+    [pscustomobject]@{ Id = $map[$name]; DisplayName = $name }
+}
+
+function Select-IaInventoryItem {
+    # Pick a resource (app, profile, policy, script…) from the loaded inventory.
+    # No extra Graph calls, no directory permissions needed.
+    param([string]$Accent, [string]$Area, [string]$Title)
+    $items = @(Get-IaTuiInventory | Where-Object Area -eq $Area | Sort-Object Name)
+    if (-not $items) { Write-SpectreHost "[yellow]No $Area resources found.[/]"; return $null }
+    $pick = Read-IaSelection -Title $Title -Choices (@($items | ForEach-Object Name)) -Color $Accent
+    $items | Where-Object Name -eq $pick | Select-Object -First 1
 }
 
 # ─── shared header ────────────────────────────────────────────────────────────
 
 function Write-IaTuiHeader {
     param([string]$Screen, [string]$Sub = '', [string]$Accent)
-    $host.UI.RawUI.WindowTitle = "TIDE — $Screen"
-    Write-SpectreHost ""
+    Clear-Host
+    try { $host.UI.RawUI.WindowTitle = "TIDE — $Screen" } catch { }
     Write-SpectreHost "[$Accent]≈ TIDE[/]  [bold]· $Screen[/]"
     if ($Sub) {
         Write-SpectreHost "[grey]$Sub[/]"
     } elseif ($script:IaTuiAccount) {
-        Write-SpectreHost "[grey]●·$($script:IaTuiAccount)  ·  [/]$script:IaTuiElev"
+        Write-SpectreHost "[grey]● $($script:IaTuiAccount)  ·  [/]$script:IaTuiElev"
     }
     Write-SpectreRule -Color darkslategray1
 }
@@ -123,8 +220,10 @@ function Write-IaTuiHeader {
 
 function Invoke-IaTuiViewAll {
     param([string]$Accent)
-    Write-IaTuiHeader -Screen 'View all assignments' -Accent $Accent
-    $inv  = Get-IaTuiInventory
+    $inv       = Get-IaTuiInventory
+    $areaCount = @($inv | Group-Object Area).Count
+    Write-IaTuiHeader -Screen 'View all assignments' `
+        -Sub "$($inv.Count) resource types · $areaCount areas · groups resolved" -Accent $Accent
     $rows = foreach ($it in $inv) {
         $targets = @($it.Assignments | ForEach-Object {
             $disp = Get-IaTargetDisplay -Target $_.Target
@@ -133,23 +232,20 @@ function Invoke-IaTuiViewAll {
             else { $disp }
         })
         [pscustomobject]@{
-            Area        = "[$Accent]$($it.Area)[/]"
-            Resource    = $it.Name
-            Platform    = $it.Platform
+            Area          = "[$Accent]$($it.Area)[/]"
+            Resource      = $it.Name
+            Platform      = $it.Platform
             'Assigned To' = if ($targets) { $targets -join '; ' } else { '[grey](unassigned)[/]' }
         }
     }
-    $rows | Format-SpectreTable -Color $Accent
-    $assignedCount = @($inv | Where-Object { $_.Assignments }).Count
-    Write-SpectreHost "[grey]… $($inv.Count) resource types · $assignedCount assigned[/]"
+    $rows | Format-IaTable -Color $Accent
 }
 
 # ─── group lookup ─────────────────────────────────────────────────────────────
 
 function Invoke-IaTuiGroupLookup {
     param([string]$Accent)
-    $name = Read-SpectreText -Question 'Group name or id'
-    $g    = Resolve-IaGroup -Value $name
+    $g = Select-IaGroup -Accent $Accent -Title 'Group to look up'
     Write-IaTuiHeader -Screen 'Group lookup' -Sub "assignments for $($g.DisplayName)" -Accent $Accent
     $hits = foreach ($it in (Get-IaTuiInventory)) {
         foreach ($e in (Get-IaItemGroupEdges -Item $it -GroupId $g.Id)) {
@@ -162,18 +258,18 @@ function Invoke-IaTuiGroupLookup {
         }
     }
     Write-SpectreHost "[$Accent]$($g.DisplayName)[/] is assigned to [$Accent]$(@($hits).Count)[/] resource(s)"
-    if ($hits) { $hits | Format-SpectreTable -Color $Accent }
+    if ($hits) { $hits | Format-IaTable -Color $Accent }
 }
 
 # ─── compare two groups ───────────────────────────────────────────────────────
 
 function Invoke-IaTuiCompare {
     param([string]$Accent)
-    $a = Resolve-IaGroup -Value (Read-SpectreText -Question 'Group A')
-    $b = Resolve-IaGroup -Value (Read-SpectreText -Question 'Group B')
+    $a = Select-IaGroup -Accent $Accent -Title 'Group A'
+    $b = Select-IaGroup -Accent $Accent -Title 'Group B'
     Write-IaTuiHeader -Screen 'Compare two groups' -Sub "A = $($a.DisplayName)  ·  B = $($b.DisplayName)" -Accent $Accent
 
-    # Clean rows — used for export (no markup)
+    # Clean rows for export (no markup); display rows get the colour.
     $rows = @(foreach ($it in (Get-IaTuiInventory)) {
         $am = Get-IaItemGroupMode -Item $it -GroupId $a.Id
         $bm = Get-IaItemGroupMode -Item $it -GroupId $b.Id
@@ -187,8 +283,7 @@ function Invoke-IaTuiCompare {
 
     if (-not $rows) { Write-SpectreHost '[yellow]No assignments differ between these groups.[/]'; return }
 
-    # Display rows — markup only for the table
-    $displayRows = $rows | ForEach-Object {
+    $rows | ForEach-Object {
         $relColor = switch ($_.Relationship) {
             'OnlyA'    { $Accent }
             'OnlyB'    { 'deepskyblue1' }
@@ -202,8 +297,7 @@ function Invoke-IaTuiCompare {
             A            = if ($_.AMode -eq 'exclude') { '[coral]exclude[/]' } elseif ($_.AMode -eq 'none') { '[grey]—[/]' } else { $_.AMode }
             B            = if ($_.BMode -eq 'exclude') { '[coral]exclude[/]' } elseif ($_.BMode -eq 'none') { '[grey]—[/]' } else { $_.BMode }
         }
-    }
-    $displayRows | Format-SpectreTable -Color $Accent
+    } | Format-IaTable -Color $Accent
 
     $conflicts = @($rows | Where-Object Relationship -eq 'Conflict').Count
     if ($conflicts) { Write-SpectreHost "[coral]$conflicts conflict(s)[/] — one group includes while the other excludes (mirroring would clash)" }
@@ -233,27 +327,27 @@ function Invoke-IaTuiWhatIf {
     Write-IaTuiHeader -Screen 'What-if: effective assignments' -Sub "subject: $val" -Accent $Accent
     $raw  = if ($kind -eq 'user') { Get-IntuneEffectiveAssignment -User $val }
             else { Get-IntuneEffectiveAssignment -Device $val }
-    # Colour-code Effective column when present
     $rows = $raw | ForEach-Object {
-        $eff = if ($_.PSObject.Properties['Effective']) { $_.Effective } else { $null }
-        $effDisp = if ($eff -eq $false -or "$eff" -like '*BLOCK*') { '[coral]BLOCKED[/]' }
-                   elseif ($eff) { 'yes' }
-                   else { $null }
-        $out = [ordered]@{ Area = "[$Accent]$($_.Area)[/]"; Resource = $_.Resource }
-        if ($null -ne $effDisp) { $out.Effective = $effDisp }
+        $o = [ordered]@{}
         foreach ($p in $_.PSObject.Properties) {
-            if ($p.Name -notin 'Area','Resource','Effective') { $out[$p.Name] = $p.Value }
+            $v = $p.Value
+            if ($p.Name -eq 'Area') { $v = "[$Accent]$v[/]" }
+            elseif ($p.Name -eq 'Effective') {
+                if ($v -eq $false -or "$v" -match 'block|exclud') { $v = '[coral]BLOCKED[/]' }
+                elseif ($v -eq $true) { $v = 'yes' }
+            }
+            $o[$p.Name] = $v
         }
-        [pscustomobject]$out
+        [pscustomobject]$o
     }
-    $rows | Format-SpectreTable -Color $Accent
+    $rows | Format-IaTable -Color $Accent
 }
 
 # ─── mirror ───────────────────────────────────────────────────────────────────
 
 function Invoke-IaTuiMirror {
     param([string]$Accent)
-    $src   = Resolve-IaGroup -Value (Read-SpectreText -Question 'Source group (copy FROM)')
+    $src   = Select-IaGroup -Accent $Accent -Title 'Source group (copy FROM)'
     $items = Get-IaTuiInventory
     $cands = Get-IaCopyCandidates -Items $items -SrcId $src.Id
     if (-not $cands) { Write-SpectreHost "[yellow]$($src.DisplayName) has no assignments to mirror.[/]"; return }
@@ -265,9 +359,8 @@ function Invoke-IaTuiMirror {
     if (-not $picked) { Write-SpectreHost '[yellow]Nothing selected.[/]'; return }
     $ids = @($picked | ForEach-Object { $map[$_] })
 
-    $dst     = Resolve-IaGroup -Value (Read-SpectreText -Question 'Destination group (copy TO)')
-    Write-IaTuiHeader -Screen 'Mirror assignments' `
-        -Sub "from $($src.DisplayName)  →  $($dst.DisplayName)" -Accent $Accent
+    $dst = Select-IaGroup -Accent $Accent -Title 'Destination group (copy TO)'
+    Write-IaTuiHeader -Screen 'Mirror assignments' -Sub "from $($src.DisplayName)  →  $($dst.DisplayName)" -Accent $Accent
     $confirm = Read-SpectreSelection `
         -Title "Apply $($ids.Count) assignment(s) to [$Accent]$($dst.DisplayName)[/]?" `
         -Choices @('Preview only (no changes)', 'Apply now') -Color $Accent
@@ -285,7 +378,7 @@ function Invoke-IaTuiMirror {
             Added    = ($_.Added -join '; ')
             Error    = $_.Error
         }
-    } | Format-SpectreTable -Color $Accent
+    } | Format-IaTable -Color $Accent
     if (-not $commit) { Write-SpectreHost "[grey]Preview only — re-run and choose 'Apply now' to write.[/]" }
 }
 
@@ -298,26 +391,32 @@ function Invoke-IaTuiAudit {
         Get-IntuneAssignmentAudit
     }
     Write-SpectreHost (
-        "[$Accent]Resources scanned  $($a.ResourceCount)[/]  " +
-        "[$Accent]Assigned  $($a.AssignedCount)[/]  " +
-        "[grey]Unassigned  $($a.UnassignedCount)[/]  " +
-        "Assignment edges  $($a.EdgeCount)  " +
+        "[$Accent]Resources scanned  $($a.ResourceCount)[/]   " +
+        "[$Accent]Assigned  $($a.AssignedCount)[/]   " +
+        "[grey]Unassigned  $($a.UnassignedCount)[/]   " +
+        "Assignment edges  $($a.EdgeCount)   " +
         "Exclusions  $($a.ExclusionCount)"
     )
     Write-SpectreHost ""
-    $a.ByArea | Format-SpectreTable -Color $Accent
+    $a.ByArea | ForEach-Object {
+        [pscustomobject]@{ Area = "[$Accent]$($_.Area)[/]"; Total = $_.Total; Assigned = $_.Assigned }
+    } | Format-IaTable -Color $Accent
 
     if ($a.ByArea) {
+        Write-SpectreHost ""
         Write-SpectreHost "[$Accent]Assigned by area[/]"
-        $chartData = $a.ByArea | ForEach-Object {
-            [pscustomobject]@{ Label = $_.Area; Value = [int]$_.Assigned; Color = $Accent }
+        $max = ($a.ByArea | Measure-Object -Property Assigned -Maximum).Maximum
+        foreach ($r in ($a.ByArea | Sort-Object Assigned -Descending)) {
+            $w   = if ($max) { [int][math]::Round(($r.Assigned / $max) * 32) } else { 0 }
+            $bar = '█' * [math]::Max($w, 1)
+            Write-SpectreHost ("[grey]{0,-16}[/] [$Accent]{1}[/] {2}" -f $r.Area, $bar, $r.Assigned)
         }
-        $chartData | Format-SpectreBarChart -Color $Accent
     }
 
     if ($a.TopGroups) {
+        Write-SpectreHost ""
         Write-SpectreHost "[$Accent]Most-assigned groups[/]"
-        $a.TopGroups | Format-SpectreTable -Color $Accent
+        $a.TopGroups | Format-IaTable -Color $Accent
     }
 }
 
@@ -325,9 +424,9 @@ function Invoke-IaTuiAudit {
 
 function Invoke-IaTuiBulkAssign {
     param([string]$Accent)
-    $g     = Resolve-IaGroup -Value (Read-SpectreText -Question 'Group to assign')
+    $g     = Select-IaGroup -Accent $Accent -Title 'Group to assign'
     $areas = @('All areas') + (@(Get-IaResourceRegistry | ForEach-Object Area | Select-Object -Unique | Sort-Object))
-    $area  = Read-SpectreSelection -Title 'Which area?' -Choices $areas -Color $Accent
+    $area  = Read-IaSelection -Title 'Which area?' -Choices $areas -Color $Accent
 
     $items  = Get-IaTuiInventory
     $scoped = if ($area -eq 'All areas') { $items } else { @($items | Where-Object Area -eq $area) }
@@ -345,7 +444,7 @@ function Invoke-IaTuiBulkAssign {
     $filterId = $null; $filterType = 'include'
     $filters  = Get-IaFilterList
     if ($filters) {
-        $fchoice = Read-SpectreSelection -Title 'Assignment filter' -Color $Accent `
+        $fchoice = Read-IaSelection -Title 'Assignment filter' -Color $Accent `
             -Choices (@('(no filter)') + @($filters | ForEach-Object Name))
         if ($fchoice -ne '(no filter)') {
             $filterId   = ($filters | Where-Object Name -eq $fchoice | Select-Object -First 1).Id
@@ -386,7 +485,7 @@ function Invoke-IaTuiBulkAssign {
             Resource = $_.ResourceName
             Detail   = if ($_.Skipped) { $_.Skipped } else { ($_.Added -join '; ') }
         }
-    } | Format-SpectreTable -Color $Accent
+    } | Format-IaTable -Color $Accent
     if ($commit) { $script:IaTuiInventory = $null }
     else { Write-SpectreHost "[grey]Preview only — choose 'Apply now' to write.[/]" }
 }
@@ -400,7 +499,7 @@ function Invoke-IaTuiTemplates {
         'Apply a template file to a group'
     )
     if ($action -like 'Capture*') {
-        $g    = Resolve-IaGroup -Value (Read-SpectreText -Question 'Group to capture')
+        $g    = Select-IaGroup -Accent $Accent -Title 'Group to capture'
         $name = Read-SpectreText -Question 'Template name' -DefaultAnswer 'baseline'
         $path = Read-SpectreText -Question 'Save to path' -DefaultAnswer "$name.json"
         Write-IaTuiHeader -Screen 'Templates · capture' -Sub "group: $($g.DisplayName)" -Accent $Accent
@@ -411,9 +510,8 @@ function Invoke-IaTuiTemplates {
         $path = Read-SpectreText -Question 'Template file path'
         if (-not (Test-Path $path)) { Write-SpectreHost "[red]Not found:[/] $path"; return }
         $tmpl = Get-Content $path -Raw | ConvertFrom-Json
-        $g    = Resolve-IaGroup -Value (Read-SpectreText -Question 'Device group to stamp on')
-        Write-IaTuiHeader -Screen 'Templates · apply' `
-            -Sub "template: $($tmpl.name)  ·  target: $($g.DisplayName)" -Accent $Accent
+        $g    = Select-IaGroup -Accent $Accent -Title 'Device group to stamp on'
+        Write-IaTuiHeader -Screen 'Templates · apply' -Sub "template: $($tmpl.name)  ·  target: $($g.DisplayName)" -Accent $Accent
         $keys  = @($tmpl.resources | ForEach-Object resource_type | Select-Object -Unique)
         $items = Get-IaInventory -Type $keys
         $confirm = Read-SpectreSelection -Color $Accent `
@@ -432,7 +530,7 @@ function Invoke-IaTuiTemplates {
                 Resource = $_.ResourceName
                 Detail   = if ($_.Skipped) { $_.Skipped } else { ($_.Added -join '; ') }
             }
-        } | Format-SpectreTable -Color $Accent
+        } | Format-IaTable -Color $Accent
         if ($commit) { $script:IaTuiInventory = $null }
     }
 }
@@ -446,10 +544,10 @@ function Invoke-IaTuiElevate {
     if (-not $eligible) {
         Write-SpectreHost '[yellow]You have no PIM-eligible roles to activate (or this is an app-only sign-in).[/]'
         $active = Get-IntuneActiveRole
-        if ($active) { Write-SpectreHost 'Currently active:'; $active | Format-SpectreTable -Color $Accent }
+        if ($active) { Write-SpectreHost 'Currently active:'; $active | Format-IaTable -Color $Accent }
         return
     }
-    $role    = Read-SpectreSelection -Title 'Activate which eligible role?' -Color $Accent `
+    $role    = Read-IaSelection -Title 'Activate which eligible role?' -Color $Accent `
         -Choices @($eligible | ForEach-Object Role)
     $just    = Read-SpectreText -Question 'Justification'
     $dur     = Read-SpectreText -Question 'Duration (e.g. 2h, 30m, 8h)' -DefaultAnswer '2h'
@@ -462,7 +560,7 @@ function Invoke-IaTuiElevate {
     if ($res.Status -in 'PendingApproval', 'PendingProvisioning') {
         Write-SpectreHost '[yellow]Activation needs approval / is provisioning — re-check with Get-IntuneActiveRole.[/]'
     }
-    Get-IntuneActiveRole | Format-SpectreTable -Color $Accent
+    Get-IntuneActiveRole | Format-IaTable -Color $Accent
 }
 
 # ─── graph call pane ──────────────────────────────────────────────────────────
@@ -488,13 +586,13 @@ function Show-IaTuiCallLog {
             Method   = "[$methodColor]$($c.Method)[/]"
             Endpoint = $c.Uri
             Status   = "[$statusColor]$($c.Status)[/]"
-            Ms       = $c.Ms
+            Ms       = [int]$c.Ms
             Items    = $c.Count
         }
     }
     $okCount = @($calls | Where-Object { $_.Status -ge 200 -and $_.Status -lt 300 }).Count
     Write-SpectreHost "[grey]── graph calls ── last $($rows.Count) · $okCount ok · session total $((Get-IaCallLogEntries).Count) ──[/]"
-    $rows | Format-SpectreTable -Color $Accent
+    $rows | Format-IaTable -Color $Accent
     Write-SpectreHost "[grey]toggle with 'Toggle graph-call pane'  ·  Get-IntuneCallLog -Tail 20  ·  -Errors[/]"
 }
 
@@ -503,7 +601,7 @@ function Show-IaTuiCallLog {
 function Invoke-IaTuiReports {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Reports' -Sub 'status · audit · approvals · any report' -Accent $Accent
-    $pick = Read-SpectreSelection -Title 'Reports' -Color $Accent -Choices @(
+    $pick = Read-SpectreSelection -Title 'Reports' -Color $Accent -PageSize 10 -Choices @(
         'App install status (device / user)',
         'Configuration profile status',
         'Compliance status',
@@ -516,37 +614,45 @@ function Invoke-IaTuiReports {
     )
     switch -Wildcard ($pick) {
         'App install*' {
-            $app = Read-SpectreText -Question 'App name (or id)'
+            $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
+            if (-not $app) { return }
             $by  = Read-SpectreSelection -Title 'Pivot by' -Choices @('Device', 'User') -Color $Accent
-            Write-IaTuiHeader -Screen 'App install status' -Sub "app: $app  ·  by: $by" -Accent $Accent
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Querying $app…" -ScriptBlock {
-                Get-IntuneAppInstallStatus -App $using:app -By $using:by
-            } | Format-SpectreTable -Color $Accent
+            Write-IaTuiHeader -Screen 'App install status' -Sub "app: $($app.Name)  ·  by: $by" -Accent $Accent
+            $name = $app.Name
+            Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
+                Get-IntuneAppInstallStatus -App $using:name -By $using:by
+            } | Format-IaTable -Color $Accent
         }
         'Configuration*' {
-            $p = Read-SpectreText -Question 'Configuration profile name (or id)'
-            Write-IaTuiHeader -Screen 'Configuration profile status' -Sub "profile: $p" -Accent $Accent
-            Get-IntuneConfigurationStatus -Profile $p | Format-SpectreTable -Color $Accent
+            $p = Select-IaInventoryItem -Accent $Accent -Area 'Configuration' -Title 'Which configuration profile?'
+            if (-not $p) { return }
+            Write-IaTuiHeader -Screen 'Configuration profile status' -Sub "profile: $($p.Name)" -Accent $Accent
+            Get-IntuneConfigurationStatus -Profile $p.Name | Format-IaTable -Color $Accent
         }
         'Compliance*' {
             $mode = Read-SpectreSelection -Title 'Compliance by' -Choices @('Tenant summary', 'Policy', 'Device') -Color $Accent
             Write-IaTuiHeader -Screen 'Compliance status' -Sub $mode.ToLower() -Accent $Accent
             $rows = switch -Wildcard ($mode) {
-                'Policy'  { Get-IntuneComplianceStatus -Policy (Read-SpectreText -Question 'Policy name') }
+                'Policy'  {
+                    $pol = Select-IaInventoryItem -Accent $Accent -Area 'Compliance' -Title 'Which compliance policy?'
+                    if ($pol) { Get-IntuneComplianceStatus -Policy $pol.Name }
+                }
                 'Device'  { Get-IntuneComplianceStatus -Device (Read-SpectreText -Question 'Device name') }
                 default   { Get-IntuneComplianceStatus }
             }
-            $rows | Format-SpectreTable -Color $Accent
+            $rows | Format-IaTable -Color $Accent
         }
         'Deployment*' {
-            $grp = Read-SpectreText -Question 'Scope to group (blank = all)' -DefaultAnswer ''
+            $scope = Read-SpectreSelection -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
+            $grp   = $null
+            if ($scope -like 'Scope*') { $grp = (Select-IaGroup -Accent $Accent -Title 'Scope to group').DisplayName }
             Write-IaTuiHeader -Screen 'Deployment summary' `
                 -Sub "for everything assigned to '$(if ($grp) { $grp } else { 'all resources' })'" -Accent $Accent
             $data = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
                 if ($using:grp) { Get-IntuneDeploymentSummary -Group $using:grp }
                 else { Get-IntuneDeploymentSummary }
             }
-            $colorRows = $data | ForEach-Object {
+            $data | ForEach-Object {
                 $fr      = [double]$_.FailRate
                 $frColor = if ($fr -gt 15) { 'coral' } elseif ($fr -gt 5) { 'yellow' } else { $Accent }
                 [pscustomobject]@{
@@ -558,33 +664,32 @@ function Invoke-IaTuiReports {
                     TOTAL    = $_.Total
                     'FAIL%'  = "[$frColor]$($_.FailRate)[/]"
                 }
-            }
-            $colorRows | Format-SpectreTable -Color $Accent
-            Write-SpectreHost "[grey]sorted by FailRate  ·  -FailuresOnly to show only problems[/]"
+            } | Format-IaTable -Color $Accent
+            Write-SpectreHost "[grey]FailRate colour-graded — [coral]coral >15%[/] · [yellow]amber >5%[/] · ok otherwise[/]"
         }
         'Audit*' {
             $since = Read-SpectreText -Question 'Since (e.g. 7d, 24h)' -DefaultAnswer '7d'
             $act   = Read-SpectreText -Question 'Activity contains (blank = any)' -DefaultAnswer ''
             Write-IaTuiHeader -Screen 'Audit log' -Sub "since $since$(if ($act) { "  ·  activity: $act" })" -Accent $Accent
             $p = @{ Since = $since }; if ($act) { $p.Activity = $act }
-            Get-IntuneAuditLog @p | Select-Object -First 50 | Format-SpectreTable -Color $Accent
+            Get-IntuneAuditLog @p | Select-Object -First 50 | Format-IaTable -Color $Accent
         }
         'Multi Admin*' {
             Write-IaTuiHeader -Screen 'Multi Admin Approval requests' -Accent $Accent
-            Get-IntuneApprovalRequest | Format-SpectreTable -Color $Accent
+            Get-IntuneApprovalRequest | Format-IaTable -Color $Accent
         }
         'PIM*' {
             Write-IaTuiHeader -Screen 'PIM activations' -Accent $Accent
-            Get-IntunePimActivation | Format-SpectreTable -Color $Accent
+            Get-IntunePimActivation | Format-IaTable -Color $Accent
         }
         'Run any*' {
-            $name = Read-SpectreSelection -Title 'Pick a report' -Color $Accent `
+            $name = Read-IaSelection -Title 'Pick a report' -Color $Accent `
                 -Choices (@(Get-IntuneReportCatalog | ForEach-Object Name) + 'Other (type a name)')
             if ($name -like 'Other*') { $name = Read-SpectreText -Question 'Report name' }
             Write-IaTuiHeader -Screen "Report: $name" -Accent $Accent
             Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Running $name…" -ScriptBlock {
                 Export-IntuneReport -Name $using:name
-            } | Select-Object -First 100 | Format-SpectreTable -Color $Accent
+            } | Select-Object -First 100 | Format-IaTable -Color $Accent
         }
         default { return }
     }
@@ -621,7 +726,7 @@ function Invoke-IaTuiBackup {
                     Resource = $_.Resource
                     Target   = $_.Target
                 }
-            } | Format-SpectreTable -Color $Accent
+            } | Format-IaTable -Color $Accent
             Write-SpectreHost "[grey]Added = [$Accent]sea-green[/]  ·  Removed = [coral]coral[/]  ·  use Restore to revert[/]"
         }
         'Restore*' {
@@ -641,7 +746,7 @@ function Invoke-IaTuiBackup {
                     Resource = $_.ResourceName
                     Detail   = if ($_.Skipped) { $_.Skipped } elseif ($_.Error) { $_.Error } else { ($_.Added -join '; ') }
                 }
-            } | Format-SpectreTable -Color $Accent
+            } | Format-IaTable -Color $Accent
             if ($mode -like 'Apply*') { $script:IaTuiInventory = $null }
         }
         default { return }

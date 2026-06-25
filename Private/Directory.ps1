@@ -6,6 +6,7 @@ $script:IaGroupByName = @{}   # lower(name) -> @(group)
 $script:IaFilterCache = @{}   # id -> name
 $script:IaFiltersLoaded = $false
 $script:IaCountCache  = @{}   # id -> member count
+$script:IaDirectoryBlocked = $false   # set once a group read returns 403 — stop retrying
 
 function Reset-IaDirectoryCache {
     $script:IaGroupCache  = @{}
@@ -13,6 +14,7 @@ function Reset-IaDirectoryCache {
     $script:IaFilterCache = @{}
     $script:IaFiltersLoaded = $false
     $script:IaCountCache  = @{}
+    $script:IaDirectoryBlocked = $false
 }
 
 function Test-IaGuid {
@@ -71,15 +73,20 @@ function Resolve-IaGroupName {
     param([string]$Id)
     if (-not $Id) { return $null }
     if ($script:IaGroupCache.ContainsKey($Id)) { return $script:IaGroupCache[$Id].DisplayName }
-    try {
-        $g = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -V1 -Path "groups/$Id`?`$select=id,displayName,membershipRule")
-        return (Add-IaGroupToCache -Group $g).DisplayName
-    } catch {
-        # Deleted / inaccessible — record a marker so reports show it as orphaned.
-        $stub = $Id.Substring(0, [Math]::Min(8, $Id.Length))
-        $script:IaGroupCache[$Id] = [pscustomobject]@{ Id = $Id; DisplayName = "(unresolved $stub…)"; MembershipType = $null }
-        return $script:IaGroupCache[$Id].DisplayName
+    # Once the tenant has refused a group read (403), every other group read will
+    # too — skip the doomed call and just stub the rest of the sweep.
+    if (-not $script:IaDirectoryBlocked) {
+        try {
+            $g = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -V1 -Path "groups/$Id`?`$select=id,displayName,membershipRule")
+            return (Add-IaGroupToCache -Group $g).DisplayName
+        } catch {
+            if ("$($_.Exception.Message)" -match 'Forbidden|Authorization_RequestDenied|\b403\b') { $script:IaDirectoryBlocked = $true }
+        }
     }
+    # Deleted / inaccessible / directory blocked — record a marker so reports show it as orphaned.
+    $stub = $Id.Substring(0, [Math]::Min(8, $Id.Length))
+    $script:IaGroupCache[$Id] = [pscustomobject]@{ Id = $Id; DisplayName = "(unresolved $stub…)"; MembershipType = $null }
+    return $script:IaGroupCache[$Id].DisplayName
 }
 
 function Resolve-IaGroupNames {
@@ -98,8 +105,19 @@ function Resolve-IaGroup {
     }
     $key = $Value.ToLower()
     if (-not $script:IaGroupByName.ContainsKey($key)) {
+        if ($script:IaDirectoryBlocked) {
+            throw "Can't read directory groups — Group.Read.All isn't consented. A Global Admin must grant admin consent to the Microsoft Graph PowerShell app, then reconnect."
+        }
         $esc = $Value.Replace("'", "''")
-        $groupResults = Get-IaCollection -V1 -Path ("groups?`$filter=displayName eq '$esc'&`$select=id,displayName,membershipRule")
+        try {
+            $groupResults = Get-IaCollection -V1 -Path ("groups?`$filter=displayName eq '$esc'&`$select=id,displayName,membershipRule")
+        } catch {
+            if ("$($_.Exception.Message)" -match 'Forbidden|Authorization_RequestDenied|\b403\b') {
+                $script:IaDirectoryBlocked = $true
+                throw "Can't read directory groups — Group.Read.All isn't consented. A Global Admin must grant admin consent to the Microsoft Graph PowerShell app, then reconnect."
+            }
+            throw
+        }
         foreach ($m in $groupResults) { [void](Add-IaGroupToCache -Group $m) }
     }
     $found = $script:IaGroupByName[$key]
