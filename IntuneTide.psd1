@@ -118,11 +118,23 @@
         'Remove-IntuneDeviceConfiguration',
         # --- administrative templates (ADMX) ---
         'Get-IntuneAdminTemplate',
-        # --- endpoint security baselines ---
+        # --- endpoint security baselines & templates ---
         'Get-IntuneSecurityBaseline',
         'New-IntuneSecurityBaseline',
+        'Get-IntuneSecurityTemplate',
         # --- monitoring ---
         'Watch-IntuneTenant',
+        # --- conditional access ---
+        'Get-IntuneConditionalAccess',
+        # --- app protection (MAM) ---
+        'Get-IntuneAppProtectionPolicy',
+        # --- administrative templates (ADMX) CRUD ---
+        'New-IntuneAdminTemplate',
+        'Remove-IntuneAdminTemplate',
+        # --- Windows Update (remove operations) ---
+        'Remove-IntuneFeatureUpdate',
+        'Remove-IntuneDriverUpdate',
+        'Set-IntuneUpdateRing',
         'Start-IntuneTide'
     )
     CmdletsToExport   = @()
