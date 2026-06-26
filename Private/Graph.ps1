@@ -25,7 +25,7 @@ function Add-IaCall {
     if ($script:IaCallSink) { try { & $script:IaCallSink $entry } catch { } }
 }
 
-function Get-IaCallLogEntries { @($script:IaCallLog.ToArray()) }
+function Get-IaCallLogEntries { , @($script:IaCallLog.ToArray()) }
 function Clear-IaCallLog { $script:IaCallLog.Clear() }
 function Set-IaCallSink { param([scriptblock]$Sink) $script:IaCallSink = $Sink }
 
