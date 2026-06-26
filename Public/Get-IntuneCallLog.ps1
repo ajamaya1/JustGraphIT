@@ -30,9 +30,13 @@ function Get-IntuneCallLog {
     #>
     [CmdletBinding()]
     param([int]$Tail, [switch]$Errors)
-    $log = @(Get-IaCallLogEntries)
-    if ($Errors) { $log = $log | Where-Object { $_.Status -lt 200 -or $_.Status -ge 300 } }
-    if ($Tail -and $Tail -gt 0) { $log = $log | Select-Object -Last $Tail }
+    # Assign first, THEN normalise with @() on the variable. Wrapping the call
+    # itself — @(Get-IaCallLogEntries) — collapses the (comma-returned) array to a
+    # single nested element, so it must not be done.
+    $log = Get-IaCallLogEntries
+    $log = @($log)
+    if ($Errors) { $log = @($log | Where-Object { $_.Status -lt 200 -or $_.Status -ge 300 }) }
+    if ($Tail -and $Tail -gt 0) { $log = @($log | Select-Object -Last $Tail) }
     $log
 }
 
