@@ -33,10 +33,15 @@ function Get-IntuneAppProtectionPolicy {
         [ValidateSet('All','iOS','Android','Windows')][string]$Platform = 'All'
     )
 
+    # Windows has two MAM policy types: classic MDM-based WIP and the newer
+    # MAM-without-enrollment type. Both are enumerated for complete coverage.
     $platformEndpoints = @{
-        iOS     = 'deviceAppManagement/iosManagedAppProtections'
-        Android = 'deviceAppManagement/androidManagedAppProtections'
-        Windows = 'deviceAppManagement/mdmWindowsInformationProtectionPolicies'
+        iOS     = @('deviceAppManagement/iosManagedAppProtections')
+        Android = @('deviceAppManagement/androidManagedAppProtections')
+        Windows = @(
+            'deviceAppManagement/mdmWindowsInformationProtectionPolicies',
+            'deviceAppManagement/windowsManagedAppProtections'
+        )
     }
 
     $odataTypeMap = @{
@@ -47,20 +52,21 @@ function Get-IntuneAppProtectionPolicy {
     }
 
     if ($Id) {
-        # Try each platform
         $targets = if ($Platform -eq 'All') { @('iOS','Android','Windows') } else { @($Platform) }
         foreach ($plat in $targets) {
-            try {
-                if (Test-IaGuid $Id) {
-                    $p = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "$($platformEndpoints[$plat])/$Id")
-                } else {
-                    $encoded = [uri]::EscapeDataString($Id)
-                    $found   = Get-IaCollection (Resolve-IaUri "$($platformEndpoints[$plat])?`$filter=displayName eq '$encoded'&`$select=id,displayName")
-                    if (-not $found) { continue }
-                    $p = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "$($platformEndpoints[$plat])/$($found[0].id)")
-                }
-                return ConvertTo-IaAppProtectionObject -Policy $p -Platform $plat -ODataMap $odataTypeMap
-            } catch { }
+            foreach ($ep in $platformEndpoints[$plat]) {
+                try {
+                    if (Test-IaGuid $Id) {
+                        $p = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "$ep/$Id")
+                    } else {
+                        $encoded = [uri]::EscapeDataString($Id)
+                        $found   = Get-IaCollection (Resolve-IaUri "${ep}?`$filter=displayName eq '$encoded'&`$select=id,displayName")
+                        if (-not $found) { continue }
+                        $p = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "$ep/$($found[0].id)")
+                    }
+                    return ConvertTo-IaAppProtectionObject -Policy $p -Platform $plat -ODataMap $odataTypeMap
+                } catch { }
+            }
         }
         throw "No app protection policy found matching '$Id'."
     }
@@ -69,13 +75,15 @@ function Get-IntuneAppProtectionPolicy {
     $targets  = if ($Platform -eq 'All') { @('iOS','Android','Windows') } else { @($Platform) }
 
     foreach ($plat in $targets) {
-        try {
-            $policies = Get-IaCollection (Resolve-IaUri $platformEndpoints[$plat])
-            foreach ($p in $policies) {
-                $results.Add((ConvertTo-IaAppProtectionObject -Policy $p -Platform $plat -ODataMap $odataTypeMap))
+        foreach ($ep in $platformEndpoints[$plat]) {
+            try {
+                $policies = Get-IaCollection (Resolve-IaUri $ep)
+                foreach ($p in $policies) {
+                    $results.Add((ConvertTo-IaAppProtectionObject -Policy $p -Platform $plat -ODataMap $odataTypeMap))
+                }
+            } catch {
+                Write-Warning "Could not retrieve $plat app protection policies from ${ep}: $_"
             }
-        } catch {
-            Write-Warning "Could not retrieve $plat app protection policies: $_"
         }
     }
 

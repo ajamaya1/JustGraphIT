@@ -23,10 +23,8 @@ function New-IntuneAssignmentFilter {
         Optional description for the filter.
 
     .PARAMETER AssignmentFilterManagementType
-        Specifies how the filter is used during assignment.
-        include — the filter is applied as an include filter (default).
-        exclude — the filter is applied as an exclude filter.
-        none    — no management type restriction.
+        Scope of the filter: 'devices' (default) or 'apps'.
+        Maps to the Graph assignmentFilterManagementType enum.
 
     .EXAMPLE
         New-IntuneAssignmentFilter -Name 'Win11 Devices' -Platform windows10AndLater `
