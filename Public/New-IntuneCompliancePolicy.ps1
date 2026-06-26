@@ -81,7 +81,7 @@ function New-IntuneCompliancePolicy {
         if (-not $PSCmdlet.ShouldProcess($Name, 'New-IntuneCompliancePolicy')) { return }
 
         $created = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri 'deviceManagement/deviceCompliancePolicies') -Body $body
-        $platform = ($created.'@odata.type' -replace '#microsoft.graph\.' -replace 'CompliancePolicy', '')
+        $platform = ($created.'@odata.type' -replace '#microsoft\.graph\.' -replace 'CompliancePolicy', '')
 
         [pscustomobject][ordered]@{
             Id       = $created.id

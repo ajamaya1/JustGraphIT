@@ -63,7 +63,7 @@ function Get-IntuneDeviceDetail {
         EnrollmentType      = $d.deviceEnrollmentType
         ManagementAgent     = $d.managementAgent
         JoinType            = $d.joinType
-        OwnerType           = $d.ownerType
+        OwnerType           = $d.managedDeviceOwnerType
         # Security
         Encrypted           = $d.isEncrypted
         ActivationLock      = $d.activationLockEnabled

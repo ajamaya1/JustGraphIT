@@ -46,9 +46,10 @@ function Get-IntuneScript {
             try { $script = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/deviceShellScripts/$Id") } catch { }
         }
         if (-not $script) {
-            # Try by name
-            $script = Get-IntuneScript -Platform $Platform | Where-Object Name -eq $Id | Select-Object -First 1
+            # Try by name — recurse with IncludeContent so content is already decoded
+            $script = Get-IntuneScript -Platform $Platform -IncludeContent:$IncludeContent | Where-Object Name -eq $Id | Select-Object -First 1
             if (-not $script) { throw "No script found matching '$Id'." }
+            return $script
         }
         if ($IncludeContent -and $script.scriptContent) {
             $script | Add-Member -NotePropertyName Content -NotePropertyValue ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($script.scriptContent))) -Force

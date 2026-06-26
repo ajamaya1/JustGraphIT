@@ -5,7 +5,7 @@ function Set-IntuneAppAssignment {
 
     .DESCRIPTION
         Builds and submits an assignment payload to
-        deviceManagement/mobileApps/{id}/assign. The app is resolved by GUID or
+        deviceAppManagement/mobileApps/{id}/assign. The app is resolved by GUID or
         display name. Group targets are resolved from display name or GUID.
 
         Use -Clear to remove every existing assignment from the app.
@@ -135,7 +135,7 @@ function Set-IntuneAppAssignment {
     if (-not $PSCmdlet.ShouldProcess($AppId, "Set-IntuneAppAssignment: $action app")) { return }
 
     Invoke-IaRequest -Method POST `
-        -Uri (Resolve-IaUri "deviceManagement/mobileApps/$resolvedAppId/assign") `
+        -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$resolvedAppId/assign") `
         -Body $body | Out-Null
 
     [pscustomobject][ordered]@{

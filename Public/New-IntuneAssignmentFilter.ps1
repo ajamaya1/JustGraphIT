@@ -47,8 +47,8 @@ function New-IntuneAssignmentFilter {
         [ValidateSet('windows10AndLater','iOS','macOS','androidForWork','android','linux')]
         [string]$Platform,
         [string]$Description,
-        [ValidateSet('include','exclude','none')]
-        [string]$AssignmentFilterManagementType = 'include'
+        [ValidateSet('devices','apps')]
+        [string]$AssignmentFilterManagementType = 'devices'
     )
 
     $body = [ordered]@{

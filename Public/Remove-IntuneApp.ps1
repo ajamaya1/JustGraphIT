@@ -4,7 +4,7 @@ function Remove-IntuneApp {
         Permanently delete a mobile app from Intune.
 
     .DESCRIPTION
-        Deletes a mobile app from deviceManagement/mobileApps. The app is resolved
+        Deletes a mobile app from deviceAppManagement/mobileApps. The app is resolved
         by GUID or display name using Resolve-IaAppId (defined in Get-IntuneApp.ps1).
 
         WARNING: This operation is irreversible. Deleting an app also removes all
@@ -50,7 +50,7 @@ function Remove-IntuneApp {
         Write-Warning "Permanently removing app '$Id' ($resolvedId) and all its assignments. This cannot be undone."
 
         if ($PSCmdlet.ShouldProcess("$Id ($resolvedId)", 'Remove-IntuneApp: permanently delete app and all assignments')) {
-            Invoke-IaRequest -Method DELETE -Uri (Resolve-IaUri "deviceManagement/mobileApps/$resolvedId") | Out-Null
+            Invoke-IaRequest -Method DELETE -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$resolvedId") | Out-Null
             Write-Verbose "Deleted app '$Id' ($resolvedId)."
         }
     }

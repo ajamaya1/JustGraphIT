@@ -49,8 +49,8 @@ function New-IntuneAdminTemplate {
         foreach ($def in $defs) {
             try {
                 $defBody = @{
-                    enabled      = $def.enabled
-                    definition   = @{ id = $def.definition.id }
+                    enabled                     = $def.enabled
+                    'definition@odata.bind'     = "$(Resolve-IaUri "deviceManagement/groupPolicyDefinitions/$($def.definition.id)")"
                 }
                 $newDef = Invoke-IaRequest -Method POST `
                     -Uri (Resolve-IaUri "deviceManagement/groupPolicyConfigurations/$($created.id)/definitionValues") `
