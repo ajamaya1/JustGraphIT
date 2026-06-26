@@ -1,13 +1,14 @@
 function Start-IntuneTide {
     <#
     .SYNOPSIS
-        Launch the interactive retro Spectre.Console TUI.
+        Launch the interactive retro ANSI TUI.
     .DESCRIPTION
         A keyboard-driven terminal UI: browse assignments, reverse-lookup a
         group, compare two groups, run what-if for a user/device, and — the
         headline — MIRROR a group's assignments onto another with a multi-select
         checklist so you choose exactly which ones (e.g. config profiles but not
-        endpoint security). Cross-platform; needs the PwshSpectreConsole module.
+        endpoint security). Cross-platform; rendered by a self-contained ANSI
+        engine (Private/Tui.ps1) — no external TUI module required.
 
         Entity pickers (groups, apps, profiles, policies) are arrow-key
         selection lists, not free-text fields — pick from what's there instead
@@ -18,11 +19,11 @@ function Start-IntuneTide {
     [CmdletBinding()]
     param([ValidateSet('green', 'amber', 'lego', 'deepsea')][string]$Theme = 'deepsea')
 
-    if (-not (Get-Command Read-SpectreSelection -ErrorAction SilentlyContinue)) {
-        throw "The TUI needs PwshSpectreConsole. Install it with: Install-Module PwshSpectreConsole -Scope CurrentUser"
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        throw "The TIDE TUI requires PowerShell 7+ (you are on $($PSVersionTable.PSVersion))."
     }
     if (-not (Get-MgContext)) {
-        Write-SpectreHost "[yellow]Not connected.[/] Starting device-code sign-in…"
+        Write-IaHost "[yellow]Not connected.[/] Starting device-code sign-in…"
         Connect-IntuneTide -UseDeviceCode | Out-Null
     }
 
@@ -32,7 +33,7 @@ function Start-IntuneTide {
 
     function Get-IaTuiInventory {
         if ($null -eq $script:IaTuiInventory) {
-            $script:IaTuiInventory = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading Intune assignments…' -ScriptBlock {
+            $script:IaTuiInventory = Invoke-IaStatus -Spinner Dots -Title 'Reading Intune assignments…' -ScriptBlock {
                 Get-IaInventory
             }
         }
@@ -44,21 +45,39 @@ function Start-IntuneTide {
     $script:IaTuiAccount = $ctx.Account
     $script:IaTuiElev    = $elev
 
+    # The main menu is a full-screen redraw, so its banner is passed as a -Header that
+    # is repainted with every frame (rather than printed above it, where the redraw
+    # would erase it).
+    $splashHeader = @(
+        (Get-IaFigletString -Text 'TIDE' -Color $accent)
+        (ConvertFrom-IaMarkup "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev")
+        (ConvertFrom-IaMarkup "[$accent]≈ targeted intune deployment & endpoints[/]")
+        ''
+    ) -join "`n"
+
     function Show-IaTuiSplash {
-        Clear-Host
-        Write-SpectreFigletText -Text 'TIDE' -Color $accent
-        Write-SpectreHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev"
-        Write-SpectreRule -Title 'TIDE · targeted intune deployment & endpoints' -Color $accent
+        Clear-IaHost
+        Write-IaFiglet -Text 'TIDE' -Color $accent
+        Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev"
+        Write-IaRule -Title 'TIDE · targeted intune deployment & endpoints' -Color $accent
     }
 
     Show-IaTuiSplash
-    # One-time inventory load: watch the graph calls stream in, then wipe to a clean workspace
-    # so every screen renders as a tidy bordered table instead of below a wall of GET lines.
-    Get-IaTuiInventory | Out-Null
-    Show-IaTuiSplash
+    # One-time inventory load: stream the live Graph calls as they happen (Tide logs
+    # every Invoke-MgGraphRequest via Add-IaCall), then wipe to a clean workspace so
+    # each screen renders as a tidy bordered table instead of below a wall of GET lines.
+    if ($null -eq $script:IaTuiInventory) {
+        Write-IaHost "[grey]Loading Intune assignments — live Graph activity:[/]"
+        Set-IaCallSink {
+            param($e)
+            $sc = if ($e.Status -ge 400 -or $e.Status -eq 0 -or $e.Error) { 'coral' } else { 'green' }
+            Write-IaHost ("  [grey]{0,-5}[/] {1} [grey]·[/] [{2}]{3}[/] [grey]· {4}ms · {5} items[/]" -f $e.Method, (Protect-IaMarkup ([string]$e.Uri)), $sc, $e.Status, $e.Ms, $e.Count)
+        }
+        try { $script:IaTuiInventory = Get-IaInventory } finally { Set-IaCallSink $null }
+    }
 
     while ($true) {
-        $choice = Read-SpectreSelection -Title "Choose an action" -Color $accent -PageSize 16 -Choices @(
+        $choice = Read-IaMenu -Title "Choose an action" -Header $splashHeader -Color $accent -PageSize 16 -Choices @(
             'View all assignments',
             'Group lookup (what is a group assigned to)',
             'Compare two groups',
@@ -77,6 +96,7 @@ function Start-IntuneTide {
             'Elevate (PIM) — activate an eligible role',
             'Audit',
             'Export report (HTML · Excel · Rich HTML)',
+            'Graph calls (live activity log)',
             'Refresh data',
             'Quit'
         )
@@ -100,39 +120,28 @@ function Start-IntuneTide {
                 'Elevate*'        { Invoke-IaTuiElevate     -Accent $accent }
                 'Audit'           { Invoke-IaTuiAudit       -Accent $accent }
                 'Export*'         { Invoke-IaTuiExport      -Accent $accent }
+                'Graph calls*'    { Invoke-IaTuiGraphCalls  -Accent $accent }
                 'Refresh*'        { $script:IaTuiInventory = $null; Get-IaTuiInventory | Out-Null
-                                    Write-SpectreHost "[$accent]Refreshed.[/]" }
+                                    Write-IaHost "[$accent]Refreshed.[/]" }
                 'Quit'            { try { $host.UI.RawUI.WindowTitle = 'pwsh' } catch { }; return }
             }
         } catch {
-            Write-SpectreHost "[red]Error:[/] $($_.Exception.Message)"
+            Write-IaHost "[red]Error:[/] $($_.Exception.Message)"
         }
         if ($choice -ne 'Quit') {
-            Read-SpectrePause | Out-Null
-            Show-IaTuiSplash
+            Read-IaPause | Out-Null
+            # No splash here: the next Read-IaMenu repaints the banner via -Header.
         }
     }
 }
 
-# ─── capability-aware wrappers ────────────────────────────────────────────────
-# PwshSpectreConsole's parameter surface varies by version. Detect once, degrade
-# gracefully — so a colored cell renders where supported and never leaks raw
-# "[grey]…[/]" markup where it isn't.
-
-function Test-IaCap {
-    param([string]$Command, [string]$Parameter)
-    $key = "$Command/$Parameter"
-    if (-not $script:IaCaps) { $script:IaCaps = @{} }
-    if (-not $script:IaCaps.ContainsKey($key)) {
-        $script:IaCaps[$key] = try { (Get-Command $Command -ErrorAction Stop).Parameters.ContainsKey($Parameter) } catch { $false }
-    }
-    $script:IaCaps[$key]
-}
+# ─── table & selection wrappers (over the ANSI engine in Private/Tui.ps1) ─────
+# These keep the call-sites below terse. The engine itself never throws on
+# unrecognised markup, so no capability probing or markup-stripping is needed.
 
 function Format-IaTable {
-    # Format-SpectreTable wrapper. Accepts -Data (array) or pipeline input.
-    # -Accent aliases -Color; -Title is passed through when supported.
-    # Strips inline [markup] tags when -AllowMarkup is not available.
+    # Render objects as a bordered, markup-aware table. Accepts -Data (array) or
+    # pipeline input; -Accent/-Color set the border colour; -Title shows in the rule.
     [CmdletBinding()]
     param(
         [Parameter(ValueFromPipeline)][object]$InputObject,
@@ -146,34 +155,19 @@ function Format-IaTable {
     end {
         if ($Data) { foreach ($i in @($Data)) { if ($null -ne $i) { $rows.Add($i) } } }
         if ($rows.Count -eq 0) { return }
-        $col = if ($Accent) { $Accent } elseif ($Color) { $Color } else { $null }
-        $p = @{}
-        if ($col)   { $p.Color = $col }
-        if ($Title -and (Test-IaCap 'Format-SpectreTable' 'Title')) { $p.Title = $Title }
-        if (Test-IaCap 'Format-SpectreTable' 'AllowMarkup') {
-            $rows | Format-SpectreTable @p -AllowMarkup
-        } else {
-            $clean = foreach ($r in $rows) {
-                $o = [ordered]@{}
-                foreach ($prop in $r.PSObject.Properties) {
-                    $o[$prop.Name] = if ($prop.Value -is [string]) { [regex]::Replace($prop.Value, '\[/?[^\[\]]*\]', '') } else { $prop.Value }
-                }
-                [pscustomobject]$o
-            }
-            $clean | Format-SpectreTable @p
-        }
+        $col = if ($Accent) { $Accent } elseif ($Color) { $Color } else { 'grey' }
+        Show-IaTableObjects -Rows $rows.ToArray() -Color $col -Title $Title
     }
 }
 
 function Read-IaSelection {
-    # Read-SpectreSelection with type-to-filter search on long lists when available.
+    # Single-select menu wrapper. Returns the chosen string (or $null).
     param([string]$Title, [object[]]$Choices, [string]$Color, [int]$PageSize = 0)
     $list = @($Choices)
-    $p = @{ Title = $Title; Choices = $list; Color = $Color }
-    if     ($PageSize -gt 0)  { $p.PageSize = $PageSize }
-    elseif ($list.Count -gt 15) { $p.PageSize = 15 }
-    if ($list.Count -gt 12 -and (Test-IaCap 'Read-SpectreSelection' 'EnableSearch')) { $p.EnableSearch = $true }
-    Read-SpectreSelection @p
+    if ($list.Count -eq 0) { return $null }
+    $col = if ($Color) { $Color } else { 'grey' }
+    $ps  = if ($PageSize -gt 0) { $PageSize } elseif ($list.Count -gt 15) { 15 } else { $list.Count }
+    Read-IaMenu -Title $Title -Choices $list -Color $col -PageSize $ps
 }
 
 # ─── entity pickers (lists, not typing) ───────────────────────────────────────
@@ -187,7 +181,7 @@ function Select-IaGroup {
     }
     $groups = $null
     try {
-        $groups = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock {
+        $groups = Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock {
             Get-IaCollection -V1 -Path "groups?`$select=id,displayName&`$top=999"
         }
     } catch { $groups = $null }
@@ -205,7 +199,7 @@ function Select-IaInventoryItem {
     # No extra Graph calls, no directory permissions needed.
     param([string]$Accent, [string]$Area, [string]$Title)
     $items = @(Get-IaTuiInventory | Where-Object Area -eq $Area | Sort-Object Name)
-    if (-not $items) { Write-SpectreHost "[yellow]No $Area resources found.[/]"; return $null }
+    if (-not $items) { Write-IaHost "[yellow]No $Area resources found.[/]"; return $null }
     $pick = Read-IaSelection -Title $Title -Choices (@($items | ForEach-Object Name)) -Color $Accent
     $items | Where-Object Name -eq $pick | Select-Object -First 1
 }
@@ -214,15 +208,15 @@ function Select-IaInventoryItem {
 
 function Write-IaTuiHeader {
     param([string]$Screen, [string]$Sub = '', [string]$Accent)
-    Clear-Host
+    Clear-IaHost
     try { $host.UI.RawUI.WindowTitle = "TIDE — $Screen" } catch { }
-    Write-SpectreHost "[$Accent]≈ TIDE[/]  [bold]· $Screen[/]"
+    Write-IaHost "[$Accent]≈ TIDE[/]  [bold]· $Screen[/]"
     if ($Sub) {
-        Write-SpectreHost "[grey]$Sub[/]"
+        Write-IaHost "[grey]$Sub[/]"
     } elseif ($script:IaTuiAccount) {
-        Write-SpectreHost "[grey]● $($script:IaTuiAccount)  ·  [/]$script:IaTuiElev"
+        Write-IaHost "[grey]● $($script:IaTuiAccount)  ·  [/]$script:IaTuiElev"
     }
-    Write-SpectreRule -Color darkslategray1
+    Write-IaRule -Color darkslategray1
 }
 
 # ─── shared change-plan renderer ──────────────────────────────────────────────
@@ -243,7 +237,7 @@ function Show-IaRestorePlan {
             Detail   = if ($_.Skipped) { $_.Skipped } elseif ($_.Error) { $_.Error } else { ($_.Added -join '; ') }
         }
     }
-    if (-not $rows) { Write-SpectreHost '[yellow]Nothing to restore.[/]'; return }
+    if (-not $rows) { Write-IaHost '[yellow]Nothing to restore.[/]'; return }
     $rows | Format-IaTable -Color $Accent
 }
 
@@ -288,7 +282,7 @@ function Invoke-IaTuiGroupLookup {
             }
         }
     }
-    Write-SpectreHost "[$Accent]$($g.DisplayName)[/] is assigned to [$Accent]$(@($hits).Count)[/] resource(s)"
+    Write-IaHost "[$Accent]$($g.DisplayName)[/] is assigned to [$Accent]$(@($hits).Count)[/] resource(s)"
     if ($hits) { $hits | Format-IaTable -Color $Accent }
 }
 
@@ -312,7 +306,7 @@ function Invoke-IaTuiCompare {
         [pscustomobject]@{ Area = $it.Area; Resource = $it.Name; Relationship = $rel; AMode = $am; BMode = $bm }
     })
 
-    if (-not $rows) { Write-SpectreHost '[yellow]No assignments differ between these groups.[/]'; return }
+    if (-not $rows) { Write-IaHost '[yellow]No assignments differ between these groups.[/]'; return }
 
     $rows | ForEach-Object {
         $relColor = switch ($_.Relationship) {
@@ -331,13 +325,13 @@ function Invoke-IaTuiCompare {
     } | Format-IaTable -Color $Accent
 
     $conflicts = @($rows | Where-Object Relationship -eq 'Conflict').Count
-    if ($conflicts) { Write-SpectreHost "[coral]$conflicts conflict(s)[/] — one group includes while the other excludes (mirroring would clash)" }
+    if ($conflicts) { Write-IaHost "[coral]$conflicts conflict(s)[/] — one group includes while the other excludes (mirroring would clash)" }
 
-    $export = Read-SpectreSelection -Title 'Export comparison?' -Color $Accent -Choices @('Skip', 'CSV', 'Excel', 'HTML')
+    $export = Read-IaMenu -Title 'Export comparison?' -Color $Accent -Choices @('Skip', 'CSV', 'Excel', 'HTML')
     if ($export -eq 'Skip') { return }
 
     $ext  = switch ($export) { 'Excel' { 'xlsx' } 'HTML' { 'html' } default { 'csv' } }
-    $path = Read-SpectreText -Question 'Save to' -DefaultAnswer "group-diff.$ext"
+    $path = Read-IaText -Question 'Save to' -DefaultAnswer "group-diff.$ext"
 
     switch ($export) {
         'CSV'   { $rows | Export-Csv -Path $path -NoTypeInformation -Encoding utf8 }
@@ -346,15 +340,15 @@ function Invoke-IaTuiCompare {
         'HTML'  { New-IaGroupComparisonHtml -Rows $rows -GroupA $a.DisplayName -GroupB $b.DisplayName |
                       Set-Content -Path $path -Encoding utf8 }
     }
-    Write-SpectreHost "[$Accent]Wrote[/] $path"
+    Write-IaHost "[$Accent]Wrote[/] $path"
 }
 
 # ─── what-if ──────────────────────────────────────────────────────────────────
 
 function Invoke-IaTuiWhatIf {
     param([string]$Accent)
-    $kind = Read-SpectreSelection -Title 'Subject type' -Choices @('user', 'device') -Color $Accent
-    $val  = Read-SpectreText -Question "$kind (UPN/name or id)"
+    $kind = Read-IaMenu -Title 'Subject type' -Choices @('user', 'device') -Color $Accent
+    $val  = Read-IaText -Question "$kind (UPN/name or id)"
     Write-IaTuiHeader -Screen 'What-if: effective assignments' -Sub "subject: $val" -Accent $Accent
     $raw  = if ($kind -eq 'user') { Get-IntuneEffectiveAssignment -User $val }
             else { Get-IntuneEffectiveAssignment -Device $val }
@@ -381,25 +375,25 @@ function Invoke-IaTuiMirror {
     $src   = Select-IaGroup -Accent $Accent -Title 'Source group (copy FROM)'
     $items = Get-IaTuiInventory
     $cands = Get-IaCopyCandidates -Items $items -SrcId $src.Id
-    if (-not $cands) { Write-SpectreHost "[yellow]$($src.DisplayName) has no assignments to mirror.[/]"; return }
+    if (-not $cands) { Write-IaHost "[yellow]$($src.DisplayName) has no assignments to mirror.[/]"; return }
 
     $map = @{}; $i = 0
     $labels = foreach ($c in $cands) { $i++; $lbl = "$i. ($($c.Area)) $($c.Name)"; $map[$lbl] = $c.Id; $lbl }
-    $picked = Read-SpectreMultiSelection -Title "Select what to mirror from [$Accent]$($src.DisplayName)[/]" `
+    $picked = Read-IaMultiMenu -Title "Select what to mirror from [$Accent]$($src.DisplayName)[/]" `
         -Choices $labels -Color $Accent
-    if (-not $picked) { Write-SpectreHost '[yellow]Nothing selected.[/]'; return }
+    if (-not $picked) { Write-IaHost '[yellow]Nothing selected.[/]'; return }
     $ids = @($picked | ForEach-Object { $map[$_] })
 
     $dst = Select-IaGroup -Accent $Accent -Title 'Destination group (copy TO)'
     Write-IaTuiHeader -Screen 'Mirror assignments' -Sub "from $($src.DisplayName)  →  $($dst.DisplayName)" -Accent $Accent
-    $confirm = Read-SpectreSelection `
+    $confirm = Read-IaMenu `
         -Title "Apply $($ids.Count) assignment(s) to [$Accent]$($dst.DisplayName)[/]?" `
         -Choices @('Preview only (no changes)', 'Apply now') -Color $Accent
     $commit  = $confirm -eq 'Apply now'
 
     $plans = Invoke-IaCopy -Items $items -SrcId $src.Id -DstId $dst.Id -DstName $dst.DisplayName `
         -IncludeIds $ids -Commit:$commit
-    if (-not $plans) { Write-SpectreHost '[yellow]Nothing to change (already assigned?).[/]'; return }
+    if (-not $plans) { Write-IaHost '[yellow]Nothing to change (already assigned?).[/]'; return }
     $plans | ForEach-Object {
         $status = if ($commit) { if ($_.Applied) { "[$Accent]OK[/]" } else { '[coral]FAILED[/]' } } else { '[grey]PREVIEW[/]' }
         [pscustomobject]@{
@@ -410,7 +404,7 @@ function Invoke-IaTuiMirror {
             Error    = $_.Error
         }
     } | Format-IaTable -Color $Accent
-    if (-not $commit) { Write-SpectreHost "[grey]Preview only — re-run and choose 'Apply now' to write.[/]" }
+    if (-not $commit) { Write-IaHost "[grey]Preview only — re-run and choose 'Apply now' to write.[/]" }
 }
 
 # ─── audit ────────────────────────────────────────────────────────────────────
@@ -418,37 +412,73 @@ function Invoke-IaTuiMirror {
 function Invoke-IaTuiAudit {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Audit' -Sub 'tenant-wide assignment health' -Accent $Accent
-    $a = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Auditing…' -ScriptBlock {
+    $a = Invoke-IaStatus -Spinner Dots -Title 'Auditing…' -ScriptBlock {
         Get-IntuneAssignmentAudit
     }
-    Write-SpectreHost (
+    Write-IaHost (
         "[$Accent]Resources scanned  $($a.ResourceCount)[/]   " +
         "[$Accent]Assigned  $($a.AssignedCount)[/]   " +
         "[grey]Unassigned  $($a.UnassignedCount)[/]   " +
         "Assignment edges  $($a.EdgeCount)   " +
         "Exclusions  $($a.ExclusionCount)"
     )
-    Write-SpectreHost ""
+    Write-IaHost ""
     $a.ByArea | ForEach-Object {
         [pscustomobject]@{ Area = "[$Accent]$($_.Area)[/]"; Total = $_.Total; Assigned = $_.Assigned }
     } | Format-IaTable -Color $Accent
 
     if ($a.ByArea) {
-        Write-SpectreHost ""
-        Write-SpectreHost "[$Accent]Assigned by area[/]"
+        Write-IaHost ""
+        Write-IaHost "[$Accent]Assigned by area[/]"
         $max = ($a.ByArea | Measure-Object -Property Assigned -Maximum).Maximum
         foreach ($r in ($a.ByArea | Sort-Object Assigned -Descending)) {
             $w   = if ($max) { [int][math]::Round(($r.Assigned / $max) * 32) } else { 0 }
             $bar = '█' * [math]::Max($w, 1)
-            Write-SpectreHost ("[grey]{0,-16}[/] [$Accent]{1}[/] {2}" -f $r.Area, $bar, $r.Assigned)
+            Write-IaHost ("[grey]{0,-16}[/] [$Accent]{1}[/] {2}" -f $r.Area, $bar, $r.Assigned)
         }
     }
 
     if ($a.TopGroups) {
-        Write-SpectreHost ""
-        Write-SpectreHost "[$Accent]Most-assigned groups[/]"
+        Write-IaHost ""
+        Write-IaHost "[$Accent]Most-assigned groups[/]"
         $a.TopGroups | Format-IaTable -Color $Accent
     }
+}
+
+# ─── graph activity log ───────────────────────────────────────────────────────
+
+function Invoke-IaTuiGraphCalls {
+    param([string]$Accent)
+    # Prepare ALL data BEFORE rendering anything. A processing delay between the
+    # header and the first table row lets the host drop the just-drawn header, so
+    # the clear → header → table sequence must run with no gap in between.
+    # (Assign first: the , @(...) return makes direct assignment the correct array;
+    # wrapping the CALL in @() would collapse it to one nested element.)
+    $entries = Get-IaCallLogEntries
+    $entries = @($entries)
+    $hasEntries = $entries.Count -gt 0
+    if ($hasEntries) {
+        $show = @($entries | Select-Object -Last 24)
+        $rows = foreach ($e in $show) {
+            $sc = if ($e.Status -ge 400 -or $e.Status -eq 0 -or $e.Error) { 'coral' } else { $Accent }
+            [pscustomobject]@{
+                Time   = $e.Time.ToString('HH:mm:ss')
+                Method = $e.Method
+                Uri    = $e.Uri
+                Status = "[$sc]$($e.Status)[/]"
+                Ms     = $e.Ms
+                Items  = $e.Count
+            }
+        }
+        $errs = @($entries | Where-Object { $_.Status -ge 400 -or $_.Status -eq 0 -or $_.Error }).Count
+        $shownNote = if ($entries.Count -gt $show.Count) { " (showing last $($show.Count))" } else { '' }
+        $footer = "[grey]$($entries.Count) call(s) in the live log$shownNote · [/][$Accent]$($entries.Count - $errs) ok[/][grey] · [/][coral]$errs error(s)[/]"
+    }
+    # ---- render (no data work past this point) ----
+    Write-IaTuiHeader -Screen 'Graph activity log' -Sub 'recent Microsoft Graph calls (newest last)' -Accent $Accent
+    if (-not $hasEntries) { Write-IaHost '[yellow]No Graph calls recorded yet.[/]'; return }
+    $rows | Format-IaTable -Color $Accent
+    Write-IaHost $footer
 }
 
 # ─── bulk assign ──────────────────────────────────────────────────────────────
@@ -461,15 +491,15 @@ function Invoke-IaTuiBulkAssign {
 
     $items  = Get-IaTuiInventory
     $scoped = if ($area -eq 'All areas') { $items } else { @($items | Where-Object Area -eq $area) }
-    if (-not $scoped) { Write-SpectreHost "[yellow]No resources in $area.[/]"; return }
+    if (-not $scoped) { Write-IaHost "[yellow]No resources in $area.[/]"; return }
 
     $intent = $null
     if ($area -eq 'Apps' -or ($scoped | Where-Object { (Find-IaResourceType -Key $_.ResourceType).HasIntent })) {
-        $intent = Read-SpectreSelection -Title 'Install intent (apps)' -Color $Accent `
+        $intent = Read-IaMenu -Title 'Install intent (apps)' -Color $Accent `
             -Choices @('required', 'available', 'uninstall', 'availableWithoutEnrollment', '(none / non-app)')
         if ($intent -eq '(none / non-app)') { $intent = $null }
     }
-    $modeChoice = Read-SpectreSelection -Title 'Assignment mode' -Choices @('include', 'exclude (block)') -Color $Accent
+    $modeChoice = Read-IaMenu -Title 'Assignment mode' -Choices @('include', 'exclude (block)') -Color $Accent
     $exclude    = $modeChoice -like 'exclude*'
 
     $filterId = $null; $filterType = 'include'
@@ -479,7 +509,7 @@ function Invoke-IaTuiBulkAssign {
             -Choices (@('(no filter)') + @($filters | ForEach-Object Name))
         if ($fchoice -ne '(no filter)') {
             $filterId   = ($filters | Where-Object Name -eq $fchoice | Select-Object -First 1).Id
-            $filterType = Read-SpectreSelection -Title "Filter mode for '$fchoice'" -Choices @('include', 'exclude') -Color $Accent
+            $filterType = Read-IaMenu -Title "Filter mode for '$fchoice'" -Choices @('include', 'exclude') -Color $Accent
         }
     }
 
@@ -492,13 +522,13 @@ function Invoke-IaTuiBulkAssign {
                 else          { "group: $($g.DisplayName)  ·  area: $area" }
     Write-IaTuiHeader -Screen 'Assign a group to many' -Sub $subTitle -Accent $Accent
 
-    $picked = Read-SpectreMultiSelection -Title "Select resources to assign [$Accent]$($g.DisplayName)[/]" `
+    $picked = Read-IaMultiMenu -Title "Select resources to assign [$Accent]$($g.DisplayName)[/]" `
         -Choices $labels -Color $Accent -PageSize 18
-    if (-not $picked) { Write-SpectreHost '[yellow]Nothing selected.[/]'; return }
+    if (-not $picked) { Write-IaHost '[yellow]Nothing selected.[/]'; return }
     $sel = @($picked | ForEach-Object { $map[$_] })
 
     $verb    = if ($exclude) { 'EXCLUDE' } else { 'assign' }
-    $confirm = Read-SpectreSelection -Color $Accent `
+    $confirm = Read-IaMenu -Color $Accent `
         -Title "$verb [$Accent]$($g.DisplayName)[/] on $($sel.Count) resource(s)?" `
         -Choices @('Preview only (no changes)', 'Apply now')
     $commit  = $confirm -eq 'Apply now'
@@ -518,34 +548,34 @@ function Invoke-IaTuiBulkAssign {
         }
     } | Format-IaTable -Color $Accent
     if ($commit) { $script:IaTuiInventory = $null }
-    else { Write-SpectreHost "[grey]Preview only — choose 'Apply now' to write.[/]" }
+    else { Write-IaHost "[grey]Preview only — choose 'Apply now' to write.[/]" }
 }
 
 # ─── templates ────────────────────────────────────────────────────────────────
 
 function Invoke-IaTuiTemplates {
     param([string]$Accent)
-    $action = Read-SpectreSelection -Title 'Templates' -Color $Accent -Choices @(
+    $action = Read-IaMenu -Title 'Templates' -Color $Accent -Choices @(
         'Capture a group as a template (save to file)',
         'Apply a template file to a group'
     )
     if ($action -like 'Capture*') {
         $g    = Select-IaGroup -Accent $Accent -Title 'Group to capture'
-        $name = Read-SpectreText -Question 'Template name' -DefaultAnswer 'baseline'
-        $path = Read-SpectreText -Question 'Save to path' -DefaultAnswer "$name.json"
+        $name = Read-IaText -Question 'Template name' -DefaultAnswer 'baseline'
+        $path = Read-IaText -Question 'Save to path' -DefaultAnswer "$name.json"
         Write-IaTuiHeader -Screen 'Templates · capture' -Sub "group: $($g.DisplayName)" -Accent $Accent
         $tmpl = New-IaTemplateFromGroup -Items (Get-IaTuiInventory) -GroupId $g.Id -Name $name
         $tmpl | ConvertTo-Json -Depth 8 | Set-Content -Path $path -Encoding utf8
-        Write-SpectreHost "[$Accent]Saved[/] template '$name' with [$Accent]$($tmpl.resources.Count)[/] resource(s) → $path"
+        Write-IaHost "[$Accent]Saved[/] template '$name' with [$Accent]$($tmpl.resources.Count)[/] resource(s) → $path"
     } else {
-        $path = Read-SpectreText -Question 'Template file path'
-        if (-not (Test-Path $path)) { Write-SpectreHost "[red]Not found:[/] $path"; return }
+        $path = Read-IaText -Question 'Template file path'
+        if (-not (Test-Path $path)) { Write-IaHost "[red]Not found:[/] $path"; return }
         $tmpl = Get-Content $path -Raw | ConvertFrom-Json
         $g    = Select-IaGroup -Accent $Accent -Title 'Device group to stamp on'
         Write-IaTuiHeader -Screen 'Templates · apply' -Sub "template: $($tmpl.name)  ·  target: $($g.DisplayName)" -Accent $Accent
         $keys  = @($tmpl.resources | ForEach-Object resource_type | Select-Object -Unique)
         $items = Get-IaInventory -Type $keys
-        $confirm = Read-SpectreSelection -Color $Accent `
+        $confirm = Read-IaMenu -Color $Accent `
             -Title "Apply template '$($tmpl.name)' ($($tmpl.resources.Count) resources) to [$Accent]$($g.DisplayName)[/]?" `
             -Choices @('Preview only (no changes)', 'Apply now')
         $commit = $confirm -eq 'Apply now'
@@ -573,23 +603,23 @@ function Invoke-IaTuiElevate {
     Write-IaTuiHeader -Screen 'Elevate · PIM role activation' -Accent $Accent
     $eligible = Get-IntuneEligibleRole
     if (-not $eligible) {
-        Write-SpectreHost '[yellow]You have no PIM-eligible roles to activate (or this is an app-only sign-in).[/]'
+        Write-IaHost '[yellow]You have no PIM-eligible roles to activate (or this is an app-only sign-in).[/]'
         $active = Get-IntuneActiveRole
-        if ($active) { Write-SpectreHost 'Currently active:'; $active | Format-IaTable -Color $Accent }
+        if ($active) { Write-IaHost 'Currently active:'; $active | Format-IaTable -Color $Accent }
         return
     }
     $role    = Read-IaSelection -Title 'Activate which eligible role?' -Color $Accent `
         -Choices @($eligible | ForEach-Object Role)
-    $just    = Read-SpectreText -Question 'Justification'
-    $dur     = Read-SpectreText -Question 'Duration (e.g. 2h, 30m, 8h)' -DefaultAnswer '2h'
-    $confirm = Read-SpectreSelection -Title "Activate [$Accent]$role[/] for $dur?" `
+    $just    = Read-IaText -Question 'Justification'
+    $dur     = Read-IaText -Question 'Duration (e.g. 2h, 30m, 8h)' -DefaultAnswer '2h'
+    $confirm = Read-IaMenu -Title "Activate [$Accent]$role[/] for $dur?" `
         -Choices @('Yes, activate now', 'Cancel') -Color $Accent
-    if ($confirm -notlike 'Yes*') { Write-SpectreHost '[grey]Cancelled.[/]'; return }
+    if ($confirm -notlike 'Yes*') { Write-IaHost '[grey]Cancelled.[/]'; return }
 
     $res = Enable-IntuneAdminRole -Role $role -Justification $just -Duration $dur -Confirm:$false
-    Write-SpectreHost "[$Accent]$($res.Role)[/] → status [$Accent]$($res.Status)[/] (expires after $($res.Duration))"
+    Write-IaHost "[$Accent]$($res.Role)[/] → status [$Accent]$($res.Status)[/] (expires after $($res.Duration))"
     if ($res.Status -in 'PendingApproval', 'PendingProvisioning') {
-        Write-SpectreHost '[yellow]Activation needs approval / is provisioning — re-check with Get-IntuneActiveRole.[/]'
+        Write-IaHost '[yellow]Activation needs approval / is provisioning — re-check with Get-IntuneActiveRole.[/]'
     }
     Get-IntuneActiveRole | Format-IaTable -Color $Accent
 }
@@ -600,7 +630,7 @@ function Invoke-IaTuiApps {
     Write-IaTuiHeader -Screen 'Apps' -Sub 'list · assign · Win32 details' -Accent $Accent
 
     while ($true) {
-        $pick = Read-SpectreSelection -Title 'Apps' -Color $Accent -PageSize 10 -Choices @(
+        $pick = Read-IaMenu -Title 'Apps' -Color $Accent -PageSize 10 -Choices @(
             'List all apps',
             'Filter by type (Win32 / Store / iOS / Android / macOS)',
             'Win32 app details (detection · requirements · return codes)',
@@ -609,75 +639,75 @@ function Invoke-IaTuiApps {
         )
         switch -Wildcard ($pick) {
             'List all*' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading apps…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading apps…' -Color $Accent -ScriptBlock {
                     $script:_apps = @(Get-IntuneApp)
                 }
-                if (-not $script:_apps) { Write-SpectreHost "[yellow]No apps found.[/]"; Read-SpectreText -Question 'Press Enter' | Out-Null; break }
+                if (-not $script:_apps) { Write-IaHost "[yellow]No apps found.[/]"; Read-IaText -Question 'Press Enter' | Out-Null; break }
                 $rows = $script:_apps | ForEach-Object { [ordered]@{ Name = $_.Name; Type = $_.AppType; Publisher = $_.Publisher; Version = $_.Version } }
                 Format-IaTable -Data $rows -Accent $Accent -Title "Apps ($($script:_apps.Count))"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Filter by type*' {
-                $type = Read-SpectreSelection -Title 'App type' -Color $Accent -Choices @('Win32','Store','iOS','Android','macOS','WebApp','LOB','VPP','Office365')
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
-                    $script:_apps = @(Get-IntuneApp -AppType $using:type)
+                $type = Read-IaMenu -Title 'App type' -Color $Accent -Choices @('Win32','Store','iOS','Android','macOS','WebApp','LOB','VPP','Office365')
+                Invoke-IaStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
+                    $script:_apps = @(Get-IntuneApp -AppType $type)
                 }
                 $rows = $script:_apps | ForEach-Object { [ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title "$type Apps ($($script:_apps.Count))"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Win32 app details*' {
-                $name = Read-SpectreText -Question 'App name or GUID'
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                    $script:_w32 = Get-IntuneWin32App -Id $using:name
+                $name = Read-IaText -Question 'App name or GUID'
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_w32 = Get-IntuneWin32App -Id $name
                 }
                 if ($script:_w32) {
-                    Write-SpectreHost "[$Accent]$($script:_w32.Name)[/]  v$($script:_w32.Version)  ($($script:_w32.Publisher))"
-                    Write-SpectreHost "Install:   $($script:_w32.InstallCommandLine)"
-                    Write-SpectreHost "Uninstall: $($script:_w32.UninstallCommandLine)"
-                    Write-SpectreHost "Run as:    $($script:_w32.InstallExperience?.runAsAccount)"
-                    Write-SpectreHost "Min OS:    $($script:_w32.MinimumOS)"
-                    Write-SpectreHost "Detection rules: $($script:_w32.DetectionRules.Count)"
-                    Write-SpectreHost "Requirement rules: $($script:_w32.RequirementRules.Count)"
+                    Write-IaHost "[$Accent]$($script:_w32.Name)[/]  v$($script:_w32.Version)  ($($script:_w32.Publisher))"
+                    Write-IaHost "Install:   $($script:_w32.InstallCommandLine)"
+                    Write-IaHost "Uninstall: $($script:_w32.UninstallCommandLine)"
+                    Write-IaHost "Run as:    $($script:_w32.InstallExperience?.runAsAccount)"
+                    Write-IaHost "Min OS:    $($script:_w32.MinimumOS)"
+                    Write-IaHost "Detection rules: $($script:_w32.DetectionRules.Count)"
+                    Write-IaHost "Requirement rules: $($script:_w32.RequirementRules.Count)"
                 }
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Assign app*' {
-                $appName = Read-SpectreText -Question 'App name or GUID'
-                $mode    = Read-SpectreSelection -Title 'Assign to' -Color $Accent -Choices @('All Devices','All Users','Specific group','Clear all assignments')
+                $appName = Read-IaText -Question 'App name or GUID'
+                $mode    = Read-IaMenu -Title 'Assign to' -Color $Accent -Choices @('All Devices','All Users','Specific group','Clear all assignments')
                 switch ($mode) {
                     'All Devices' {
-                        Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
-                            Set-IntuneAppAssignment -AppId $using:appName -AllDevices -Confirm:$false
+                        Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
+                            Set-IntuneAppAssignment -AppId $appName -AllDevices -Confirm:$false
                         }
                     }
                     'All Users' {
-                        Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
-                            Set-IntuneAppAssignment -AppId $using:appName -AllUsers -Confirm:$false
+                        Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
+                            Set-IntuneAppAssignment -AppId $appName -AllUsers -Confirm:$false
                         }
                     }
                     'Specific group' {
-                        $grp = Read-SpectreText -Question 'Group name or GUID'
-                        $excl = Read-SpectreSelection -Title 'Include or exclude?' -Color $Accent -Choices @('Include','Exclude')
-                        Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
-                            if ($using:excl -eq 'Include') {
-                                Set-IntuneAppAssignment -AppId $using:appName -Include @($using:grp) -Confirm:$false
+                        $grp = Read-IaText -Question 'Group name or GUID'
+                        $excl = Read-IaMenu -Title 'Include or exclude?' -Color $Accent -Choices @('Include','Exclude')
+                        Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
+                            if ($excl -eq 'Include') {
+                                Set-IntuneAppAssignment -AppId $appName -Include @($grp) -Confirm:$false
                             } else {
-                                Set-IntuneAppAssignment -AppId $using:appName -Exclude @($using:grp) -Confirm:$false
+                                Set-IntuneAppAssignment -AppId $appName -Exclude @($grp) -Confirm:$false
                             }
                         }
                     }
                     'Clear all assignments' {
-                        $confirm = Read-SpectreSelection -Title "[red]Remove all assignments from '$appName'?[/]" -Color $Accent -Choices @('Yes','Cancel')
+                        $confirm = Read-IaMenu -Title "[red]Remove all assignments from '$appName'?[/]" -Color $Accent -Choices @('Yes','Cancel')
                         if ($confirm -eq 'Yes') {
-                            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Clearing…' -Color $Accent -ScriptBlock {
-                                Set-IntuneAppAssignment -AppId $using:appName -Clear -Confirm:$false
+                            Invoke-IaStatus -Spinner 'Dots2' -Title 'Clearing…' -Color $Accent -ScriptBlock {
+                                Set-IntuneAppAssignment -AppId $appName -Clear -Confirm:$false
                             }
                         }
                     }
                 }
-                Write-SpectreHost "[$Accent]Done.[/]"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Write-IaHost "[$Accent]Done.[/]"
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Back' { return }
         }
@@ -690,7 +720,7 @@ function Invoke-IaTuiWindowsUpdate {
     Write-IaTuiHeader -Screen 'Windows Update' -Sub 'rings · feature updates · driver updates' -Accent $Accent
 
     while ($true) {
-        $pick = Read-SpectreSelection -Title 'Windows Update' -Color $Accent -PageSize 10 -Choices @(
+        $pick = Read-IaMenu -Title 'Windows Update' -Color $Accent -PageSize 10 -Choices @(
             'List update rings',
             'Create update ring',
             'Delete update ring',
@@ -701,59 +731,59 @@ function Invoke-IaTuiWindowsUpdate {
         )
         switch -Wildcard ($pick) {
             'List update rings' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_rings = @(Get-IntuneUpdateRing)
                 }
                 $rows = $script:_rings | ForEach-Object {
                     [ordered]@{ Name = $_.Name; QualityDeferral = $_.QualityUpdateDeferralDays; FeatureDeferral = $_.FeatureUpdateDeferralDays; AutoMode = $_.AutomaticUpdateMode; Modified = $_.Modified }
                 }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Windows Update Rings'
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Create update ring' {
-                $name    = Read-SpectreText -Question 'Ring name'
-                $qDefer  = [int](Read-SpectreText -Question 'Quality deferral days (0-30)')
-                $fDefer  = [int](Read-SpectreText -Question 'Feature deferral days (0-365)')
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
-                    $script:_ring = New-IntuneUpdateRing -Name $using:name -QualityDeferralDays $using:qDefer -FeatureDeferralDays $using:fDefer -Confirm:$false
+                $name    = Read-IaText -Question 'Ring name'
+                $qDefer  = [int](Read-IaText -Question 'Quality deferral days (0-30)')
+                $fDefer  = [int](Read-IaText -Question 'Feature deferral days (0-365)')
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
+                    $script:_ring = New-IntuneUpdateRing -Name $name -QualityDeferralDays $qDefer -FeatureDeferralDays $fDefer -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Created:[/] $($script:_ring.Name) ($($script:_ring.Id))"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Write-IaHost "[$Accent]Created:[/] $($script:_ring.Name) ($($script:_ring.Id))"
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Delete update ring' {
-                $name = Read-SpectreText -Question 'Ring name or GUID to delete'
-                $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')
+                $name = Read-IaText -Question 'Ring name or GUID to delete'
+                $confirm = Read-IaMenu -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')
                 if ($confirm -eq 'Yes, delete') {
-                    Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
-                        Remove-IntuneUpdateRing -Id $using:name -Confirm:$false
+                    Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
+                        Remove-IntuneUpdateRing -Id $name -Confirm:$false
                     }
-                    Write-SpectreHost "[$Accent]Deleted.[/]"
+                    Write-IaHost "[$Accent]Deleted.[/]"
                 }
             }
             'List feature update*' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_fups = @(Get-IntuneFeatureUpdate)
                 }
                 $rows = $script:_fups | ForEach-Object { [ordered]@{ Name = $_.Name; Version = $_.FeatureUpdateVersion; RolloutStart = $_.RolloutSettings?.offerStartDateTimeInUTC; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Feature Update Profiles'
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Create feature update*' {
-                $name    = Read-SpectreText -Question 'Profile name'
-                $version = Read-SpectreText -Question 'Feature update version (e.g. Windows 11, version 23H2)'
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
-                    $script:_fup = New-IntuneFeatureUpdate -Name $using:name -FeatureUpdateVersion $using:version -Confirm:$false
+                $name    = Read-IaText -Question 'Profile name'
+                $version = Read-IaText -Question 'Feature update version (e.g. Windows 11, version 23H2)'
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
+                    $script:_fup = New-IntuneFeatureUpdate -Name $name -FeatureUpdateVersion $version -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Created:[/] $($script:_fup.Name)"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Write-IaHost "[$Accent]Created:[/] $($script:_fup.Name)"
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'List driver update*' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_dups = @(Get-IntuneDriverUpdate)
                 }
                 $rows = $script:_dups | ForEach-Object { [ordered]@{ Name = $_.Name; ApprovalType = $_.ApprovalType; Deferral = $_.DeploymentDeferralInDays; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Driver Update Profiles'
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Back' { return }
         }
@@ -766,7 +796,7 @@ function Invoke-IaTuiAutopilot {
     Write-IaTuiHeader -Screen 'Autopilot & Enrollment' -Sub 'devices · profiles · restrictions · ESP' -Accent $Accent
 
     while ($true) {
-        $pick = Read-SpectreSelection -Title 'Autopilot & Enrollment' -Color $Accent -PageSize 10 -Choices @(
+        $pick = Read-IaMenu -Title 'Autopilot & Enrollment' -Color $Accent -PageSize 10 -Choices @(
             'List Autopilot devices',
             'Search Autopilot device (by serial)',
             'Update Autopilot device (group tag)',
@@ -777,61 +807,61 @@ function Invoke-IaTuiAutopilot {
         )
         switch -Wildcard ($pick) {
             'List Autopilot devices' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_apdevs = @(Get-IntuneAutopilotDevice)
                 }
                 $rows = $script:_apdevs | ForEach-Object { [ordered]@{ Serial = $_.SerialNumber; Model = $_.Model; Manufacturer = $_.Manufacturer; GroupTag = $_.GroupTag; EnrollState = $_.EnrollmentState } }
                 Format-IaTable -Data $rows -Accent $Accent -Title "Autopilot Devices ($($script:_apdevs.Count))"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Search Autopilot device*' {
-                $serial = Read-SpectreText -Question 'Serial number'
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Searching…' -Color $Accent -ScriptBlock {
-                    $script:_apdev = @(Get-IntuneAutopilotDevice -SerialNumber $using:serial)
+                $serial = Read-IaText -Question 'Serial number'
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Searching…' -Color $Accent -ScriptBlock {
+                    $script:_apdev = @(Get-IntuneAutopilotDevice -SerialNumber $serial)
                 }
-                if (-not $script:_apdev) { Write-SpectreHost "[yellow]No device found.[/]" }
+                if (-not $script:_apdev) { Write-IaHost "[yellow]No device found.[/]" }
                 else {
                     $d = $script:_apdev[0]
-                    Write-SpectreHost "[$Accent]$($d.SerialNumber)[/]  $($d.Model)  GroupTag: $($d.GroupTag)  State: $($d.EnrollmentState)"
+                    Write-IaHost "[$Accent]$($d.SerialNumber)[/]  $($d.Model)  GroupTag: $($d.GroupTag)  State: $($d.EnrollmentState)"
                 }
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Update Autopilot device*' {
-                $serial   = Read-SpectreText -Question 'Serial number or GUID'
-                $groupTag = Read-SpectreText -Question 'New group tag (leave blank to skip)'
-                $dispName = Read-SpectreText -Question 'New display name (leave blank to skip)'
+                $serial   = Read-IaText -Question 'Serial number or GUID'
+                $groupTag = Read-IaText -Question 'New group tag (leave blank to skip)'
+                $dispName = Read-IaText -Question 'New display name (leave blank to skip)'
                 $params   = @{ Id = $serial }
                 if ($groupTag) { $params['GroupTag']    = $groupTag }
                 if ($dispName) { $params['DisplayName'] = $dispName }
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Updating…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Updating…' -Color $Accent -ScriptBlock {
                     Set-IntuneAutopilotDevice @using:params -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Updated.[/]"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Write-IaHost "[$Accent]Updated.[/]"
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'List Autopilot profiles' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_appros = @(Get-IntuneAutopilotProfile)
                 }
                 $rows = $script:_appros | ForEach-Object { [ordered]@{ Name = $_.Name; Language = $_.Language; DeviceUsageType = $_.OobeSettings?.deviceUsageType; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Autopilot Profiles'
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Enrollment restrictions' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_restr = @(Get-IntuneEnrollmentRestriction)
                 }
                 $rows = $script:_restr | ForEach-Object { [ordered]@{ Name = $_.Name; Type = $_.Type; Priority = $_.Priority; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Enrollment Restrictions'
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Enrollment Status Pages*' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_esps = @(Get-IntuneESP)
                 }
                 $rows = $script:_esps | ForEach-Object { [ordered]@{ Name = $_.Name; Priority = $_.Priority; ShowProgress = $_.ShowInstallationProgress; TimeoutMin = $_.InstallProgressTimeoutInMinutes; TrackedApps = $_.TrackedAppCount } }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Enrollment Status Pages'
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Back' { return }
         }
@@ -844,7 +874,7 @@ function Invoke-IaTuiSecurityBaselines {
     Write-IaTuiHeader -Screen 'Security Baselines' -Sub 'endpoint security · antivirus · firewall · disk encryption' -Accent $Accent
 
     while ($true) {
-        $pick = Read-SpectreSelection -Title 'Security Baselines' -Color $Accent -PageSize 8 -Choices @(
+        $pick = Read-IaMenu -Title 'Security Baselines' -Color $Accent -PageSize 8 -Choices @(
             'List all security baselines',
             'Filter by category',
             'View baseline details',
@@ -854,51 +884,51 @@ function Invoke-IaTuiSecurityBaselines {
         )
         switch -Wildcard ($pick) {
             'List all*' {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_baselines = @(Get-IntuneSecurityBaseline)
                 }
                 $rows = $script:_baselines | ForEach-Object { [ordered]@{ Name = $_.Name; Category = $_.Category; Platform = $_.Platform; Settings = $_.SettingCount; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title "Security Baselines ($($script:_baselines.Count))"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Filter by category' {
-                $cat = Read-SpectreSelection -Title 'Category' -Color $Accent -Choices @('Baseline','Antivirus','DiskEncryption','Firewall','EndpointDetectionResponse','AttackSurfaceReduction','AccountProtection')
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                    $script:_baselines = @(Get-IntuneSecurityBaseline -Category $using:cat)
+                $cat = Read-IaMenu -Title 'Category' -Color $Accent -Choices @('Baseline','Antivirus','DiskEncryption','Firewall','EndpointDetectionResponse','AttackSurfaceReduction','AccountProtection')
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_baselines = @(Get-IntuneSecurityBaseline -Category $cat)
                 }
                 $rows = $script:_baselines | ForEach-Object { [ordered]@{ Name = $_.Name; Platform = $_.Platform; Settings = $_.SettingCount; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title "$cat Baselines"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'View baseline details' {
-                $name = Read-SpectreText -Question 'Baseline name or GUID'
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                    $script:_bl = Get-IntuneSecurityBaseline -Id $using:name
+                $name = Read-IaText -Question 'Baseline name or GUID'
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_bl = Get-IntuneSecurityBaseline -Id $name
                 }
                 if ($script:_bl) {
-                    Write-SpectreHost "[$Accent]$($script:_bl.Name)[/]  Category: $($script:_bl.Category)  Platform: $($script:_bl.Platform)"
-                    Write-SpectreHost "Baseline type: $($script:_bl.BaselineType)"
-                    Write-SpectreHost "Settings: $($script:_bl.SettingCount)  Created: $($script:_bl.Created)  Modified: $($script:_bl.Modified)"
+                    Write-IaHost "[$Accent]$($script:_bl.Name)[/]  Category: $($script:_bl.Category)  Platform: $($script:_bl.Platform)"
+                    Write-IaHost "Baseline type: $($script:_bl.BaselineType)"
+                    Write-IaHost "Settings: $($script:_bl.SettingCount)  Created: $($script:_bl.Created)  Modified: $($script:_bl.Modified)"
                 }
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Create from template' {
-                $name  = Read-SpectreText -Question 'New baseline name'
-                $tmplId = Read-SpectreText -Question 'Template ID (GUID from Get-IntuneSecurityTemplate)'
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
-                    $script:_newbl = New-IntuneSecurityBaseline -Name $using:name -TemplateId $using:tmplId -Confirm:$false
+                $name  = Read-IaText -Question 'New baseline name'
+                $tmplId = Read-IaText -Question 'Template ID (GUID from Get-IntuneSecurityTemplate)'
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
+                    $script:_newbl = New-IntuneSecurityBaseline -Name $name -TemplateId $tmplId -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Created:[/] $($script:_newbl.Name) ($($script:_newbl.Id))"
-                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+                Write-IaHost "[$Accent]Created:[/] $($script:_newbl.Name) ($($script:_newbl.Id))"
+                Read-IaText -Question 'Press Enter to continue' | Out-Null
             }
             'Delete a baseline' {
-                $name = Read-SpectreText -Question 'Baseline name or GUID'
-                $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')
+                $name = Read-IaText -Question 'Baseline name or GUID'
+                $confirm = Read-IaMenu -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')
                 if ($confirm -eq 'Yes, delete') {
-                    Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
-                        Remove-IntuneConfigurationPolicy -Id $using:name -Confirm:$false
+                    Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
+                        Remove-IntuneConfigurationPolicy -Id $name -Confirm:$false
                     }
-                    Write-SpectreHost "[$Accent]Deleted.[/]"
+                    Write-IaHost "[$Accent]Deleted.[/]"
                 }
             }
             'Back' { return }
@@ -913,7 +943,7 @@ function Invoke-IaTuiPolicies {
     Write-IaTuiHeader -Screen 'Policies' -Sub 'configuration · compliance · scripts · remediations' -Accent $Accent
 
     while ($true) {
-        $pick = Read-SpectreSelection -Title 'Policies' -Color $Accent -PageSize 14 -Choices @(
+        $pick = Read-IaMenu -Title 'Policies' -Color $Accent -PageSize 14 -Choices @(
             'Configuration policies (Settings Catalog)',
             'Compliance policies',
             'Scripts (Windows PowerShell · macOS shell)',
@@ -935,7 +965,7 @@ function Invoke-IaTuiConfigPolicies {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Configuration Policies' -Sub 'Settings Catalog' -Accent $Accent
 
-    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+    $action = Read-IaMenu -Title 'Action' -Color $Accent -Choices @(
         'List all',
         'Filter by platform',
         'View a policy (with settings)',
@@ -946,57 +976,57 @@ function Invoke-IaTuiConfigPolicies {
 
     switch -Wildcard ($action) {
         'List all' {
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                 $script:_pols = @(Get-IntuneConfigurationPolicy)
             }
-            if (-not $script:_pols) { Write-SpectreHost "[yellow]No configuration policies found.[/]"; return }
+            if (-not $script:_pols) { Write-IaHost "[yellow]No configuration policies found.[/]"; return }
             $rows = $script:_pols | ForEach-Object {
                 [ordered]@{ Name = $_.Name; Platform = $_.Platform; Technologies = $_.Technologies; Settings = $_.SettingCount; Modified = $_.Modified }
             }
             Format-IaTable -Data $rows -Accent $Accent -Title 'Configuration Policies'
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Filter by platform' {
-            $plat = Read-SpectreSelection -Title 'Platform' -Color $Accent -Choices @('windows10','macOS','iOS','android','linux')
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                $script:_pols = @(Get-IntuneConfigurationPolicy -Platform $using:plat)
+            $plat = Read-IaMenu -Title 'Platform' -Color $Accent -Choices @('windows10','macOS','iOS','android','linux')
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_pols = @(Get-IntuneConfigurationPolicy -Platform $plat)
             }
-            if (-not $script:_pols) { Write-SpectreHost "[yellow]No $plat policies found.[/]"; return }
+            if (-not $script:_pols) { Write-IaHost "[yellow]No $plat policies found.[/]"; return }
             $rows = $script:_pols | ForEach-Object {
                 [ordered]@{ Name = $_.Name; Platform = $_.Platform; Settings = $_.SettingCount; Modified = $_.Modified }
             }
             Format-IaTable -Data $rows -Accent $Accent -Title "$plat Configuration Policies"
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'View a policy*' {
-            $name = Read-SpectreText -Question 'Policy name or GUID'
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                $script:_pol = Get-IntuneConfigurationPolicy -Id $using:name
+            $name = Read-IaText -Question 'Policy name or GUID'
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_pol = Get-IntuneConfigurationPolicy -Id $name
             }
             if (-not $script:_pol) { return }
-            Write-SpectreHost "[$Accent]$($script:_pol.Name)[/]  Platform: $($script:_pol.Platform)  Settings: $($script:_pol.SettingCount)"
-            Write-SpectreHost "Description: $($script:_pol.Description)"
-            Write-SpectreHost "Created: $($script:_pol.Created)  Modified: $($script:_pol.Modified)"
-            $script:_pol.Settings | ForEach-Object { Write-SpectreHost "  - $($_.settingInstance.'@odata.type' -replace '.*\.', '')" }
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Write-IaHost "[$Accent]$($script:_pol.Name)[/]  Platform: $($script:_pol.Platform)  Settings: $($script:_pol.SettingCount)"
+            Write-IaHost "Description: $($script:_pol.Description)"
+            Write-IaHost "Created: $($script:_pol.Created)  Modified: $($script:_pol.Modified)"
+            $script:_pol.Settings | ForEach-Object { Write-IaHost "  - $($_.settingInstance.'@odata.type' -replace '.*\.', '')" }
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Copy a policy' {
-            $src  = Read-SpectreText -Question 'Source policy name or GUID'
-            $dest = Read-SpectreText -Question 'New policy name'
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Copying '$src'…" -Color $Accent -ScriptBlock {
-                $script:_copy = Copy-IntuneConfigurationPolicy -SourceId $using:src -NewName $using:dest
+            $src  = Read-IaText -Question 'Source policy name or GUID'
+            $dest = Read-IaText -Question 'New policy name'
+            Invoke-IaStatus -Spinner 'Dots2' -Title "Copying '$src'…" -Color $Accent -ScriptBlock {
+                $script:_copy = Copy-IntuneConfigurationPolicy -SourceId $src -NewName $dest
             }
-            Write-SpectreHost "[$Accent]Created:[/] $($script:_copy.Name) ($($script:_copy.Id))"
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Write-IaHost "[$Accent]Created:[/] $($script:_copy.Name) ($($script:_copy.Id))"
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Delete a policy' {
-            $name = Read-SpectreText -Question 'Policy name or GUID to delete'
-            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            $name = Read-IaText -Question 'Policy name or GUID to delete'
+            $confirm = Read-IaMenu -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
             if ($confirm -eq 'Yes, delete') {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
-                    Remove-IntuneConfigurationPolicy -Id $using:name -Confirm:$false
+                Invoke-IaStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneConfigurationPolicy -Id $name -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Deleted.[/]"
+                Write-IaHost "[$Accent]Deleted.[/]"
             }
         }
         'Back' { return }
@@ -1007,7 +1037,7 @@ function Invoke-IaTuiCompliancePol {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Compliance Policies' -Accent $Accent
 
-    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+    $action = Read-IaMenu -Title 'Action' -Color $Accent -Choices @(
         'List all',
         'Filter by platform',
         'Delete a policy',
@@ -1016,33 +1046,33 @@ function Invoke-IaTuiCompliancePol {
 
     switch -Wildcard ($action) {
         'List all' {
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                 $script:_cpols = @(Get-IntuneCompliancePolicy)
             }
-            if (-not $script:_cpols) { Write-SpectreHost "[yellow]No compliance policies found.[/]"; return }
+            if (-not $script:_cpols) { Write-IaHost "[yellow]No compliance policies found.[/]"; return }
             $rows = $script:_cpols | ForEach-Object {
                 [ordered]@{ Name = $_.Name; Platform = $_.Platform; Modified = $_.Modified }
             }
             Format-IaTable -Data $rows -Accent $Accent -Title 'Compliance Policies'
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Filter by platform' {
-            $plat = Read-SpectreSelection -Title 'Platform' -Color $Accent -Choices @('Windows','macOS','iOS','Android','AndroidWorkProfile')
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                $script:_cpols = @(Get-IntuneCompliancePolicy -Platform $using:plat)
+            $plat = Read-IaMenu -Title 'Platform' -Color $Accent -Choices @('Windows','macOS','iOS','Android','AndroidWorkProfile')
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_cpols = @(Get-IntuneCompliancePolicy -Platform $plat)
             }
             $rows = $script:_cpols | ForEach-Object { [ordered]@{ Name = $_.Name; Platform = $_.Platform; Modified = $_.Modified } }
             Format-IaTable -Data $rows -Accent $Accent -Title "$plat Compliance Policies"
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Delete a policy' {
-            $name = Read-SpectreText -Question 'Policy name or GUID to delete'
-            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            $name = Read-IaText -Question 'Policy name or GUID to delete'
+            $confirm = Read-IaMenu -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
             if ($confirm -eq 'Yes, delete') {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
-                    Remove-IntuneCompliancePolicy -Id $using:name -Confirm:$false
+                Invoke-IaStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneCompliancePolicy -Id $name -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Deleted.[/]"
+                Write-IaHost "[$Accent]Deleted.[/]"
             }
         }
         'Back' { return }
@@ -1053,7 +1083,7 @@ function Invoke-IaTuiScripts {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Scripts' -Sub 'Windows PowerShell · macOS shell' -Accent $Accent
 
-    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+    $action = Read-IaMenu -Title 'Action' -Color $Accent -Choices @(
         'List all',
         'List Windows scripts',
         'List macOS scripts',
@@ -1064,49 +1094,49 @@ function Invoke-IaTuiScripts {
 
     switch -Wildcard ($action) {
         'List all' {
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                 $script:_scripts = @(Get-IntuneScript -Platform Both)
             }
             $rows = $script:_scripts | ForEach-Object { [ordered]@{ Name = $_.Name; Platform = $_.Platform; RunAs = $_.RunAs; Modified = $_.Modified } }
             Format-IaTable -Data $rows -Accent $Accent -Title 'Scripts'
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'List Windows*' {
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                 $script:_scripts = @(Get-IntuneScript -Platform Windows)
             }
             $rows = $script:_scripts | ForEach-Object { [ordered]@{ Name = $_.Name; FileName = $_.FileName; RunAs = $_.RunAs; Modified = $_.Modified } }
             Format-IaTable -Data $rows -Accent $Accent -Title 'Windows Scripts'
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'List macOS*' {
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                 $script:_scripts = @(Get-IntuneScript -Platform macOS)
             }
             $rows = $script:_scripts | ForEach-Object { [ordered]@{ Name = $_.Name; FileName = $_.FileName; RetryCount = $_.RetryCount; Modified = $_.Modified } }
             Format-IaTable -Data $rows -Accent $Accent -Title 'macOS Scripts'
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'View script content' {
-            $name = Read-SpectreText -Question 'Script name or GUID'
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                $script:_scr = Get-IntuneScript -Id $using:name -IncludeContent
+            $name = Read-IaText -Question 'Script name or GUID'
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_scr = Get-IntuneScript -Id $name -IncludeContent
             }
             if ($script:_scr) {
-                Write-SpectreHost "[$Accent]$($script:_scr.Name)[/]  Platform: $($script:_scr.Platform)  RunAs: $($script:_scr.RunAs)"
-                Write-SpectreHost "---"
-                Write-SpectreHost ($script:_scr.Content ?? '(no content)')
+                Write-IaHost "[$Accent]$($script:_scr.Name)[/]  Platform: $($script:_scr.Platform)  RunAs: $($script:_scr.RunAs)"
+                Write-IaHost "---"
+                Write-IaHost ($script:_scr.Content ?? '(no content)')
             }
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Delete a script' {
-            $name = Read-SpectreText -Question 'Script name or GUID to delete'
-            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            $name = Read-IaText -Question 'Script name or GUID to delete'
+            $confirm = Read-IaMenu -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
             if ($confirm -eq 'Yes, delete') {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
-                    Remove-IntuneScript -Id $using:name -Confirm:$false
+                Invoke-IaStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneScript -Id $name -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Deleted.[/]"
+                Write-IaHost "[$Accent]Deleted.[/]"
             }
         }
         'Back' { return }
@@ -1117,7 +1147,7 @@ function Invoke-IaTuiRemediations {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Remediations' -Sub 'device health scripts' -Accent $Accent
 
-    $action = Read-SpectreSelection -Title 'Action' -Color $Accent -Choices @(
+    $action = Read-IaMenu -Title 'Action' -Color $Accent -Choices @(
         'List all',
         'View remediation (with content)',
         'Run on-demand on a device',
@@ -1127,46 +1157,46 @@ function Invoke-IaTuiRemediations {
 
     switch -Wildcard ($action) {
         'List all' {
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                 $script:_rems = @(Get-IntuneRemediation)
             }
             $rows = $script:_rems | ForEach-Object { [ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; RunAs = $_.RunAs; Modified = $_.Modified } }
             Format-IaTable -Data $rows -Accent $Accent -Title 'Remediations'
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'View remediation*' {
-            $name = Read-SpectreText -Question 'Remediation name or GUID'
-            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                $script:_rem = Get-IntuneRemediation -Id $using:name -IncludeContent
+            $name = Read-IaText -Question 'Remediation name or GUID'
+            Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                $script:_rem = Get-IntuneRemediation -Id $name -IncludeContent
             }
             if ($script:_rem) {
-                Write-SpectreHost "[$Accent]$($script:_rem.Name)[/]  Publisher: $($script:_rem.Publisher)  v$($script:_rem.Version)"
-                Write-SpectreHost "--- Detection ---"
-                Write-SpectreHost ($script:_rem.DetectionContent ?? '(none)')
-                Write-SpectreHost "--- Remediation ---"
-                Write-SpectreHost ($script:_rem.RemediationContent ?? '(none)')
+                Write-IaHost "[$Accent]$($script:_rem.Name)[/]  Publisher: $($script:_rem.Publisher)  v$($script:_rem.Version)"
+                Write-IaHost "--- Detection ---"
+                Write-IaHost ($script:_rem.DetectionContent ?? '(none)')
+                Write-IaHost "--- Remediation ---"
+                Write-IaHost ($script:_rem.RemediationContent ?? '(none)')
             }
-            Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            Read-IaText -Question 'Press Enter to continue' | Out-Null
         }
         'Run on-demand*' {
-            $remName = Read-SpectreText -Question 'Remediation name or GUID'
-            $devName = Read-SpectreText -Question 'Device name or GUID'
-            $confirm = Read-SpectreSelection -Title "Run '$remName' on '$devName'?" -Color $Accent -Choices @('Yes, run it', 'Cancel')
+            $remName = Read-IaText -Question 'Remediation name or GUID'
+            $devName = Read-IaText -Question 'Device name or GUID'
+            $confirm = Read-IaMenu -Title "Run '$remName' on '$devName'?" -Color $Accent -Choices @('Yes, run it', 'Cancel')
             if ($confirm -eq 'Yes, run it') {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Submitting…" -Color $Accent -ScriptBlock {
-                    Invoke-IntuneRemediation -RemediationId $using:remName -Device $using:devName -Confirm:$false
+                Invoke-IaStatus -Spinner 'Dots2' -Title "Submitting…" -Color $Accent -ScriptBlock {
+                    Invoke-IntuneRemediation -RemediationId $remName -Device $devName -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Submitted.[/]"
+                Write-IaHost "[$Accent]Submitted.[/]"
             }
         }
         'Delete a remediation' {
-            $name = Read-SpectreText -Question 'Remediation name or GUID to delete'
-            $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
+            $name = Read-IaText -Question 'Remediation name or GUID to delete'
+            $confirm = Read-IaMenu -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')
             if ($confirm -eq 'Yes, delete') {
-                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
-                    Remove-IntuneRemediation -Id $using:name -Confirm:$false
+                Invoke-IaStatus -Spinner 'Dots2' -Title "Deleting…" -Color $Accent -ScriptBlock {
+                    Remove-IntuneRemediation -Id $name -Confirm:$false
                 }
-                Write-SpectreHost "[$Accent]Deleted.[/]"
+                Write-IaHost "[$Accent]Deleted.[/]"
             }
         }
         'Back' { return }
@@ -1178,7 +1208,7 @@ function Invoke-IaTuiRemediations {
 function Invoke-IaTuiReports {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Reports' -Sub 'status · audit · approvals · any report' -Accent $Accent
-    $pick = Read-SpectreSelection -Title 'Reports' -Color $Accent -PageSize 12 -Choices @(
+    $pick = Read-IaMenu -Title 'Reports' -Color $Accent -PageSize 12 -Choices @(
         'Tenant dashboard (devices · compliance · posture)',
         'Device inventory (compliance · last check-in)',
         'App install status (device / user)',
@@ -1194,13 +1224,13 @@ function Invoke-IaTuiReports {
     switch -Wildcard ($pick) {
         'Tenant dashboard*' {
             $items = Get-IaTuiInventory
-            $sum = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading device health…' -ScriptBlock {
+            $sum = Invoke-IaStatus -Spinner Dots -Title 'Reading device health…' -ScriptBlock {
                 Get-IaDeviceSummary -StaleDays 30
             }
             Write-IaTuiHeader -Screen 'Tenant dashboard' -Sub 'device health · assignment posture' -Accent $Accent
 
             $pctColor = if ($sum.CompliancePercent -ge 90) { $Accent } elseif ($sum.CompliancePercent -ge 75) { 'yellow' } else { 'coral' }
-            Write-SpectreHost (
+            Write-IaHost (
                 "[$Accent]Devices  $($sum.DeviceCount)[/]    " +
                 "Compliant  [$pctColor]$($sum.CompliancePercent)%[/]    " +
                 "[coral]Non-compliant  $($sum.NonCompliantCount)[/]    " +
@@ -1212,45 +1242,45 @@ function Invoke-IaTuiReports {
                     [pscustomobject]@{ Area = $_.Name; Total = $_.Count
                         Assigned = @($_.Group | Where-Object { $_.Assignments.Count -gt 0 }).Count }
                 })
-            Write-SpectreHost (
+            Write-IaHost (
                 "[$Accent]Resources  $(@($items).Count)[/]    " +
                 "Assigned  $assignedCount    " +
                 "[grey]Unassigned  $(@($items).Count - $assignedCount)[/]"
             )
 
             if ($sum.ByPlatform) {
-                Write-SpectreHost ""
-                Write-SpectreHost "[$Accent]Compliance by platform[/]"
+                Write-IaHost ""
+                Write-IaHost "[$Accent]Compliance by platform[/]"
                 foreach ($p in $sum.ByPlatform) {
                     $w   = [int][math]::Round(($p.CompliantPercent / 100) * 28)
                     $bar = '█' * [math]::Max($w, 0)
                     $bc  = if ($p.CompliantPercent -ge 90) { $Accent } elseif ($p.CompliantPercent -ge 75) { 'yellow' } else { 'coral' }
-                    Write-SpectreHost ("[grey]{0,-10}[/] [$bc]{1,-28}[/] {2,3}%  [grey]({3})[/]" -f $p.Platform, $bar, $p.CompliantPercent, $p.Total)
+                    Write-IaHost ("[grey]{0,-10}[/] [$bc]{1,-28}[/] {2,3}%  [grey]({3})[/]" -f $p.Platform, $bar, $p.CompliantPercent, $p.Total)
                 }
             }
             if ($byArea) {
-                Write-SpectreHost ""
-                Write-SpectreHost "[$Accent]Assigned by area[/]"
+                Write-IaHost ""
+                Write-IaHost "[$Accent]Assigned by area[/]"
                 $max = ($byArea | Measure-Object -Property Assigned -Maximum).Maximum
                 foreach ($r in ($byArea | Sort-Object Assigned -Descending)) {
                     $w   = if ($max) { [int][math]::Round(($r.Assigned / $max) * 28) } else { 0 }
                     $bar = '█' * [math]::Max($w, 1)
-                    Write-SpectreHost ("[grey]{0,-16}[/] [$Accent]{1}[/] {2}/{3}" -f $r.Area, $bar, $r.Assigned, $r.Total)
+                    Write-IaHost ("[grey]{0,-16}[/] [$Accent]{1}[/] {2}/{3}" -f $r.Area, $bar, $r.Assigned, $r.Total)
                 }
             }
         }
         'Device inventory*' {
-            $scope = Read-SpectreSelection -Title 'Scope' -Color $Accent -Choices @('All devices', 'Non-compliant only', 'Stale (no sync 30d+)')
+            $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All devices', 'Non-compliant only', 'Stale (no sync 30d+)')
             Write-IaTuiHeader -Screen 'Device inventory' -Sub $scope.ToLower() -Accent $Accent
-            $rows = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Reading managed devices…' -ScriptBlock {
-                switch -Wildcard ($using:scope) {
+            $rows = Invoke-IaStatus -Spinner Dots -Title 'Reading managed devices…' -ScriptBlock {
+                switch -Wildcard ($scope) {
                     'Non-compliant*' { Get-IntuneDeviceInventory -ComplianceState noncompliant }
                     'Stale*'         { Get-IntuneDeviceInventory -StaleDays 30 }
                     default          { Get-IntuneDeviceInventory }
                 }
             }
-            if (-not $rows) { Write-SpectreHost '[yellow]No devices match.[/]'; return }
-            Write-SpectreHost "[$Accent]$(@($rows).Count)[/] device(s)"
+            if (-not $rows) { Write-IaHost '[yellow]No devices match.[/]'; return }
+            Write-IaHost "[$Accent]$(@($rows).Count)[/] device(s)"
             @($rows) | Select-Object -First 200 | ForEach-Object {
                 $cs = "$($_.Compliance)"
                 $cc = switch ($cs) { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
@@ -1266,16 +1296,16 @@ function Invoke-IaTuiReports {
                     'Sync(d)'  = if ($null -ne $_.DaysSinceSync) { "[$dsc]$($_.DaysSinceSync)[/]" } else { '[grey]—[/]' }
                 }
             } | Format-IaTable -Color $Accent
-            if (@($rows).Count -gt 200) { Write-SpectreHost "[grey]Showing first 200 of $(@($rows).Count) — use Get-IntuneDeviceInventory for the full list.[/]" }
+            if (@($rows).Count -gt 200) { Write-IaHost "[grey]Showing first 200 of $(@($rows).Count) — use Get-IntuneDeviceInventory for the full list.[/]" }
         }
         'App install*' {
             $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
             if (-not $app) { return }
-            $by  = Read-SpectreSelection -Title 'Pivot by' -Choices @('Device', 'User') -Color $Accent
+            $by  = Read-IaMenu -Title 'Pivot by' -Choices @('Device', 'User') -Color $Accent
             Write-IaTuiHeader -Screen 'App install status' -Sub "app: $($app.Name)  ·  by: $by" -Accent $Accent
             $name = $app.Name
-            $rows = Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
-                Get-IntuneAppInstallStatus -App $using:name -By $using:by
+            $rows = Invoke-IaStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
+                Get-IntuneAppInstallStatus -App $name -By $by
             }
             if ($by -eq 'Device') {
                 $rows | ForEach-Object {
@@ -1296,10 +1326,10 @@ function Invoke-IaTuiReports {
                 } | Format-IaTable -Color $Accent
                 $failHints = @($rows | Where-Object { $_.Hint })
                 if ($failHints) {
-                    Write-SpectreRule -Title 'Remediation hints' -Color $Accent
+                    Write-IaRule -Title 'Remediation hints' -Color $Accent
                     foreach ($fh in $failHints | Select-Object -First 5) {
-                        Write-SpectreHost "[$Accent]$($fh.ErrorCode)[/]  $($fh.ErrorReason)"
-                        Write-SpectreHost "  [grey]→ $($fh.Hint)[/]"
+                        Write-IaHost "[$Accent]$($fh.ErrorCode)[/]  $($fh.ErrorReason)"
+                        Write-IaHost "  [grey]→ $($fh.Hint)[/]"
                     }
                 }
             } else {
@@ -1313,26 +1343,26 @@ function Invoke-IaTuiReports {
             Get-IntuneConfigurationStatus -Profile $p.Name | Format-IaTable -Color $Accent
         }
         'Compliance*' {
-            $mode = Read-SpectreSelection -Title 'Compliance by' -Choices @('Tenant summary', 'Policy', 'Device') -Color $Accent
+            $mode = Read-IaMenu -Title 'Compliance by' -Choices @('Tenant summary', 'Policy', 'Device') -Color $Accent
             Write-IaTuiHeader -Screen 'Compliance status' -Sub $mode.ToLower() -Accent $Accent
             $rows = switch -Wildcard ($mode) {
                 'Policy'  {
                     $pol = Select-IaInventoryItem -Accent $Accent -Area 'Compliance' -Title 'Which compliance policy?'
                     if ($pol) { Get-IntuneComplianceStatus -Policy $pol.Name }
                 }
-                'Device'  { Get-IntuneComplianceStatus -Device (Read-SpectreText -Question 'Device name') }
+                'Device'  { Get-IntuneComplianceStatus -Device (Read-IaText -Question 'Device name') }
                 default   { Get-IntuneComplianceStatus }
             }
             $rows | Format-IaTable -Color $Accent
         }
         'Deployment*' {
-            $scope = Read-SpectreSelection -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
+            $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
             $grp   = $null
             if ($scope -like 'Scope*') { $grp = (Select-IaGroup -Accent $Accent -Title 'Scope to group').DisplayName }
             Write-IaTuiHeader -Screen 'Deployment summary' `
                 -Sub "for everything assigned to '$(if ($grp) { $grp } else { 'all resources' })'" -Accent $Accent
-            $data = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
-                if ($using:grp) { Get-IntuneDeploymentSummary -Group $using:grp }
+            $data = Invoke-IaStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
+                if ($grp) { Get-IntuneDeploymentSummary -Group $grp }
                 else { Get-IntuneDeploymentSummary }
             }
             $data | ForEach-Object {
@@ -1348,11 +1378,11 @@ function Invoke-IaTuiReports {
                     'FAIL%'  = "[$frColor]$($_.FailRate)[/]"
                 }
             } | Format-IaTable -Color $Accent
-            Write-SpectreHost "[grey]FailRate colour-graded — [coral]coral >15%[/] · [yellow]amber >5%[/] · ok otherwise[/]"
+            Write-IaHost "[grey]FailRate colour-graded — [coral]coral >15%[/] · [yellow]amber >5%[/] · ok otherwise[/]"
         }
         'Audit*' {
-            $since = Read-SpectreText -Question 'Since (e.g. 7d, 24h)' -DefaultAnswer '7d'
-            $act   = Read-SpectreText -Question 'Activity contains (blank = any)' -DefaultAnswer ''
+            $since = Read-IaText -Question 'Since (e.g. 7d, 24h)' -DefaultAnswer '7d'
+            $act   = Read-IaText -Question 'Activity contains (blank = any)' -DefaultAnswer ''
             Write-IaTuiHeader -Screen 'Audit log' -Sub "since $since$(if ($act) { "  ·  activity: $act" })" -Accent $Accent
             $p = @{ Since = $since }; if ($act) { $p.Activity = $act }
             Get-IntuneAuditLog @p | Select-Object -First 50 | Format-IaTable -Color $Accent
@@ -1368,10 +1398,10 @@ function Invoke-IaTuiReports {
         'Run any*' {
             $name = Read-IaSelection -Title 'Pick a report' -Color $Accent `
                 -Choices (@(Get-IntuneReportCatalog | ForEach-Object Name) + 'Other (type a name)')
-            if ($name -like 'Other*') { $name = Read-SpectreText -Question 'Report name' }
+            if ($name -like 'Other*') { $name = Read-IaText -Question 'Report name' }
             Write-IaTuiHeader -Screen "Report: $name" -Accent $Accent
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Running $name…" -ScriptBlock {
-                Export-IntuneReport -Name $using:name
+            Invoke-IaStatus -Spinner Dots -Title "Running $name…" -ScriptBlock {
+                Export-IntuneReport -Name $name
             } | Select-Object -First 100 | Format-IaTable -Color $Accent
         }
         default { return }
@@ -1382,7 +1412,7 @@ function Invoke-IaTuiReports {
 
 function Invoke-IaTuiBackup {
     param([string]$Accent)
-    $pick = Read-SpectreSelection -Title 'Backup / Restore / Drift' -Color $Accent -PageSize 8 -Choices @(
+    $pick = Read-IaMenu -Title 'Backup / Restore / Drift' -Color $Accent -PageSize 8 -Choices @(
         'Backup assignments to a file',
         'Backup full config (one file per config)',
         'Restore assignments from a snapshot',
@@ -1392,29 +1422,29 @@ function Invoke-IaTuiBackup {
     )
     switch -Wildcard ($pick) {
         'Backup assignments*' {
-            $p    = Read-SpectreText -Question 'Save snapshot to' -DefaultAnswer (Get-IaBackupName)
+            $p    = Read-IaText -Question 'Save snapshot to' -DefaultAnswer (Get-IaBackupName)
             Write-IaTuiHeader -Screen 'Backup' -Sub "→ $p" -Accent $Accent
             $snap = Backup-IntuneAssignment -Path $p
-            Write-SpectreHost "[$Accent]Backed up[/] $($snap.count) resource(s) → $p"
+            Write-IaHost "[$Accent]Backed up[/] $($snap.count) resource(s) → $p"
         }
         'Backup full config*' {
-            $p = Read-SpectreText -Question 'Backup folder' -DefaultAnswer (Get-IaBackupName -Prefix 'intunetide-config' -Extension '')
+            $p = Read-IaText -Question 'Backup folder' -DefaultAnswer (Get-IaBackupName -Prefix 'intunetide-config' -Extension '')
             Write-IaTuiHeader -Screen 'Full config backup' -Sub "→ $p (one file per config)" -Accent $Accent
-            $res = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Exporting every config…' -ScriptBlock {
+            $res = Invoke-IaStatus -Spinner Dots -Title 'Exporting every config…' -ScriptBlock {
                 $ProgressPreference = 'SilentlyContinue'
-                Backup-IntuneConfig -Path $using:p
+                Backup-IntuneConfig -Path $p
             }
-            Write-SpectreHost "[$Accent]Backed up[/] $($res.Count) config(s) across $(@($res.Areas).Count) area(s) → $($res.Path)"
-            Write-SpectreHost "[grey]Each config is its own JSON, grouped by area, with a manifest.json index.[/]"
+            Write-IaHost "[$Accent]Backed up[/] $($res.Count) config(s) across $(@($res.Areas).Count) area(s) → $($res.Path)"
+            Write-IaHost "[grey]Each config is its own JSON, grouped by area, with a manifest.json index.[/]"
         }
         'Drift*' {
             $latest = Find-IaLatestBackup
-            $p = if ($latest) { Read-SpectreText -Question 'Snapshot file to compare against' -DefaultAnswer $latest }
-                 else { Read-SpectreText -Question 'Snapshot file to compare against' }
+            $p = if ($latest) { Read-IaText -Question 'Snapshot file to compare against' -DefaultAnswer $latest }
+                 else { Read-IaText -Question 'Snapshot file to compare against' }
             Write-IaTuiHeader -Screen 'Drift' -Sub "snapshot: $p" -Accent $Accent
             $d = @(Get-IntuneAssignmentDrift -Path $p)
-            if (-not $d) { Write-SpectreHost "[$Accent]No drift — current state matches the snapshot.[/]"; return }
-            Write-SpectreHost "[$Accent]$($d.Count)[/] drifted assignment target(s):"
+            if (-not $d) { Write-IaHost "[$Accent]No drift — current state matches the snapshot.[/]"; return }
+            Write-IaHost "[$Accent]$($d.Count)[/] drifted assignment target(s):"
             $d | ForEach-Object {
                 $changeColor = switch ($_.Change) { 'Added' { $Accent } 'Removed' { 'coral' } default { 'yellow' } }
                 [pscustomobject]@{
@@ -1424,13 +1454,13 @@ function Invoke-IaTuiBackup {
                     Target   = $_.Target
                 }
             } | Format-IaTable -Color $Accent
-            Write-SpectreHost "[grey]Added = [$Accent]sea-green[/]  ·  Removed = [coral]coral[/]  ·  use Restore to revert[/]"
+            Write-IaHost "[grey]Added = [$Accent]sea-green[/]  ·  Removed = [coral]coral[/]  ·  use Restore to revert[/]"
         }
         'Restore assignments*' {
             $latest = Find-IaLatestBackup
-            $p    = if ($latest) { Read-SpectreText -Question 'Snapshot file to restore' -DefaultAnswer $latest }
-                    else { Read-SpectreText -Question 'Snapshot file to restore' }
-            $mode = Read-SpectreSelection -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
+            $p    = if ($latest) { Read-IaText -Question 'Snapshot file to restore' -DefaultAnswer $latest }
+                    else { Read-IaText -Question 'Snapshot file to restore' }
+            $mode = Read-IaMenu -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
             Write-IaTuiHeader -Screen 'Restore' -Sub "snapshot: $p" -Accent $Accent
             $plans = if ($mode -like 'Apply*') { Restore-IntuneAssignment -Path $p -Confirm:$false }
                      else { Restore-IntuneAssignment -Path $p -WhatIf }
@@ -1439,20 +1469,20 @@ function Invoke-IaTuiBackup {
         }
         'Restore full config*' {
             $dir = Find-IaLatestConfigBackup
-            $p   = if ($dir) { Read-SpectreText -Question 'Backup folder to restore' -DefaultAnswer $dir }
-                   else { Read-SpectreText -Question 'Backup folder to restore' }
-            $mode = Read-SpectreSelection -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
-            $create = Read-SpectreSelection -Title 'Re-create configs that were deleted?' -Color $Accent `
+            $p   = if ($dir) { Read-IaText -Question 'Backup folder to restore' -DefaultAnswer $dir }
+                   else { Read-IaText -Question 'Backup folder to restore' }
+            $mode = Read-IaMenu -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
+            $create = Read-IaMenu -Title 'Re-create configs that were deleted?' -Color $Accent `
                 -Choices @('Update existing only', 'Also create missing (where supported)')
             $createMissing = $create -like 'Also create*'
             Write-IaTuiHeader -Screen 'Full config restore' -Sub "folder: $p" -Accent $Accent
             $apply = $mode -like 'Apply*'
-            $plans = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Restoring configs…' -ScriptBlock {
-                if ($using:apply) { Restore-IntuneConfig -Path $using:p -CreateMissing:$using:createMissing -Confirm:$false }
-                else { Restore-IntuneConfig -Path $using:p -CreateMissing:$using:createMissing -WhatIf }
+            $plans = Invoke-IaStatus -Spinner Dots -Title 'Restoring configs…' -ScriptBlock {
+                if ($apply) { Restore-IntuneConfig -Path $p -CreateMissing:$createMissing -Confirm:$false }
+                else { Restore-IntuneConfig -Path $p -CreateMissing:$createMissing -WhatIf }
             }
             Show-IaRestorePlan -Plans $plans -Accent $Accent
-            if (-not $apply) { Write-SpectreHost "[grey]Preview only — re-run and choose 'Apply now' to write.[/]" }
+            if (-not $apply) { Write-IaHost "[grey]Preview only — re-run and choose 'Apply now' to write.[/]" }
             if ($apply) { $script:IaTuiInventory = $null }
         }
         default { return }
@@ -1464,32 +1494,32 @@ function Invoke-IaTuiBackup {
 function Invoke-IaTuiExport {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Export report' -Sub 'HTML · Excel · Rich HTML' -Accent $Accent
-    $fmt = Read-SpectreSelection -Title 'Export format' -Color $Accent -Choices @(
+    $fmt = Read-IaMenu -Title 'Export format' -Color $Accent -Choices @(
         'Built-in HTML (themed, no dependencies)',
         'Excel workbook (ImportExcel)',
         'Rich interactive HTML (PSWriteHTML)'
     )
     switch -Wildcard ($fmt) {
         'Built-in*' {
-            $p = Read-SpectreText -Question 'Output path' -DefaultAnswer 'intune-assignments.html'
+            $p = Read-IaText -Question 'Output path' -DefaultAnswer 'intune-assignments.html'
             New-IaHtmlReport -Items (Get-IaTuiInventory) | Set-Content -Path $p -Encoding utf8
-            Write-SpectreHost "[$Accent]Wrote[/] $p"
+            Write-IaHost "[$Accent]Wrote[/] $p"
         }
         'Excel*' {
             if (-not (Get-Command Export-Excel -ErrorAction SilentlyContinue)) {
-                Write-SpectreHost "[yellow]ImportExcel not installed.[/] Install-Module ImportExcel -Scope CurrentUser"; return
+                Write-IaHost "[yellow]ImportExcel not installed.[/] Install-Module ImportExcel -Scope CurrentUser"; return
             }
-            $p = Read-SpectreText -Question 'Output path' -DefaultAnswer 'intune-assignments.xlsx'
+            $p = Read-IaText -Question 'Output path' -DefaultAnswer 'intune-assignments.xlsx'
             Get-IntuneAssignment -Flat | Export-IntuneExcel -Path $p -WorksheetName Assignments -Title 'Intune assignments'
-            Write-SpectreHost "[$Accent]Wrote[/] $p"
+            Write-IaHost "[$Accent]Wrote[/] $p"
         }
         'Rich*' {
             if (-not (Get-Command New-HTML -ErrorAction SilentlyContinue)) {
-                Write-SpectreHost "[yellow]PSWriteHTML not installed.[/] Install-Module PSWriteHTML -Scope CurrentUser"; return
+                Write-IaHost "[yellow]PSWriteHTML not installed.[/] Install-Module PSWriteHTML -Scope CurrentUser"; return
             }
-            $p = Read-SpectreText -Question 'Output path' -DefaultAnswer 'intune-assignments-rich.html'
+            $p = Read-IaText -Question 'Output path' -DefaultAnswer 'intune-assignments-rich.html'
             Export-IntuneHtmlReport -Path $p
-            Write-SpectreHost "[$Accent]Wrote[/] $p"
+            Write-IaHost "[$Accent]Wrote[/] $p"
         }
     }
 }
@@ -1499,7 +1529,7 @@ function Invoke-IaTuiExport {
 function Invoke-IaTuiCloudPC {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Windows 365 Cloud PCs' -Sub 'browse · actions · policies · connections' -Accent $Accent
-    $pick = Read-SpectreSelection -Title 'Windows 365' -Color $Accent -PageSize 12 -Choices @(
+    $pick = Read-IaMenu -Title 'Windows 365' -Color $Accent -PageSize 12 -Choices @(
         'Browse Cloud PCs',
         'Cloud PC actions',
         'Provisioning policies',
@@ -1514,10 +1544,10 @@ function Invoke-IaTuiCloudPC {
     switch -Wildcard ($pick) {
         'Browse*' {
             Write-IaTuiHeader -Screen 'Cloud PCs' -Accent $Accent
-            $pcs = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock {
+            $pcs = Invoke-IaStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock {
                 Get-IntuneCloudPC
             }
-            if (-not $pcs) { Write-SpectreHost '[grey]No Cloud PCs found.[/]'; return }
+            if (-not $pcs) { Write-IaHost '[grey]No Cloud PCs found.[/]'; return }
             $pcs | ForEach-Object {
                 [pscustomobject]@{
                     'Cloud PC'   = $_.CloudPC
@@ -1531,32 +1561,32 @@ function Invoke-IaTuiCloudPC {
             } | Format-IaTable -Color $Accent
         }
         'Cloud PC actions*' {
-            $pcs = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
-            if (-not $pcs) { Write-SpectreHost '[grey]No Cloud PCs found.[/]'; return }
+            $pcs = Invoke-IaStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
+            if (-not $pcs) { Write-IaHost '[grey]No Cloud PCs found.[/]'; return }
             $pcNames = @($pcs | ForEach-Object { $_.CloudPC })
-            $pcName = Read-SpectreSelection -Title 'Select Cloud PC' -Choices $pcNames -Color $Accent
-            $action = Read-SpectreSelection -Title 'Select action' -Color $Accent -Choices @(
+            $pcName = Read-IaMenu -Title 'Select Cloud PC' -Choices $pcNames -Color $Accent
+            $action = Read-IaMenu -Title 'Select action' -Color $Accent -Choices @(
                 'Restart', 'Reprovision', 'Troubleshoot', 'EndGracePeriod',
                 'CreateSnapshot', 'Resize', 'Rename', 'Restore', 'PowerOn', 'PowerOff'
             )
             $extraParams = @{}
             switch ($action) {
                 'Resize' {
-                    $plans = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading service plans…' -ScriptBlock { Get-IntuneCloudPCServicePlan }
-                    $planChoice = Read-SpectreSelection -Title 'Target service plan' -Color $Accent `
+                    $plans = Invoke-IaStatus -Spinner Dots -Title 'Loading service plans…' -ScriptBlock { Get-IntuneCloudPCServicePlan }
+                    $planChoice = Read-IaMenu -Title 'Target service plan' -Color $Accent `
                         -Choices @($plans | ForEach-Object { "$($_.vCPU)vCPU / $($_.RAM)GB RAM / $($_.Storage)GB  —  $($_.Name)" })
                     $planIndex  = @($plans | ForEach-Object { "$($_.vCPU)vCPU / $($_.RAM)GB RAM / $($_.Storage)GB  —  $($_.Name)" }).IndexOf($planChoice)
                     $extraParams.ServicePlanId = $plans[$planIndex].Id
                 }
                 'Rename' {
-                    $extraParams.NewName = Read-SpectreText -Question 'New display name'
+                    $extraParams.NewName = Read-IaText -Question 'New display name'
                 }
                 'Restore' {
-                    $snaps = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
-                        Get-IntuneCloudPCSnapshot -CloudPC $using:pcName
+                    $snaps = Invoke-IaStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
+                        Get-IntuneCloudPCSnapshot -CloudPC $pcName
                     }
-                    if (-not $snaps) { Write-SpectreHost '[yellow]No snapshots found for this Cloud PC.[/]'; return }
-                    $snapChoice = Read-SpectreSelection -Title 'Restore from snapshot' -Color $Accent `
+                    if (-not $snaps) { Write-IaHost '[yellow]No snapshots found for this Cloud PC.[/]'; return }
+                    $snapChoice = Read-IaMenu -Title 'Restore from snapshot' -Color $Accent `
                         -Choices @($snaps | ForEach-Object { "$($_.CreatedAt)  ($($_.SnapshotType))" })
                     $snapIndex  = @($snaps | ForEach-Object { "$($_.CreatedAt)  ($($_.SnapshotType))" }).IndexOf($snapChoice)
                     $extraParams.SnapshotId = $snaps[$snapIndex].Id
@@ -1565,56 +1595,56 @@ function Invoke-IaTuiCloudPC {
             Write-IaTuiHeader -Screen "Cloud PC action: $action" -Sub $pcName -Accent $Accent
             $result = Invoke-IntuneCloudPCAction -CloudPC $pcName -Action $action @extraParams -Confirm:$false
             if ($result.Submitted) {
-                Write-SpectreHost "[$Accent]Submitted.[/] Action '$action' is queued for [$Accent]$pcName[/]."
+                Write-IaHost "[$Accent]Submitted.[/] Action '$action' is queued for [$Accent]$pcName[/]."
             }
         }
         'Provisioning policies*' {
             Write-IaTuiHeader -Screen 'Provisioning Policies' -Accent $Accent
-            $sub = Read-SpectreSelection -Title 'Provisioning policies' -Color $Accent -Choices @(
+            $sub = Read-IaMenu -Title 'Provisioning policies' -Color $Accent -Choices @(
                 'List all', 'Create new', 'Delete', 'Back'
             )
             switch -Wildcard ($sub) {
                 'List*' {
-                    $pols = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
+                    $pols = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
                         Get-IntuneCloudPCProvisioningPolicy -IncludeAssignments
                     }
                     $pols | Select-Object Name, JoinType, ImageType, ImageName, Region, Id | Format-IaTable -Color $Accent
                 }
                 'Create*' {
-                    $name  = Read-SpectreText -Question 'Policy name'
-                    $imgs  = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock { Get-IntuneCloudPCImage }
-                    $imgC  = Read-SpectreSelection -Title 'OS image' -Color $Accent `
+                    $name  = Read-IaText -Question 'Policy name'
+                    $imgs  = Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock { Get-IntuneCloudPCImage }
+                    $imgC  = Read-IaMenu -Title 'OS image' -Color $Accent `
                         -Choices @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" })
                     $imgIdx= @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" }).IndexOf($imgC)
                     $img   = $imgs[$imgIdx]
-                    $join  = Read-SpectreSelection -Title 'Azure AD join type' -Color $Accent `
+                    $join  = Read-IaMenu -Title 'Azure AD join type' -Color $Accent `
                         -Choices @('azureADJoin', 'hybridAzureADJoin')
                     Write-IaTuiHeader -Screen 'Create provisioning policy' -Sub $name -Accent $Accent
                     New-IntuneCloudPCProvisioningPolicy -Name $name -ImageId $img.Id `
                         -ImageType ($img.Type.ToLower()) -DomainJoinType $join -WhatIf
-                    if ((Read-SpectreSelection -Title 'Apply?' -Choices @('Yes','No') -Color $Accent) -eq 'Yes') {
+                    if ((Read-IaMenu -Title 'Apply?' -Choices @('Yes','No') -Color $Accent) -eq 'Yes') {
                         New-IntuneCloudPCProvisioningPolicy -Name $name -ImageId $img.Id `
                             -ImageType ($img.Type.ToLower()) -DomainJoinType $join -Confirm:$false
-                        Write-SpectreHost "[$Accent]Policy created.[/]"
+                        Write-IaHost "[$Accent]Policy created.[/]"
                     }
                 }
                 'Delete*' {
-                    $pols = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCProvisioningPolicy }
-                    $polC = Read-SpectreSelection -Title 'Policy to delete' -Color $Accent `
+                    $pols = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCProvisioningPolicy }
+                    $polC = Read-IaMenu -Title 'Policy to delete' -Color $Accent `
                         -Choices @($pols | ForEach-Object { $_.Name })
                     Remove-IntuneCloudPCProvisioningPolicy -Policy $polC -Confirm:$false
-                    Write-SpectreHost "[$Accent]Deleted[/] $polC"
+                    Write-IaHost "[$Accent]Deleted[/] $polC"
                 }
             }
         }
         'Network connections*' {
             Write-IaTuiHeader -Screen 'Network Connections' -Accent $Accent
-            $sub = Read-SpectreSelection -Title 'Network connections' -Color $Accent -Choices @(
+            $sub = Read-IaMenu -Title 'Network connections' -Color $Accent -Choices @(
                 'List all', 'Run health check', 'Back'
             )
             switch -Wildcard ($sub) {
                 'List*' {
-                    $conns = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
+                    $conns = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
                     $conns | ForEach-Object {
                         $hc = switch ($_.HealthStatus) {
                             'passed'  { "[$Accent]passed[/]" }
@@ -1633,46 +1663,46 @@ function Invoke-IaTuiCloudPC {
                     } | Format-IaTable -Color $Accent
                 }
                 'Run*' {
-                    $conns = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
-                    $connC = Read-SpectreSelection -Title 'Select connection' -Color $Accent `
+                    $conns = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
+                    $connC = Read-IaMenu -Title 'Select connection' -Color $Accent `
                         -Choices @($conns | ForEach-Object { $_.Name })
                     Test-IntuneCloudPCConnection -Connection $connC
-                    Write-SpectreHost "[$Accent]Health check triggered.[/] Check connection status in a few minutes."
+                    Write-IaHost "[$Accent]Health check triggered.[/] Check connection status in a few minutes."
                 }
             }
         }
         'User settings*' {
             Write-IaTuiHeader -Screen 'Cloud PC User Settings' -Accent $Accent
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
+            Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
                 Get-IntuneCloudPCUserSetting
             } | Format-IaTable -Color $Accent
         }
         'Images*' {
             Write-IaTuiHeader -Screen 'Cloud PC Images' -Sub 'gallery · custom' -Accent $Accent
-            $type = Read-SpectreSelection -Title 'Image type' -Choices @('All','Gallery','Custom') -Color $Accent
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock {
-                Get-IntuneCloudPCImage -Type $using:type
+            $type = Read-IaMenu -Title 'Image type' -Choices @('All','Gallery','Custom') -Color $Accent
+            Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock {
+                Get-IntuneCloudPCImage -Type $type
             } | Format-IaTable -Color $Accent
         }
         'Service plans*' {
             Write-IaTuiHeader -Screen 'Cloud PC Service Plans' -Accent $Accent
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
+            Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock {
                 Get-IntuneCloudPCServicePlan
             } | Sort-Object vCPU, RAM | Format-IaTable -Color $Accent
         }
         'Snapshots*' {
             Write-IaTuiHeader -Screen 'Cloud PC Snapshots' -Accent $Accent
-            $pcs   = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
-            $scope = Read-SpectreSelection -Title 'Scope' -Color $Accent -Choices (@('All Cloud PCs') + @($pcs | ForEach-Object { $_.CloudPC }))
-            $snaps = Invoke-SpectreCommandWithStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
-                if ($using:scope -eq 'All Cloud PCs') { Get-IntuneCloudPCSnapshot }
-                else { Get-IntuneCloudPCSnapshot -CloudPC $using:scope }
+            $pcs   = Invoke-IaStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
+            $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices (@('All Cloud PCs') + @($pcs | ForEach-Object { $_.CloudPC }))
+            $snaps = Invoke-IaStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
+                if ($scope -eq 'All Cloud PCs') { Get-IntuneCloudPCSnapshot }
+                else { Get-IntuneCloudPCSnapshot -CloudPC $scope }
             }
             $snaps | Format-IaTable -Color $Accent
         }
         'Reports*' {
             Write-IaTuiHeader -Screen 'Cloud PC Reports' -Accent $Accent
-            $rpt = Read-SpectreSelection -Title 'Report' -Color $Accent -Choices @(
+            $rpt = Read-IaMenu -Title 'Report' -Color $Accent -Choices @(
                 'Remote connections', 'Daily aggregate', 'Connection quality', 'Shared PC overview'
             )
             $rptName = switch -Wildcard ($rpt) {
@@ -1681,8 +1711,8 @@ function Invoke-IaTuiCloudPC {
                 'Connection*' { 'ConnectionQuality' }
                 'Shared*'     { 'SharedPCOverview' }
             }
-            Invoke-SpectreCommandWithStatus -Spinner Dots -Title "Running $rpt report…" -ScriptBlock {
-                Get-IntuneCloudPCReport -Report $using:rptName
+            Invoke-IaStatus -Spinner Dots -Title "Running $rpt report…" -ScriptBlock {
+                Get-IntuneCloudPCReport -Report $rptName
             } | Select-Object -First 100 | Format-IaTable -Color $Accent
         }
         default { return }

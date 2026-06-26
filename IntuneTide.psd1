@@ -3,13 +3,14 @@
     ModuleVersion     = '0.1.0'
     GUID              = 'b7e4a2c1-9f3d-4e6a-8c2b-1a5d7e9f0c34'
     Author            = 'Aaron'
-    Description       = 'TIDE (Targeted Intune Deployment & Endpoints) — inspect, manage and report on Microsoft Intune assignments across every assignable area: list/reverse-lookup/compare/what-if, copy & selectively mirror, bulk-assign, templates, audit, deployment/install/compliance reporting, HTML report, and an interactive Deep Sea Spectre.Console TUI. Cross-platform (macOS/Windows/Linux) via the Microsoft Graph PowerShell SDK.'
+    Description       = 'TIDE (Targeted Intune Deployment & Endpoints) — inspect, manage and report on Microsoft Intune assignments across every assignable area: list/reverse-lookup/compare/what-if, copy & selectively mirror, bulk-assign, templates, audit, deployment/install/compliance reporting, HTML report, and an interactive Deep Sea terminal UI rendered by a self-contained ANSI engine (no external TUI dependency). Cross-platform (macOS/Windows/Linux) via the Microsoft Graph PowerShell SDK.'
     PowerShellVersion = '7.2'
 
     # Not hard-required so the module imports cleanly; cmdlets check at runtime
     # and give actionable install hints:
     #   Microsoft.Graph.Authentication  (all cmdlets)
-    #   PwshSpectreConsole              (Start-IntuneTide TUI only)
+    # The interactive TUI (Start-IntuneTide) renders via the built-in ANSI engine
+    # in Private/Tui.ps1 — there is NO external terminal-UI dependency.
 
     FunctionsToExport = @(
         'Connect-IntuneTide',
@@ -143,7 +144,7 @@
 
     PrivateData = @{
         PSData = @{
-            Tags       = @('Intune', 'MicrosoftGraph', 'MEM', 'Assignments', 'Endpoint', 'TUI', 'Spectre')
+            Tags       = @('Intune', 'MicrosoftGraph', 'MEM', 'Assignments', 'Endpoint', 'TUI', 'ANSI')
             ProjectUri = 'https://github.com/ajamaya1/IntuneTide'
             LicenseUri = 'https://github.com/ajamaya1/IntuneTide/blob/main/LICENSE'
         }

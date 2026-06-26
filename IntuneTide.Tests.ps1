@@ -487,6 +487,33 @@ Describe 'Call log' {
             (Get-IaCallLogEntries).Count | Should -Be 0
         }
     }
+
+    It 'reports the correct count for many entries (entries have a colliding .Count property)' {
+        InModuleScope IntuneTide {
+            Clear-IaCallLog
+            1..5 | ForEach-Object { Add-IaCall -Method 'GET' -Uri "https://graph.microsoft.com/beta/x$_" -Status 200 -Ms 1 -Count 9 }
+            $entries = Get-IaCallLogEntries
+            $entries = @($entries)
+            $entries.Count | Should -Be 5 -Because 'direct-assign then @($var) must not collapse'
+        }
+    }
+
+    It 'Get-IntuneCallLog (public) returns one object per recorded call' {
+        InModuleScope IntuneTide {
+            Clear-IaCallLog
+            1..4 | ForEach-Object { Add-IaCall -Method 'GET' -Uri "https://graph.microsoft.com/beta/y$_" -Status 200 -Ms 1 -Count 3 }
+            @(Get-IntuneCallLog).Count       | Should -Be 4
+            @(Get-IntuneCallLog -Tail 2).Count | Should -Be 2
+        }
+    }
+
+    It 'Get-IntuneCallLog returns a single entry as one object, not its Count property' {
+        InModuleScope IntuneTide {
+            Clear-IaCallLog
+            Add-IaCall -Method 'GET' -Uri 'https://graph.microsoft.com/beta/solo' -Status 200 -Ms 1 -Count 9
+            @(Get-IntuneCallLog).Count | Should -Be 1 -Because 'one call logged → one row, despite the entry.Count=9 field'
+        }
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -990,5 +1017,290 @@ Describe 'Module export completeness' {
         $exported | Should -Not -Contain 'Resolve-IaUri'
         $exported | Should -Not -Contain 'ConvertFrom-IaTarget'
         $exported | Should -Not -Contain 'Get-IaInventory'
+    }
+
+    It 'does not export the internal TUI engine functions' {
+        $exported = (Get-Module IntuneTide).ExportedCommands.Keys
+        $exported | Should -Not -Contain 'ConvertFrom-IaMarkup'
+        $exported | Should -Not -Contain 'Read-IaMenu'
+        $exported | Should -Not -Contain 'Write-IaHost'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TUI engine (Private/Tui.ps1) — the layer that replaced PwshSpectreConsole.
+# The headline guarantee: it NEVER throws on data that merely looks like markup,
+# which is exactly the failure mode that crashed the Spectre-based TUI.
+Describe 'TUI engine · markup parser' {
+
+    It 'never throws on an unknown colour tag and renders it literally' {
+        InModuleScope IntuneTide {
+            # This is the exact input that produced "Could not find color 'Apps'".
+            { ConvertFrom-IaMarkup -Text 'area [Apps] x' } | Should -Not -Throw
+            (Strip-IaMarkup -Text 'area [Apps] x') | Should -Be 'area [Apps] x'
+        }
+    }
+
+    It 'renders a group literally named with brackets without throwing' {
+        InModuleScope IntuneTide {
+            { ConvertFrom-IaMarkup -Text 'Group [Test] assigned' } | Should -Not -Throw
+            (Strip-IaMarkup -Text 'Group [Test] assigned') | Should -Be 'Group [Test] assigned'
+        }
+    }
+
+    It 'converts a known colour tag to an ANSI escape' {
+        InModuleScope IntuneTide {
+            $esc = [char]0x1B
+            (ConvertFrom-IaMarkup -Text '[grey]hello[/]') | Should -Match ([regex]::Escape($esc))
+            (Strip-IaMarkup -Text '[grey]hello[/]') | Should -Be 'hello'
+        }
+    }
+
+    It 'handles compound and nested tags without throwing' {
+        InModuleScope IntuneTide {
+            { ConvertFrom-IaMarkup -Text '[bold white]x[/]' } | Should -Not -Throw
+            { ConvertFrom-IaMarkup -Text '[grey]a[red]b[/]c[/]' } | Should -Not -Throw
+            (Strip-IaMarkup -Text '[grey]a[red]b[/]c[/]') | Should -Be 'abc'
+        }
+    }
+
+    It 'tolerates a stray closing tag' {
+        InModuleScope IntuneTide {
+            { ConvertFrom-IaMarkup -Text 'no open[/] here' } | Should -Not -Throw
+        }
+    }
+
+    It 'Strip and Convert agree on the visible text for a mixed string' {
+        InModuleScope IntuneTide {
+            $s = 'pre [grey]mid[/] [Apps] [coral]end[/] post'
+            # ConvertFrom keeps the visible glyphs (plus ANSI); stripping the ANSI
+            # from the converted form must equal Strip-IaMarkup's output.
+            $esc = [char]0x1B
+            $converted = ConvertFrom-IaMarkup -Text $s
+            $noAnsi = [regex]::Replace($converted, "$([regex]::Escape($esc))\[[0-9;]*m", '')
+            $noAnsi | Should -Be (Strip-IaMarkup -Text $s)
+        }
+    }
+
+    It 'Protect-IaMarkup escapes brackets and round-trips to literal text' {
+        InModuleScope IntuneTide {
+            (Protect-IaMarkup -Text '[Test]') | Should -Be '[[Test]]'
+            (ConvertFrom-IaMarkup -Text (Protect-IaMarkup -Text '[red]')) | Should -Be '[red]'
+            (Strip-IaMarkup -Text (Protect-IaMarkup -Text '[red]')) | Should -Be '[red]'
+        }
+    }
+
+    It 'treats empty / null input safely' {
+        InModuleScope IntuneTide {
+            (ConvertFrom-IaMarkup -Text '') | Should -Be ''
+            (Strip-IaMarkup -Text '') | Should -Be ''
+            (Measure-IaWidth -Text '') | Should -Be 0
+        }
+    }
+}
+
+Describe 'TUI engine · colour & width' {
+
+    It 'maps every accent / colour name the TUI uses' {
+        InModuleScope IntuneTide {
+            foreach ($c in 'green','orange1','yellow','turquoise2','coral','red',
+                           'grey','white','deepskyblue1','darkslategray1','bold','dim') {
+                (Get-IaAnsi $c) | Should -Not -Be '' -Because "$c is used in the TUI"
+            }
+        }
+    }
+
+    It 'returns empty (no throw) for an unknown colour name' {
+        InModuleScope IntuneTide {
+            (Get-IaAnsi 'Apps') | Should -Be ''
+            (Get-IaAnsi '') | Should -Be ''
+        }
+    }
+
+    It 'measures ascii and wide characters' {
+        InModuleScope IntuneTide {
+            (Measure-IaWidth -Text 'hello') | Should -Be 5
+            (Measure-IaWidth -Text '世界')   | Should -Be 4   # 2 wide CJK glyphs
+        }
+    }
+}
+
+Describe 'TUI engine · table rendering' {
+
+    It 'renders objects with markup cells without throwing' {
+        InModuleScope IntuneTide {
+            $rows = @(
+                [pscustomobject]@{ Area = '[green]Apps[/]'; Resource = 'Chrome [stable]'; Assigned = '[coral]EXCLUDE grp[/]' }
+                [pscustomobject]@{ Area = '[green]Compliance[/]'; Resource = 'Win10'; Assigned = 'grpA; grpB' }
+            )
+            { Show-IaTableObjects -Rows $rows -Color turquoise2 -Title 'T [x]' 6>&1 } | Should -Not -Throw
+        }
+    }
+
+    It 'produces no output for empty input' {
+        InModuleScope IntuneTide {
+            $out = Show-IaTableObjects -Rows @() -Color grey -Title 'x' 6>&1
+            $out | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'Format-IaTable accepts the exact -Data / -Accent / -Title form that crashed Spectre' {
+        InModuleScope IntuneTide {
+            $rows = 1..3 | ForEach-Object { [pscustomobject]@{ Name = "App $_"; Type = 'Win32'; Publisher = 'Acme' } }
+            { Format-IaTable -Data $rows -Accent turquoise2 -Title 'Apps' 6>&1 } | Should -Not -Throw
+            { Format-IaTable -Data $rows -Accent turquoise2 -Title '[Apps]' 6>&1 } | Should -Not -Throw
+        }
+    }
+
+    It 'Format-IaTable accepts pipeline input with markup cells' {
+        InModuleScope IntuneTide {
+            $rows = 1..2 | ForEach-Object { [pscustomobject]@{ A = "[coral]x$_[/]"; B = '[Test]' } }
+            { $rows | Format-IaTable -Color turquoise2 6>&1 } | Should -Not -Throw
+        }
+    }
+}
+
+Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
+
+    It 'Read-IaMultiMenu never throws on bracketed / area-style labels' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { '1 2' }
+            $labels = @('1. (Apps) Chrome', '2. [Apps] Edge', '3. [Test] policy')
+            { Read-IaMultiMenu -Title 'pick' -Choices $labels 6>&1 } | Should -Not -Throw
+        }
+    }
+
+    It 'Read-IaMenu returns the chosen string' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { '3' }
+            (Read-IaMenu -Title 'pick' -Choices @('a', 'b', 'c') -Color grey) | Should -Be 'c'
+        }
+    }
+
+    It 'Read-IaMenu treats blank input as the first choice' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { '' }
+            (Read-IaMenu -Title 'pick' -Choices @('a', 'b', 'c')) | Should -Be 'a'
+        }
+    }
+
+    It 'Read-IaMenu returns $null for an empty choice list' {
+        InModuleScope IntuneTide {
+            (Read-IaMenu -Title 'pick' -Choices @()) | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'Read-IaMultiMenu returns the chosen strings' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { '1 3' }
+            $r = @(Read-IaMultiMenu -Title 'm' -Choices @('a', 'b', 'c'))
+            ($r -join ',') | Should -Be 'a,c'
+        }
+    }
+
+    It 'Read-IaMultiMenu supports "all"' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { 'all' }
+            $r = @(Read-IaMultiMenu -Title 'm' -Choices @('a', 'b', 'c'))
+            ($r -join ',') | Should -Be 'a,b,c'
+        }
+    }
+
+    It 'Read-IaMultiMenu returns empty for blank input' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { '' }
+            @(Read-IaMultiMenu -Title 'm' -Choices @('a', 'b', 'c')).Count | Should -Be 0
+        }
+    }
+
+    It 'Read-IaText returns the default on blank, typed value otherwise' {
+        InModuleScope IntuneTide {
+            Mock Read-Host { '' }
+            (Read-IaText -Question 'name' -DefaultAnswer 'baseline') | Should -Be 'baseline'
+        }
+        InModuleScope IntuneTide {
+            Mock Read-Host { 'custom' }
+            (Read-IaText -Question 'name' -DefaultAnswer 'baseline') | Should -Be 'custom'
+        }
+    }
+
+    It 'Read-IaConfirm honours y / n / default' {
+        InModuleScope IntuneTide {
+            Mock Read-Host { 'y' }
+            (Read-IaConfirm -Message 'ok?') | Should -BeTrue
+        }
+        InModuleScope IntuneTide {
+            Mock Read-Host { 'n' }
+            (Read-IaConfirm -Message 'ok?' -DefaultAnswer $true) | Should -BeFalse
+        }
+        InModuleScope IntuneTide {
+            Mock Read-Host { '' }
+            (Read-IaConfirm -Message 'ok?' -DefaultAnswer $true) | Should -BeTrue
+        }
+    }
+}
+
+Describe 'TUI engine · status wrapper' {
+
+    It 'returns the script block output' {
+        InModuleScope IntuneTide {
+            (Invoke-IaStatus -Title 'load' -ScriptBlock { 42 }) | Should -Be 42
+        }
+    }
+
+    It 'runs the block in its defining scope (no $using needed)' {
+        InModuleScope IntuneTide {
+            $thing = 'Win32'
+            (Invoke-IaStatus -Title 'load' -ScriptBlock { "saw $thing" }) | Should -Be 'saw Win32'
+        }
+    }
+
+    It 'lets the block write a script-scoped variable' {
+        InModuleScope IntuneTide {
+            $script:_iaTestOut = $null
+            Invoke-IaStatus -Title 'load' -ScriptBlock { $script:_iaTestOut = 'done' } | Out-Null
+            $script:_iaTestOut | Should -Be 'done'
+        }
+    }
+
+    It 're-throws errors from the block' {
+        InModuleScope IntuneTide {
+            { Invoke-IaStatus -Title 'load' -ScriptBlock { throw 'boom' } } | Should -Throw 'boom'
+        }
+    }
+}
+
+Describe 'TUI engine · output primitives do not throw' {
+
+    It 'Write-IaHost / Write-IaRule / Write-IaFiglet render without throwing' {
+        InModuleScope IntuneTide {
+            { Write-IaHost '[turquoise2]hi[/] [Apps] plain' 6>&1 } | Should -Not -Throw
+            { Write-IaRule -Title 'sect' -Color darkslategray1 6>&1 } | Should -Not -Throw
+            { Write-IaRule -Color grey 6>&1 } | Should -Not -Throw
+            { Write-IaFiglet -Text 'TIDE' -Color turquoise2 6>&1 } | Should -Not -Throw
+            { Write-IaFiglet -Text 'Other Words' -Color green 6>&1 } | Should -Not -Throw
+        }
+    }
+
+    It 'Get-IaFigletString returns a multi-line banner for TIDE' {
+        InModuleScope IntuneTide {
+            $banner = Get-IaFigletString -Text 'TIDE' -Color turquoise2
+            $banner | Should -Not -BeNullOrEmpty
+            @($banner -split "`n").Count | Should -Be 5 -Because 'the block font is five rows tall'
+        }
+    }
+
+    It 'Read-IaMenu accepts a -Header without throwing (non-interactive fallback)' {
+        InModuleScope IntuneTide {
+            Mock Test-IaArrowSupport { $false }
+            Mock Read-Host { '1' }
+            { Read-IaMenu -Title 'pick' -Header "BANNER`nLINE2" -Choices @('a', 'b') 6>&1 } | Should -Not -Throw
+        }
     }
 }
