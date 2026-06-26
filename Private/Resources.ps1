@@ -75,8 +75,11 @@ function Get-IaResourceRegistry {
         [pscustomobject]@{ Key='androidManagedAppProtections'; Area='App protection'; Label='Android app protection policy';
             ListPath='deviceAppManagement/androidManagedAppProtections'; NameField='displayName'; ExpandAssignments=$false;
             AssignBodyKey='assignments'; AssignmentODataType=$null; ODataTypeContains=$null; HasIntent=$false }
-        [pscustomobject]@{ Key='windowsManagedAppProtections'; Area='App protection'; Label='Windows app protection policy';
+        [pscustomobject]@{ Key='windowsManagedAppProtections'; Area='App protection'; Label='Windows MAM protection policy';
             ListPath='deviceAppManagement/windowsManagedAppProtections'; NameField='displayName'; ExpandAssignments=$false;
+            AssignBodyKey='assignments'; AssignmentODataType=$null; ODataTypeContains=$null; HasIntent=$false }
+        [pscustomobject]@{ Key='mdmWindowsInformationProtectionPolicies'; Area='App protection'; Label='Windows Information Protection (MDM)';
+            ListPath='deviceAppManagement/mdmWindowsInformationProtectionPolicies'; NameField='displayName'; ExpandAssignments=$false;
             AssignBodyKey='assignments'; AssignmentODataType=$null; ODataTypeContains=$null; HasIntent=$false }
         # ----- Cloud PC (Windows 365) -----
         [pscustomobject]@{ Key='cloudPcProvisioningPolicies'; Area='Cloud PC'; Label='Provisioning policy';
