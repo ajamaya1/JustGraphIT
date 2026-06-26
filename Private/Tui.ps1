@@ -840,33 +840,321 @@ function Invoke-IaExport {
     }
 }
 
+function Read-IaTableInteractive {
+    <#
+    .SYNOPSIS
+        Scrollable, searchable, exportable interactive table viewer.
+        ↑/↓/PgUp/PgDn scroll · / search · e export · ? help · q back.
+        With -Selectable, Enter returns the chosen row for drill-down.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Data,
+        [string]$Color     = 'grey',
+        [string]$Title     = '',
+        [string]$Stem      = 'tide-export',
+        [switch]$Selectable
+    )
+
+    $rows = @($Data | Where-Object { $null -ne $_ })
+    if ($rows.Count -eq 0) {
+        Write-IaHost '[grey](no data)[/]'
+        Read-IaPause
+        return $null
+    }
+
+    # Non-interactive fallback (Pester / redirected I/O)
+    if (-not (Test-IaArrowSupport)) {
+        Show-IaTableObjects -Rows $rows -Color $Color -Title $Title
+        Read-IaPause
+        return $null
+    }
+
+    # ── Pre-compute columns and cell matrix (done once; not per-frame) ──────
+    $isDictionary = $rows[0] -is [System.Collections.IDictionary]
+    $cols = if ($isDictionary) { @($rows[0].Keys) } else { @($rows[0].PSObject.Properties.Name) }
+
+    $allCells = [System.Collections.Generic.List[object[]]]::new()
+    foreach ($r in $rows) {
+        $isDict = $r -is [System.Collections.IDictionary]
+        $cells = foreach ($c in $cols) {
+            $cv = if ($isDict) { $r[$c] } else { $r.PSObject.Properties[$c].Value }
+            if ($null -eq $cv) { '' } else { [string]$cv }
+        }
+        $allCells.Add(@($cells))
+    }
+
+    $widths = @(foreach ($c in $cols) { Measure-IaWidth (Strip-IaMarkup $c) })
+    for ($ri = 0; $ri -lt $allCells.Count; $ri++) {
+        for ($ci = 0; $ci -lt $cols.Count; $ci++) {
+            $cw = Measure-IaWidth (Strip-IaMarkup $allCells[$ri][$ci])
+            if ($cw -gt $widths[$ci]) { $widths[$ci] = $cw }
+        }
+    }
+    $inner = Get-IaInnerWidth
+    $csep  = ($cols.Count - 1) * 3
+    $cpad  = 4
+    $sum   = ($widths | Measure-Object -Sum).Sum
+    if (($sum + $csep + $cpad) -gt $inner) {
+        $avail = [Math]::Max($cols.Count * 4, $inner - $csep - $cpad)
+        $tot   = if ($sum -lt 1) { 1 } else { $sum }
+        for ($ci = 0; $ci -lt $cols.Count; $ci++) {
+            $widths[$ci] = [Math]::Max(4, [int]($widths[$ci] * $avail / $tot))
+        }
+    }
+    $tableWidth = (($widths | Measure-Object -Sum).Sum) + $csep + $cpad
+
+    # ── ANSI codes ──────────────────────────────────────────────────────────
+    $reset  = Get-IaReset
+    $border = Get-IaAnsi $Color
+    $bold   = Get-IaAnsi 'bold'
+    $dim    = Get-IaAnsi 'dim'
+    $white  = Get-IaAnsi 'white'
+    $v      = [string][char]0x2502
+    $h      = [string][char]0x2500
+
+    # Page size: terminal height minus chrome (title + header + underline + bottom + status + margin)
+    $pageSize = 20
+    try { $pageSize = [Math]::Max(5, [Console]::WindowHeight - 10) } catch { }
+
+    # ── Mutable state (hashtable so mutations inside scriptblocks propagate) ─
+    $st = @{ sel = 0; top = 0; query = ''; searching = $false }
+
+    # ── padCell: fixed-width string for one data cell ───────────────────────
+    # Selected cells use bold accent color; others use markup rendering.
+    $padCell = {
+        param($Raw, $Width, [bool]$IsSelected = $false)
+        $plain = Strip-IaMarkup -Text $Raw
+        $dw    = Measure-IaWidth $plain
+        if ($dw -gt $Width) {
+            $cut = 0; $acc = 0; $max = [Math]::Max(1, $Width - 1)
+            for ($k = 0; $k -lt $plain.Length; $k++) {
+                $chW = Measure-IaWidth ([string]$plain[$k])
+                if (($acc + $chW) -gt $max) { break }
+                $acc += $chW; $cut++
+            }
+            $plain = $plain.Substring(0, [Math]::Max(1, $cut)) + '…'
+            $dw    = Measure-IaWidth $plain
+        }
+        $padding = ' ' * [Math]::Max(0, $Width - $dw)
+        if ($IsSelected) { return "$border$bold$plain$reset$padding" }
+        return (ConvertFrom-IaMarkup $Raw) + $reset + $padding
+    }
+
+    # ── getFiltered: row indices that match the current search query ─────────
+    $getFiltered = {
+        if ([string]::IsNullOrEmpty($st.query)) { return @(0..($rows.Count - 1)) }
+        $q  = $st.query.ToLower()
+        $ix = [System.Collections.Generic.List[int]]::new()
+        for ($ri = 0; $ri -lt $allCells.Count; $ri++) {
+            foreach ($cell in $allCells[$ri]) {
+                if ((Strip-IaMarkup $cell).ToLower().Contains($q)) { $ix.Add($ri); break }
+            }
+        }
+        return @($ix)
+    }
+
+    # ── renderFrame: full screen repaint from state ──────────────────────────
+    $renderFrame = {
+      try {
+        $filtered = @(& $getFiltered)
+        $total    = $filtered.Count
+
+        $s = $st.sel; $top = $st.top
+        if ($total -eq 0) { $s = 0; $top = 0 }
+        else {
+            if ($s -ge $total)            { $s   = $total - 1 }
+            if ($s -lt 0)                 { $s   = 0 }
+            if ($s -lt $top)              { $top = $s }
+            if ($s -ge ($top + $pageSize)) { $top = $s - $pageSize + 1 }
+        }
+        $st.sel = $s; $st.top = $top
+
+        $buf = [System.Text.StringBuilder]::new(16384)
+
+        # Local copies of outer-scope ANSI vars — avoids PowerShell -f scope quirk
+        # in nested scriptblocks where $border/$v/$reset resolve unexpectedly.
+        $_b = $border; $_v = $v; $_r = $reset; $_d = $dim; $_bo = $bold; $_wh = $white; $_h = $h
+
+        # Title
+        if ($Title) {
+            $pt = Strip-IaMarkup $Title; $tw = Measure-IaWidth $pt
+            $ll  = $tableWidth - 4 - $tw
+            $lft = [Math]::Max(1, [int][Math]::Floor($ll / 2))
+            $rgt = [Math]::Max(1, $ll - $lft)
+            [void]$buf.AppendLine($_b + [char]0x256D + ($_h * $lft) + $_r + ' ' + (ConvertFrom-IaMarkup $Title) + ' ' + $_b + ($_h * $rgt) + [char]0x256E + $_r)
+        }
+
+        # Column header
+        $hdrCells = @(for ($ci = 0; $ci -lt $cols.Count; $ci++) {
+            $plain = Strip-IaMarkup $cols[$ci]; $w = Measure-IaWidth $plain
+            $_bo + $_wh + $plain + $_r + (' ' * [Math]::Max(0, $widths[$ci] - $w))
+        })
+        [void]$buf.AppendLine($_b + $_v + $_r + ' ' + ($hdrCells -join " $_d$_v$_r ") + ' ' + $_b + $_v + $_r)
+
+        # Underline
+        $under = @(for ($ci = 0; $ci -lt $cols.Count; $ci++) { $_h * $widths[$ci] })
+        [void]$buf.AppendLine($_b + $_v + $_r + $_h + ($under -join ($_h + [char]0x253C + $_h)) + $_h + $_b + $_v + $_r)
+
+        # Data rows
+        if ($total -eq 0) {
+            $msg = if ($st.query) { "  (no rows match '$($st.query)')" } else { '  (no data)' }
+            [void]$buf.AppendLine("$_d$msg$_r")
+            for ($p = 1; $p -lt $pageSize; $p++) { [void]$buf.AppendLine('') }
+        }
+        else {
+            $endIdx = [Math]::Min($top + $pageSize - 1, $total - 1)
+            for ($i = $top; $i -le $endIdx; $i++) {
+                $ri    = $filtered[$i]
+                $rowD  = $allCells[$ri]
+                $isSel = ($Selectable -and $i -eq $s)
+                $cells = @(for ($ci = 0; $ci -lt $cols.Count; $ci++) {
+                    $raw = if ($ci -lt $rowD.Count) { $rowD[$ci] } else { '' }
+                    & $padCell $raw $widths[$ci] $isSel
+                })
+                [void]$buf.AppendLine($_b + $_v + $_r + ' ' + ($cells -join " $_d$_v$_r ") + ' ' + $_b + $_v + $_r)
+            }
+            # Pad to keep layout stable (status bar stays at fixed position)
+            for ($p = ($endIdx - $top + 1); $p -lt $pageSize; $p++) { [void]$buf.AppendLine('') }
+        }
+
+        # Bottom border
+        [void]$buf.AppendLine($_b + [char]0x2570 + ($_h * [Math]::Max(0, $tableWidth - 2)) + [char]0x256F + $_r)
+
+        # Status / search bar
+        $rs = if ($total -eq 0) { 0 } else { $top + 1 }
+        $re = [Math]::Min($top + $pageSize, $total)
+        if ($st.searching) {
+            [void]$buf.Append("  $dim/ search: $reset$border$($st.query)$reset$white▌$reset  $dim Esc cancel  Enter confirm$reset")
+        }
+        else {
+            $cnt    = "$dim[$reset$rs-$re of $total$dim]$reset"
+            $selTip = if ($Selectable) { ' · Enter select' } else { '' }
+            $clrTip = if ($st.query) { "  $dim(filter: $reset$border$($st.query)$reset$dim · Esc clear)$reset" } else { '' }
+            [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search · e export · ? help$selTip · q back$reset$clrTip")
+        }
+
+        Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + $buf.ToString()) -NoNewline
+      } catch {
+        Write-IaRaw ("`nRENDER-ERR: $($_.Exception.GetType().Name): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n") -NoNewline
+        throw
+      }
+    }
+
+    # ── showHelp: ? overlay ─────────────────────────────────────────────────
+    $showHelp = {
+        $hl = [System.Collections.Generic.List[string]]::new()
+        $hl.Add('')
+        $hl.Add('  [bold white]Table Key Bindings[/]')
+        $hl.Add('')
+        $hl.Add('  [grey]↑ / k[/]       scroll up one row')
+        $hl.Add('  [grey]↓ / j[/]       scroll down one row')
+        $hl.Add('  [grey]PgUp / PgDn[/] scroll one page')
+        $hl.Add('  [grey]Home / End[/]  jump to first / last row')
+        $hl.Add('')
+        $hl.Add('  [grey]/[/]           open search filter (real-time)')
+        $hl.Add('  [grey]Esc[/]         clear filter / go back')
+        $hl.Add('')
+        $hl.Add('  [grey]e[/]           export (CSV · Excel · JSON)')
+        $hl.Add('  [grey]?[/]           this help overlay')
+        if ($Selectable) { $hl.Add('  [grey]Enter[/]       select row · drill-down') }
+        $hl.Add('  [grey]q[/]           go back')
+        $hl.Add('')
+        $hl.Add('  [dim]press any key to dismiss…[/]')
+
+        $maxW = ($hl | ForEach-Object { Measure-IaWidth (Strip-IaMarkup $_) } | Measure-Object -Maximum).Maximum
+        $bW   = $maxW + 2
+        $tl   = [string][char]0x256D; $tr = [string][char]0x256E
+        $bl   = [string][char]0x2570; $br = [string][char]0x256F
+
+        $out = [System.Text.StringBuilder]::new()
+        [void]$out.AppendLine("$border$tl$($h * $bW)$tr$reset")
+        foreach ($line in $hl) {
+            $pw  = Measure-IaWidth (Strip-IaMarkup $line)
+            $pad = ' ' * [Math]::Max(0, $maxW - $pw + 1)
+            [void]$out.AppendLine("$border$v$reset $(ConvertFrom-IaMarkup $line)$reset$pad$border$v$reset")
+        }
+        [void]$out.AppendLine("$border$bl$($h * $bW)$br$reset")
+
+        Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + $out.ToString()) -NoNewline
+        $null = [Console]::ReadKey($true)
+        & $renderFrame
+    }
+
+    # ── Main interactive loop ─────────────────────────────────────────────────
+    try {
+        Write-IaRaw (Get-IaSeq '?25l') -NoNewline    # hide cursor
+        & $renderFrame
+
+        while ($true) {
+            $key = [Console]::ReadKey($true)
+
+            if ($st.searching) {
+                switch ($key.Key) {
+                    'Escape'    { $st.searching = $false; $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
+                    'Enter'     { $st.searching = $false; & $renderFrame }
+                    'Backspace' {
+                        if ($st.query.Length -gt 0) { $st.query = $st.query.Substring(0, $st.query.Length - 1) }
+                        $st.sel = 0; $st.top = 0; & $renderFrame
+                    }
+                    default {
+                        if ($key.KeyChar -ge ' ') { $st.query += $key.KeyChar; $st.sel = 0; $st.top = 0; & $renderFrame }
+                    }
+                }
+            }
+            else {
+                $filtered = @(& $getFiltered)
+                $total    = $filtered.Count
+                $moved    = $false
+
+                switch ($key.Key) {
+                    'UpArrow'   { if ($st.sel -gt 0)              { $st.sel-- };                                                    $moved = $true }
+                    'DownArrow' { if ($st.sel -lt ($total - 1))   { $st.sel++ };                                                    $moved = $true }
+                    'PageUp'    { $st.sel = [Math]::Max(0, $st.sel - $pageSize);                                                    $moved = $true }
+                    'PageDown'  { $st.sel = [Math]::Min([Math]::Max(0, $total - 1), $st.sel + $pageSize);                          $moved = $true }
+                    'Home'      { $st.sel = 0;                                                                                      $moved = $true }
+                    'End'       { $st.sel = [Math]::Max(0, $total - 1);                                                             $moved = $true }
+                    'Escape'    {
+                        if ($st.query) { $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
+                        else           { return $null }
+                    }
+                    'Enter'     {
+                        if ($Selectable -and $total -gt 0) { return $rows[$filtered[$st.sel]] }
+                        else                               { return $null }
+                    }
+                    default     {
+                        switch ($key.KeyChar) {
+                            '/'  { $st.searching = $true; & $renderFrame }
+                            'e'  { Invoke-IaExport -Data $rows -Stem $Stem -Color $Color; & $renderFrame }
+                            '?'  { & $showHelp }
+                            'q'  { return $null }
+                            'j'  { if ($st.sel -lt ($total - 1)) { $st.sel++ }; & $renderFrame }
+                            'k'  { if ($st.sel -gt 0)            { $st.sel-- }; & $renderFrame }
+                        }
+                    }
+                }
+                if ($moved) { & $renderFrame }
+            }
+        }
+    }
+    finally {
+        $bh = 50; try { $bh = [Console]::WindowHeight } catch { }
+        Write-IaRaw ("$($script:IaEsc)[H" + ("$($script:IaEsc)[2K`n" * $bh) + "$($script:IaEsc)[H") -NoNewline
+        Write-IaRaw (Get-IaSeq '?25h') -NoNewline    # show cursor
+    }
+}
+
 function Read-IaTablePause {
-    # Drop-in for Read-IaPause when you have exportable data.
-    # Shows "any key continue · e export"; 'e' calls Invoke-IaExport.
+    # Legacy wrapper — now delegates to Read-IaTableInteractive so every table
+    # gets scrolling, search (/ key), export (e), and help (?) for free.
     [CmdletBinding()]
     param(
         [object[]]$Data,
         [string]$Stem  = 'tide-export',
-        [string]$Color = 'turquoise2'
+        [string]$Color = 'turquoise2',
+        [string]$Title = ''
     )
-    $hasData = $Data -and @($Data).Count -gt 0
-    if ($hasData) {
-        Write-IaHost "[grey]any key continue  ·  [/][$Color]e[/][grey] export[/]" -NoNewline
-    } else {
-        Write-IaHost '[grey]Press any key to continue…[/]' -NoNewline
-    }
-    try {
-        if (-not [Console]::IsInputRedirected) {
-            $k = [Console]::ReadKey($true)
-            Write-IaRaw ''
-            if ($hasData -and $k.KeyChar -eq 'e') {
-                Invoke-IaExport -Data $Data -Stem $Stem -Color $Color
-                Read-IaPause
-            }
-            return
-        }
-    } catch { }
-    try { Read-Host | Out-Null } catch { }
+    [void](Read-IaTableInteractive -Data @($Data) -Stem $Stem -Color $Color -Title $Title)
 }
 
 # ─── custom report pipeline engine (pure data — unit-testable) ────────────────

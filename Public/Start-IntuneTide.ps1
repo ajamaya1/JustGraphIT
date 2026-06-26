@@ -17,7 +17,7 @@ function Start-IntuneTide {
         Connect-IntuneTide -UseDeviceCode; Start-IntuneTide
     #>
     [CmdletBinding()]
-    param([ValidateSet('green', 'amber', 'lego', 'deepsea')][string]$Theme = 'deepsea')
+    param([ValidateSet('green', 'amber', 'lego', 'deepsea', 'sunset', 'ocean', 'forest', 'mono')][string]$Theme = 'deepsea')
 
     if ($PSVersionTable.PSVersion.Major -lt 7) {
         throw "The TIDE TUI requires PowerShell 7+ (you are on $($PSVersionTable.PSVersion))."
@@ -27,7 +27,16 @@ function Start-IntuneTide {
         Connect-IntuneTide -UseDeviceCode | Out-Null
     }
 
-    $accent = switch ($Theme) { 'amber' { 'orange1' } 'lego' { 'yellow' } 'deepsea' { 'turquoise2' } default { 'green' } }
+    $accent = switch ($Theme) {
+        'amber'  { 'orange1' }
+        'lego'   { 'yellow' }
+        'deepsea'{ 'turquoise2' }
+        'sunset' { 'coral' }
+        'ocean'  { 'deepskyblue1' }
+        'forest' { 'lime' }
+        'mono'   { 'silver' }
+        default  { 'green' }
+    }
     $script:IaTuiInventory = $null
     $script:IaCaps         = @{}     # cmdlet/param capability cache
 
@@ -1851,7 +1860,7 @@ function Invoke-IaTuiReportBuilder {
                         Write-IaHost "[grey]Tip: $(@($props).Count) columns shown — use [/][$Accent]Select columns[/][grey] to narrow for readability, or [/][$Accent]e[/][grey] to export the full width.[/]"
                     }
                 }
-                Read-IaTablePause -Data $result -Stem "custom-$($srcName -replace '\W+','-')" -Color $Accent
+                Read-IaTablePause -Data $result -Stem "custom-$($srcName -replace '\W+','-')" -Color $Accent -Title 'Custom report — preview'
             }
             'Export' {
                 $result = @(Invoke-IaReportPipeline -Data $raw -Recipe $recipe)
