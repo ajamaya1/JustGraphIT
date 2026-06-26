@@ -1304,3 +1304,179 @@ Describe 'TUI engine · output primitives do not throw' {
         }
     }
 }
+
+Describe 'TUI engine · report predicate' {
+
+    It 'evaluates string operators' {
+        InModuleScope IntuneTide {
+            Test-IaReportPredicate -Value 'Windows'    -Operator eq          -Operand 'Windows' | Should -BeTrue
+            Test-IaReportPredicate -Value 'Windows'    -Operator ne          -Operand 'macOS'   | Should -BeTrue
+            Test-IaReportPredicate -Value 'Windows 11' -Operator contains    -Operand 'dows'    | Should -BeTrue
+            Test-IaReportPredicate -Value 'Windows 11' -Operator notcontains -Operand 'mac'     | Should -BeTrue
+            Test-IaReportPredicate -Value 'Windows'    -Operator startswith  -Operand 'Win'     | Should -BeTrue
+            Test-IaReportPredicate -Value 'Windows'    -Operator endswith    -Operand 'ows'     | Should -BeTrue
+            Test-IaReportPredicate -Value 'PC-42'      -Operator match       -Operand 'PC-\d+'  | Should -BeTrue
+        }
+    }
+
+    It 'evaluates numeric comparisons numerically (not lexically)' {
+        InModuleScope IntuneTide {
+            # Lexically "9" > "10"; numerically 9 < 10. Must use numeric.
+            Test-IaReportPredicate -Value 9  -Operator lt -Operand 10 | Should -BeTrue
+            Test-IaReportPredicate -Value 45 -Operator gt -Operand 30 | Should -BeTrue
+            Test-IaReportPredicate -Value 30 -Operator ge -Operand 30 | Should -BeTrue
+            Test-IaReportPredicate -Value 30 -Operator le -Operand 30 | Should -BeTrue
+        }
+    }
+
+    It 'evaluates empty / boolean operators' {
+        InModuleScope IntuneTide {
+            Test-IaReportPredicate -Value ''       -Operator isempty  -Operand '' | Should -BeTrue
+            Test-IaReportPredicate -Value $null    -Operator isempty  -Operand '' | Should -BeTrue
+            Test-IaReportPredicate -Value 'x'      -Operator notempty -Operand '' | Should -BeTrue
+            Test-IaReportPredicate -Value 'True'   -Operator istrue   -Operand '' | Should -BeTrue
+            Test-IaReportPredicate -Value 'False'  -Operator isfalse  -Operand '' | Should -BeTrue
+        }
+    }
+
+    It 'never throws on a bad regex' {
+        InModuleScope IntuneTide {
+            { Test-IaReportPredicate -Value 'x' -Operator match -Operand '[unterminated' } | Should -Not -Throw
+            Test-IaReportPredicate -Value 'x' -Operator match -Operand '[unterminated' | Should -BeFalse
+        }
+    }
+
+    It 'compares dates chronologically' {
+        InModuleScope IntuneTide {
+            Test-IaReportPredicate -Value '2026-06-01' -Operator gt -Operand '2026-01-01' | Should -BeTrue
+            Test-IaReportPredicate -Value '2026-01-01' -Operator lt -Operand '2026-06-01' | Should -BeTrue
+        }
+    }
+}
+
+Describe 'TUI engine · report pipeline' {
+
+    BeforeAll {
+        $script:rptData = @(
+            [pscustomobject]@{ Device = 'PC-1';  OS = 'Windows'; Compliance = 'compliant';    Days = 2;  GB = 256 }
+            [pscustomobject]@{ Device = 'PC-2';  OS = 'Windows'; Compliance = 'noncompliant'; Days = 45; GB = 512 }
+            [pscustomobject]@{ Device = 'MAC-1'; OS = 'macOS';   Compliance = 'compliant';    Days = 10; GB = 1024 }
+            [pscustomobject]@{ Device = 'PC-3';  OS = 'Windows'; Compliance = 'noncompliant'; Days = 3;  GB = 128 }
+        )
+    }
+
+    It 'filters with WHERE (AND-combined)' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(@{ Prop = 'OS'; Op = 'eq'; Val = 'Windows' }, @{ Prop = 'Compliance'; Op = 'eq'; Val = 'noncompliant' })
+                Sort = @(); Select = @(); Top = 0; GroupBy = $null; Agg = $null
+            }
+            @($r).Count | Should -Be 2
+            @($r.Device) | Should -Contain 'PC-2'
+            @($r.Device) | Should -Contain 'PC-3'
+        }
+    }
+
+    It 'sorts numerically descending' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(); Sort = @(@{ Prop = 'Days'; Desc = $true }); Select = @(); Top = 0; GroupBy = $null; Agg = $null
+            }
+            $r[0].Device  | Should -Be 'PC-2'   # 45
+            $r[-1].Device | Should -Be 'PC-1'   # 2
+        }
+    }
+
+    It 'projects with SELECT' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(); Sort = @(); Select = @('Device', 'OS'); Top = 0; GroupBy = $null; Agg = $null
+            }
+            @($r[0].PSObject.Properties.Name) | Should -Be @('Device', 'OS')
+        }
+    }
+
+    It 'limits with TOP' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(); Sort = @(); Select = @(); Top = 2; GroupBy = $null; Agg = $null
+            }
+            @($r).Count | Should -Be 2
+        }
+    }
+
+    It 'groups with COUNT' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(); Sort = @(); Select = @(); Top = 0; GroupBy = 'OS'; Agg = @{ Func = 'Count'; Prop = $null }
+            }
+            $win = $r | Where-Object { $_.OS -eq 'Windows' }
+            $win.Count | Should -Be 3
+            ($r | Where-Object { $_.OS -eq 'macOS' }).Count | Should -Be 1
+        }
+    }
+
+    It 'groups with SUM aggregate' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(); Sort = @(); Select = @(); Top = 0; GroupBy = 'OS'; Agg = @{ Func = 'Sum'; Prop = 'GB' }
+            }
+            $win = $r | Where-Object { $_.OS -eq 'Windows' }
+            $win.'Sum(GB)' | Should -Be 896   # 256 + 512 + 128
+        }
+    }
+
+    It 'groups with AVG aggregate' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(); Sort = @(); Select = @(); Top = 0; GroupBy = 'Compliance'; Agg = @{ Func = 'Avg'; Prop = 'Days' }
+            }
+            $nc = $r | Where-Object { $_.Compliance -eq 'noncompliant' }
+            $nc.'Avg(Days)' | Should -Be 24    # (45 + 3) / 2
+        }
+    }
+
+    It 'yields exactly one element for a single-row match (wrapped by caller)' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = @(Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(@{ Prop = 'Device'; Op = 'eq'; Val = 'MAC-1' })
+                Sort = @(); Select = @(); Top = 0; GroupBy = $null; Agg = $null
+            })
+            $r.Count | Should -Be 1
+            $r[0].Device | Should -Be 'MAC-1'
+        }
+    }
+
+    It 'returns a genuinely empty set for a no-match filter (not a phantom row)' {
+        InModuleScope IntuneTide -Parameters @{ data = $script:rptData } {
+            param($data)
+            $r = @(Invoke-IaReportPipeline -Data $data -Recipe @{
+                Where = @(@{ Prop = 'OS'; Op = 'eq'; Val = 'Solaris' })
+                Sort = @(); Select = @(); Top = 0; GroupBy = $null; Agg = $null
+            })
+            $r.Count | Should -Be 0
+            [bool]$r | Should -BeFalse -Because 'an empty report must be falsy, not a 1-element wrapper'
+        }
+    }
+
+    It 'discovers the union of properties across rows' {
+        InModuleScope IntuneTide {
+            $ragged = @(
+                [pscustomobject]@{ A = 1; B = 2 }
+                [pscustomobject]@{ A = 1; C = 3 }
+            )
+            $props = Get-IaReportProperties -Data $ragged
+            $props | Should -Contain 'A'
+            $props | Should -Contain 'B'
+            $props | Should -Contain 'C'
+        }
+    }
+}
