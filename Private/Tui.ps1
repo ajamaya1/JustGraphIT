@@ -346,6 +346,27 @@ function Test-IaMouseWheelUp   { param($Ev) ($Ev.Button -band 64) -and -not ($Ev
 function Test-IaMouseWheelDown { param($Ev) ($Ev.Button -band 64) -and      ($Ev.Button -band 1) }
 function Test-IaMouseLeftClick { param($Ev) $Ev.Press -and -not ($Ev.Button -band 64) -and (($Ev.Button -band 3) -eq 0) }
 
+# ─── privacy ─────────────────────────────────────────────────────────────────
+
+function Format-IaMaskedId {
+    <#
+    .SYNOPSIS
+        Mask an identifier (tenant GUID, etc.) for over-the-shoulder / screenshot
+        privacy, revealing only the last few characters:
+          '11111111-2222-3333-4444-555555555555'  ->  '••••••••••••5555'
+        Pass -Reveal 0 to hide it completely.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Value,
+        [int]$Reveal = 4
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $Value }
+    $v = $Value.Trim()
+    if ($Reveal -le 0 -or $v.Length -le $Reveal) { return ('•' * [Math]::Min(16, $v.Length)) }
+    return ('•' * [Math]::Min(12, $v.Length - $Reveal)) + $v.Substring($v.Length - $Reveal)
+}
+
 # ─── output primitives ───────────────────────────────────────────────────────
 
 function Write-IaRaw {
