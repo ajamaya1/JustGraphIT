@@ -1195,6 +1195,53 @@ Describe 'TUI engine · id masking (Format-IaMaskedId)' {
     }
 }
 
+Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
+    # The TUI is a self-contained ANSI renderer — the cross-platform stand-in for
+    # Out-GridView. These guards stop a Windows-only dependency from creeping back
+    # in and breaking the module on macOS.
+
+    BeforeAll {
+        $script:srcFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -Filter *.ps1 |
+            Where-Object { $_.Name -ne 'IntuneTide.Tests.ps1' }
+    }
+
+    It 'never calls Out-GridView (Windows-only; throws on macOS/Linux)' {
+        ($script:srcFiles | Select-String -Pattern 'Out-GridView' -SimpleMatch) | Should -BeNullOrEmpty
+    }
+
+    It 'uses no GUI toolkit (WPF / WinForms / GraphicalTools)' {
+        $hits = $script:srcFiles | Select-String -Pattern 'System\.Windows|PresentationFramework|WindowsForms|GraphicalTools'
+        $hits | Should -BeNullOrEmpty
+    }
+
+    It 'uses no COM / WMI automation (Windows-only)' {
+        $hits = $script:srcFiles | Select-String -Pattern '-ComObject|Get-WmiObject|New-Object\s+-Com'
+        $hits | Should -BeNullOrEmpty
+    }
+
+    It 'guards every platform-specific shell call behind an $Is* check' {
+        # explorer.exe / open / xdg-open must only run under the matching platform.
+        foreach ($f in $script:srcFiles) {
+            $lines = Get-Content $f.FullName
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -match 'explorer\.exe|xdg-open|open -R') {
+                    # the same line must carry the platform guard
+                    $lines[$i] | Should -Match '\$IsWindows|\$IsMacOS|\$IsLinux' -Because "line $($i+1) of $($f.Name) runs a platform-specific command"
+                }
+            }
+        }
+    }
+
+    It 'manifest requires PowerShell 7+ and is not locked to a Windows edition' {
+        $psd = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'IntuneTide.psd1')
+        [version]$psd.PowerShellVersion | Should -BeGreaterOrEqual ([version]'7.0')
+        # No CompatiblePSEditions = 'Desktop'-only lock (Desktop edition is Windows-only)
+        if ($psd.ContainsKey('CompatiblePSEditions')) {
+            $psd.CompatiblePSEditions | Should -Contain 'Core'
+        }
+    }
+}
+
 Describe 'TUI engine · table rendering' {
 
     It 'renders objects with markup cells without throwing' {
