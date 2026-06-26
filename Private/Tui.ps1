@@ -964,9 +964,11 @@ function Invoke-IaExport {
         }
     }
     if ($path -and (Test-Path $path)) {
+        # Reveal the file in the platform's file manager (best-effort, never fatal).
         try {
-            if ($IsWindows) { Start-Process 'explorer.exe' "/select,`"$path`"" }
-            elseif ($IsMacOS) { & open -R $path }
+            if     ($IsWindows) { Start-Process 'explorer.exe' "/select,`"$path`"" }
+            elseif ($IsMacOS)   { & open -R $path }
+            elseif ($IsLinux)   { if (Get-Command xdg-open -ErrorAction SilentlyContinue) { & xdg-open (Split-Path $path) } }
         } catch { }
     }
 }
