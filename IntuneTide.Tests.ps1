@@ -1103,8 +1103,10 @@ Describe 'TUI engine · colour & width' {
 
     It 'maps every accent / colour name the TUI uses' {
         InModuleScope IntuneTide {
+            # Includes every theme accent: green/amber(orange1)/lego(yellow)/deepsea
+            # (turquoise2)/sunset(coral)/ocean(deepskyblue1)/forest(lime)/mono(silver).
             foreach ($c in 'green','orange1','yellow','turquoise2','coral','red',
-                           'grey','white','deepskyblue1','darkslategray1','bold','dim') {
+                           'grey','white','deepskyblue1','darkslategray1','lime','silver','bold','dim') {
                 (Get-IaAnsi $c) | Should -Not -Be '' -Because "$c is used in the TUI"
             }
         }
@@ -1121,6 +1123,47 @@ Describe 'TUI engine · colour & width' {
         InModuleScope IntuneTide {
             (Measure-IaWidth -Text 'hello') | Should -Be 5
             (Measure-IaWidth -Text '世界')   | Should -Be 4   # 2 wide CJK glyphs
+        }
+    }
+}
+
+Describe 'TUI engine · mouse event classification' {
+    # SGR mouse reports are  ESC [ < button ; col ; row  M/m. The classifiers below
+    # turn a parsed event into the gesture the menus/tables act on.
+
+    It 'recognises a left-button press as a click (and ignores its release)' {
+        InModuleScope IntuneTide {
+            $press   = @{ Type='mouse'; Button=0; X=5; Y=3; Press=$true }
+            $release = @{ Type='mouse'; Button=0; X=5; Y=3; Press=$false }
+            (Test-IaMouseLeftClick $press)   | Should -BeTrue
+            (Test-IaMouseLeftClick $release) | Should -BeFalse  # release must not re-fire the action
+        }
+    }
+
+    It 'distinguishes wheel-up (64) from wheel-down (65)' {
+        InModuleScope IntuneTide {
+            $up   = @{ Type='mouse'; Button=64; X=1; Y=1; Press=$true }
+            $down = @{ Type='mouse'; Button=65; X=1; Y=1; Press=$true }
+            [bool](Test-IaMouseWheelUp   $up)   | Should -BeTrue
+            [bool](Test-IaMouseWheelDown $up)   | Should -BeFalse
+            [bool](Test-IaMouseWheelDown $down) | Should -BeTrue
+            [bool](Test-IaMouseWheelUp   $down) | Should -BeFalse
+        }
+    }
+
+    It 'does not classify a wheel event as a click' {
+        InModuleScope IntuneTide {
+            $wheel = @{ Type='mouse'; Button=64; X=1; Y=1; Press=$true }
+            (Test-IaMouseLeftClick $wheel) | Should -BeFalse
+        }
+    }
+
+    It 'treats a modified left click (e.g. Ctrl held) as a click but a right click as not' {
+        InModuleScope IntuneTide {
+            $ctrlLeft = @{ Type='mouse'; Button=16; X=2; Y=2; Press=$true }  # +Ctrl modifier bit
+            $right    = @{ Type='mouse'; Button=2;  X=2; Y=2; Press=$true }
+            (Test-IaMouseLeftClick $ctrlLeft) | Should -BeTrue
+            (Test-IaMouseLeftClick $right)    | Should -BeFalse
         }
     }
 }
