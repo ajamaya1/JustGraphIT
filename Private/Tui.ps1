@@ -868,3 +868,178 @@ function Read-IaTablePause {
     } catch { }
     try { Read-Host | Out-Null } catch { }
 }
+
+# ─── custom report pipeline engine (pure data — unit-testable) ────────────────
+
+$script:IaReportOperators = [ordered]@{
+    'eq'          = 'equals'
+    'ne'          = 'not equals'
+    'contains'    = 'contains'
+    'notcontains' = 'does not contain'
+    'startswith'  = 'starts with'
+    'endswith'    = 'ends with'
+    'like'        = 'matches wildcard'
+    'match'       = 'matches regex'
+    'gt'          = 'greater than'
+    'ge'          = 'greater or equal'
+    'lt'          = 'less than'
+    'le'          = 'less or equal'
+    'isempty'     = 'is empty / null'
+    'notempty'    = 'is not empty'
+    'istrue'      = 'is true'
+    'isfalse'     = 'is false'
+}
+
+function ConvertTo-IaReportNumber {
+    # Coerce a value to [double] if it looks numeric, else $null.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [int] -or $Value -is [double] -or $Value -is [long] -or
+        $Value -is [decimal] -or $Value -is [single]) { return [double]$Value }
+    $d = 0.0
+    if ([double]::TryParse("$Value", [ref]$d)) { return $d }
+    return $null
+}
+
+function Compare-IaReportValue {
+    # Three-way compare: numeric first, then datetime, then case-insensitive string.
+    param($A, $B)
+    $na = ConvertTo-IaReportNumber $A
+    $nb = ConvertTo-IaReportNumber $B
+    if ($null -ne $na -and $null -ne $nb) { return [math]::Sign($na - $nb) }
+    $da = [datetime]::MinValue; $db = [datetime]::MinValue
+    if ([datetime]::TryParse("$A", [ref]$da) -and [datetime]::TryParse("$B", [ref]$db)) {
+        return $da.CompareTo($db)
+    }
+    return [string]::Compare("$A", "$B", $true)
+}
+
+function Test-IaReportPredicate {
+    # Evaluate one filter predicate against a cell value. Never throws.
+    [OutputType([bool])]
+    param($Value, [string]$Operator, $Operand)
+    $sV = if ($null -eq $Value) { '' } else { "$Value" }
+    switch ($Operator) {
+        'eq'          { return $sV -eq "$Operand" }
+        'ne'          { return $sV -ne "$Operand" }
+        'contains'    { return $sV -like "*$Operand*" }
+        'notcontains' { return $sV -notlike "*$Operand*" }
+        'startswith'  { return $sV -like "$Operand*" }
+        'endswith'    { return $sV -like "*$Operand" }
+        'like'        { return $sV -like "$Operand" }
+        'match'       { try { return $sV -match $Operand } catch { return $false } }
+        'gt'          { return (Compare-IaReportValue $Value $Operand) -gt 0 }
+        'ge'          { return (Compare-IaReportValue $Value $Operand) -ge 0 }
+        'lt'          { return (Compare-IaReportValue $Value $Operand) -lt 0 }
+        'le'          { return (Compare-IaReportValue $Value $Operand) -le 0 }
+        'isempty'     { return [string]::IsNullOrWhiteSpace($sV) }
+        'notempty'    { return -not [string]::IsNullOrWhiteSpace($sV) }
+        'istrue'      { return ($sV -eq 'True'  -or $sV -eq '1') }
+        'isfalse'     { return ($sV -eq 'False' -or $sV -eq '0' -or [string]::IsNullOrWhiteSpace($sV)) }
+        default       { return $true }
+    }
+}
+
+function Get-IaReportProperties {
+    # Union of property names across a sample of rows (handles ragged objects and
+    # IDictionary rows). Order: first-row order, then any extras as discovered.
+    [OutputType([string[]])]
+    param([object[]]$Data, [int]$Sample = 50)
+    $seen = [System.Collections.Specialized.OrderedDictionary]::new()
+    $n = [Math]::Min($Sample, @($Data).Count)
+    for ($i = 0; $i -lt $n; $i++) {
+        $row = $Data[$i]
+        if ($null -eq $row) { continue }
+        $names = if ($row -is [System.Collections.IDictionary]) { @($row.Keys) }
+                 else { @($row.PSObject.Properties.Name) }
+        foreach ($nm in $names) { if (-not $seen.Contains($nm)) { $seen.Add($nm, $true) } }
+    }
+    return @($seen.Keys)
+}
+
+function Get-IaReportCellValue {
+    # Read a property from a row whether it's a PSObject or IDictionary.
+    param($Row, [string]$Prop)
+    if ($null -eq $Row) { return $null }
+    if ($Row -is [System.Collections.IDictionary]) { return $Row[$Prop] }
+    $p = $Row.PSObject.Properties[$Prop]
+    if ($p) { return $p.Value }
+    return $null
+}
+
+function Invoke-IaReportPipeline {
+    <#
+    .SYNOPSIS
+        Apply a report recipe (where → group/aggregate → sort → select → top) to
+        an in-memory object array. Pure data transform; no I/O, never throws on a
+        bad predicate. Returns an object[] of PSCustomObjects.
+
+    .PARAMETER Recipe
+        Hashtable / object with keys:
+          Where   : array of @{ Prop; Op; Val }       (AND-combined)
+          GroupBy : property name (string) or $null
+          Agg     : @{ Func = Count|Sum|Avg|Min|Max; Prop = <numeric prop> } or $null
+          Sort    : array of @{ Prop; Desc }           (applied in order)
+          Select  : array of property names ([] = all; ignored when GroupBy set)
+          Top     : int (0 = no limit)
+    #>
+    [CmdletBinding()]
+    param([object[]]$Data, $Recipe)
+
+    $rows = @($Data | Where-Object { $null -ne $_ })
+
+    # 1. WHERE — AND of every predicate.
+    foreach ($f in @($Recipe.Where)) {
+        if (-not $f -or -not $f.Prop) { continue }
+        $rows = @($rows | Where-Object {
+            Test-IaReportPredicate -Value (Get-IaReportCellValue $_ $f.Prop) -Operator $f.Op -Operand $f.Val
+        })
+    }
+
+    # 2. GROUP + aggregate (terminal projection) OR passthrough.
+    if ($Recipe.GroupBy) {
+        $gp  = [string]$Recipe.GroupBy
+        $agg = $Recipe.Agg
+        $rows = @($rows | Group-Object -Property {
+            Get-IaReportCellValue $_ $gp
+        } | ForEach-Object {
+            $o = [ordered]@{}
+            $o[$gp]   = $_.Name
+            $o.Count  = $_.Count
+            if ($agg -and $agg.Func -and $agg.Func -ne 'Count' -and $agg.Prop) {
+                $nums = @($_.Group | ForEach-Object { ConvertTo-IaReportNumber (Get-IaReportCellValue $_ $agg.Prop) } |
+                         Where-Object { $null -ne $_ })
+                $val = switch ($agg.Func) {
+                    'Sum' { ($nums | Measure-Object -Sum).Sum }
+                    'Avg' { if ($nums) { [math]::Round(($nums | Measure-Object -Average).Average, 2) } else { 0 } }
+                    'Min' { if ($nums) { ($nums | Measure-Object -Minimum).Minimum } else { $null } }
+                    'Max' { if ($nums) { ($nums | Measure-Object -Maximum).Maximum } else { $null } }
+                    default { $null }
+                }
+                $o["$($agg.Func)($($agg.Prop))"] = $val
+            }
+            [pscustomobject]$o
+        })
+    }
+
+    # 3. SORT — string Expression keys (typed values compare correctly).
+    if (@($Recipe.Sort).Count -gt 0) {
+        $sortKeys = @($Recipe.Sort | Where-Object { $_ -and $_.Prop } | ForEach-Object {
+            @{ Expression = [string]$_.Prop; Descending = [bool]$_.Desc }
+        })
+        if ($sortKeys.Count -gt 0) { $rows = @($rows | Sort-Object -Property $sortKeys) }
+    }
+
+    # 4. SELECT — only when not grouped (grouping already fixes columns).
+    if (-not $Recipe.GroupBy -and @($Recipe.Select).Count -gt 0) {
+        $rows = @($rows | Select-Object -Property @($Recipe.Select))
+    }
+
+    # 5. TOP.
+    if ([int]$Recipe.Top -gt 0) { $rows = @($rows | Select-Object -First ([int]$Recipe.Top)) }
+
+    # Emit elements (callers wrap with @()). A unary-comma return would wrap an
+    # EMPTY result into a 1-element array holding an empty array — making a
+    # zero-row report look like one row. Plain @() emit keeps the empty case empty.
+    return @($rows)
+}

@@ -1214,13 +1214,14 @@ function Invoke-IaTuiRemediations {
 function Invoke-IaTuiReports {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Reports' -Sub 'status · audit · approvals · any report' -Accent $Accent
-    $pick = Read-IaMenu -Title 'Reports' -Color $Accent -PageSize 12 -Choices @(
+    $pick = Read-IaMenu -Title 'Reports' -Color $Accent -PageSize 13 -Choices @(
         'Tenant dashboard (devices · compliance · posture)',
         'Device inventory (compliance · last check-in)',
         'App install status (device / user)',
         'Configuration profile status',
         'Compliance status',
         'Deployment summary (success / fail, by group)',
+        'Custom report builder (select · where · sort · group · export)',
         'Audit log (who changed what)',
         'Multi Admin Approval requests',
         'PIM activations',
@@ -1531,6 +1532,9 @@ function Invoke-IaTuiReports {
                 }
             }
         }
+        'Custom report*' {
+            Invoke-IaTuiReportBuilder -Accent $Accent
+        }
         'Audit*' {
             $since = Read-IaText -Question 'Since (e.g. 7d, 24h)' -DefaultAnswer '7d'
             $act   = Read-IaText -Question 'Activity contains (blank = any)' -DefaultAnswer ''
@@ -1606,6 +1610,318 @@ function Invoke-IaTuiPolicyDeviceDrilldown {
     })
     $displayRows | Format-IaTable -Color $Accent -Title "Devices ($($rows.Count))"
     Read-IaTablePause -Data $rows -Stem "$($area.ToLower())-$($name -replace '\s+','-')-devices" -Color $Accent
+}
+
+# ─── custom report builder ────────────────────────────────────────────────────
+
+function Get-IaReportSources {
+    # Named data sources for the custom report builder. Each: a loader scriptblock
+    # plus the equivalent cmdlet text shown in "Show as PowerShell".
+    [ordered]@{
+        'Managed devices'        = @{ Cmd = 'Get-IntuneDeviceInventory'; Load = { Get-IntuneDeviceInventory } }
+        'Apps (all)'             = @{ Cmd = 'Get-IntuneApp';             Load = { Get-IntuneApp } }
+        'Win32 apps'             = @{ Cmd = 'Get-IntuneWin32App';        Load = { Get-IntuneWin32App } }
+        'Assignments (inventory)'= @{ Cmd = 'Get-IntuneAssignment';      Load = {
+            @(Get-IaTuiInventory | ForEach-Object {
+                $assigns = @($_.Assignments)
+                [pscustomobject][ordered]@{
+                    Area          = $_.Area
+                    ResourceType  = $_.ResourceType
+                    Name          = $_.Name
+                    Platform      = $_.Platform
+                    AssignedCount = $assigns.Count
+                    AssignedTo    = (@($assigns | ForEach-Object { Get-IaTargetDisplay -Target $_.Target }) -join '; ')
+                    Id            = $_.Id
+                }
+            })
+        } }
+        'Deployment summary'     = @{ Cmd = 'Get-IntuneDeploymentSummary'; Load = { Get-IntuneDeploymentSummary } }
+        'Cloud PCs'              = @{ Cmd = 'Get-IntuneCloudPC';           Load = { Get-IntuneCloudPC } }
+        'Configuration policies' = @{ Cmd = 'Get-IntuneConfigurationPolicy'; Load = { Get-IntuneConfigurationPolicy } }
+        'Compliance policies'    = @{ Cmd = 'Get-IntuneCompliancePolicy';  Load = { Get-IntuneCompliancePolicy } }
+        'Audit log (7d)'         = @{ Cmd = 'Get-IntuneAuditLog -Since 7d'; Load = { Get-IntuneAuditLog -Since 7d } }
+    }
+}
+
+function Get-IaReportCommandText {
+    # Render a recipe as the equivalent PowerShell pipeline (display only).
+    param([string]$Cmd, $Recipe)
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append($Cmd)
+    $wheres = @($Recipe.Where | Where-Object { $_ -and $_.Prop })
+    if ($wheres.Count -gt 0) {
+        $clauses = foreach ($f in $wheres) {
+            $p = "`$_.$($f.Prop)"
+            switch ($f.Op) {
+                'eq'          { "$p -eq '$($f.Val)'" }
+                'ne'          { "$p -ne '$($f.Val)'" }
+                'contains'    { "$p -like '*$($f.Val)*'" }
+                'notcontains' { "$p -notlike '*$($f.Val)*'" }
+                'startswith'  { "$p -like '$($f.Val)*'" }
+                'endswith'    { "$p -like '*$($f.Val)'" }
+                'like'        { "$p -like '$($f.Val)'" }
+                'match'       { "$p -match '$($f.Val)'" }
+                'gt'          { "$p -gt '$($f.Val)'" }
+                'ge'          { "$p -ge '$($f.Val)'" }
+                'lt'          { "$p -lt '$($f.Val)'" }
+                'le'          { "$p -le '$($f.Val)'" }
+                'isempty'     { "[string]::IsNullOrWhiteSpace($p)" }
+                'notempty'    { "-not [string]::IsNullOrWhiteSpace($p)" }
+                'istrue'      { "$p -eq `$true" }
+                'isfalse'     { "$p -ne `$true" }
+                default       { $p }
+            }
+        }
+        [void]$sb.Append(" |`n  Where-Object { " + ($clauses -join ' -and ') + ' }')
+    }
+    if ($Recipe.GroupBy) {
+        [void]$sb.Append(" |`n  Group-Object $($Recipe.GroupBy)")
+        if ($Recipe.Agg -and $Recipe.Agg.Func -and $Recipe.Agg.Func -ne 'Count' -and $Recipe.Agg.Prop) {
+            $a = $Recipe.Agg
+            [void]$sb.Append(" |`n  Select-Object Name, Count, @{n='$($a.Func)($($a.Prop))';e={(`$_.Group | Measure-Object $($a.Prop) -$($a.Func)).$($a.Func)}}")
+        } else {
+            [void]$sb.Append(" |`n  Select-Object Name, Count")
+        }
+    }
+    $sorts = @($Recipe.Sort | Where-Object { $_ -and $_.Prop })
+    if ($sorts.Count -gt 0) {
+        $sortStr = (@($sorts | ForEach-Object { $_.Prop }) -join ', ')
+        $desc = if ($sorts[0].Desc) { ' -Descending' } else { '' }
+        [void]$sb.Append(" |`n  Sort-Object $sortStr$desc")
+    }
+    if (-not $Recipe.GroupBy -and @($Recipe.Select).Count -gt 0) {
+        [void]$sb.Append(" |`n  Select-Object " + (@($Recipe.Select) -join ', '))
+    }
+    if ([int]$Recipe.Top -gt 0) { [void]$sb.Append(" |`n  Select-Object -First $($Recipe.Top)") }
+    $sb.ToString()
+}
+
+function Get-IaReportPanel {
+    # Build the recipe-summary header repainted above the builder menu each frame.
+    param([string]$Accent, [string]$SourceName, [int]$RowCount, $Recipe)
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add((ConvertFrom-IaMarkup "[$Accent]≈ TIDE[/]  [bold]· Custom report builder[/]"))
+    $lines.Add((ConvertFrom-IaMarkup "[grey]build a report: select · where · sort · group · export[/]"))
+    $lines.Add((ConvertFrom-IaMarkup ("[darkslategray1]" + ('─' * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
+
+    $cols = if (@($Recipe.Select).Count -gt 0) { (@($Recipe.Select) -join ', ') } else { '(all)' }
+    $filt = if (@($Recipe.Where | Where-Object { $_ -and $_.Prop }).Count -gt 0) {
+        (@($Recipe.Where | Where-Object { $_ -and $_.Prop } | ForEach-Object {
+            $v = if ($_.Op -in 'isempty','notempty','istrue','isfalse') { '' } else { " $($_.Val)" }
+            "$($_.Prop) $($_.Op)$v"
+        }) -join '  ·  ')
+    } else { '(none)' }
+    $sort = if (@($Recipe.Sort | Where-Object { $_ -and $_.Prop }).Count -gt 0) {
+        (@($Recipe.Sort | Where-Object { $_ -and $_.Prop } | ForEach-Object {
+            "$($_.Prop) $(if ($_.Desc) { '↓' } else { '↑' })"
+        }) -join ', ')
+    } else { '(none)' }
+    $grp = if ($Recipe.GroupBy) {
+        $g = $Recipe.GroupBy
+        if ($Recipe.Agg -and $Recipe.Agg.Func -and $Recipe.Agg.Func -ne 'Count' -and $Recipe.Agg.Prop) {
+            "$g  +  $($Recipe.Agg.Func)($($Recipe.Agg.Prop))"
+        } else { "$g  (count)" }
+    } else { '(none)' }
+    $top = if ([int]$Recipe.Top -gt 0) { "$($Recipe.Top)" } else { 'all' }
+
+    $lines.Add((ConvertFrom-IaMarkup ("[grey]{0,-9}[/] [$Accent]{1}[/]  [grey]({2} rows)[/]" -f 'Source', $SourceName, $RowCount)))
+    $lines.Add((ConvertFrom-IaMarkup ("[grey]{0,-9}[/] {1}" -f 'Columns', $cols)))
+    $lines.Add((ConvertFrom-IaMarkup ("[grey]{0,-9}[/] {1}" -f 'Filter',  $filt)))
+    $lines.Add((ConvertFrom-IaMarkup ("[grey]{0,-9}[/] {1}" -f 'Sort',    $sort)))
+    $lines.Add((ConvertFrom-IaMarkup ("[grey]{0,-9}[/] {1}" -f 'Group',   $grp)))
+    $lines.Add((ConvertFrom-IaMarkup ("[grey]{0,-9}[/] {1}" -f 'Top',     $top)))
+    $lines.Add('')
+    return ($lines -join "`n")
+}
+
+function Invoke-IaTuiReportBuilder {
+    param([string]$Accent)
+
+    $sources   = Get-IaReportSources
+    $srcName   = @($sources.Keys)[0]
+    $recipe    = @{ Select = @(); Where = @(); Sort = @(); GroupBy = $null; Agg = $null; Top = 0 }
+    $raw       = $null
+    $props     = @()
+
+    $loadSource = {
+        param($Name)
+        Write-IaTuiHeader -Screen 'Custom report builder' -Sub "loading '$Name'…" -Accent $Accent
+        $script:_rptRaw = @(Invoke-IaStatus -Spinner Dots -Title "Loading $Name…" -ScriptBlock {
+            & $sources[$Name].Load
+        })
+        $script:_rptRaw
+    }
+
+    # Initial load
+    $raw   = & $loadSource $srcName
+    $props = @(Get-IaReportProperties -Data $raw)
+
+    while ($true) {
+        $panel = Get-IaReportPanel -Accent $Accent -SourceName $srcName -RowCount @($raw).Count -Recipe $recipe
+        $pick  = Read-IaMenu -Title 'Action' -Color $Accent -PageSize 16 -Header $panel -Choices @(
+            'Data source',
+            'Select columns',
+            'Add filter',
+            'Clear filters',
+            'Sort by',
+            'Clear sort',
+            'Group / aggregate',
+            'Top N rows',
+            'Run / preview',
+            'Export',
+            'Show as PowerShell command',
+            'Save report definition',
+            'Load report definition',
+            'Reset recipe',
+            'Back'
+        )
+        switch -Wildcard ($pick) {
+            'Data source' {
+                $newSrc = Read-IaMenu -Title 'Data source' -Color $Accent -PageSize 12 -Choices @($sources.Keys)
+                if ($newSrc -and $newSrc -ne $srcName) {
+                    $srcName = $newSrc
+                    $raw     = & $loadSource $srcName
+                    $props   = @(Get-IaReportProperties -Data $raw)
+                    # Reset projection bits that reference old columns.
+                    $recipe.Select = @(); $recipe.Where = @(); $recipe.Sort = @()
+                    $recipe.GroupBy = $null; $recipe.Agg = $null
+                }
+            }
+            'Select columns' {
+                if (-not $props) { Write-IaHost '[yellow]No columns — load data first.[/]'; Read-IaPause; break }
+                $chosen = @(Read-IaMultiMenu -Title 'Columns (none = all)' -Color $Accent -PageSize 20 -Choices $props)
+                $recipe.Select = $chosen
+            }
+            'Add filter' {
+                if (-not $props) { Write-IaHost '[yellow]No columns to filter.[/]'; Read-IaPause; break }
+                $fProp = Read-IaMenu -Title 'Filter which property?' -Color $Accent -PageSize 20 -Choices $props
+                if (-not $fProp) { break }
+                $opMap = [ordered]@{}
+                $opChoices = foreach ($kv in $script:IaReportOperators.GetEnumerator()) {
+                    $label = "$($kv.Value)"; $opMap[$label] = $kv.Key; $label
+                }
+                $opPick = Read-IaMenu -Title "How should '$fProp' compare?" -Color $Accent -PageSize 18 -Choices @($opChoices)
+                if (-not $opPick) { break }
+                $op = $opMap[$opPick]
+                $val = ''
+                if ($op -notin 'isempty','notempty','istrue','isfalse') {
+                    $val = Read-IaText -Question "Value for $fProp $op"
+                }
+                $recipe.Where += @{ Prop = $fProp; Op = $op; Val = $val }
+            }
+            'Clear filters' { $recipe.Where = @() }
+            'Sort by' {
+                if (-not $props) { Write-IaHost '[yellow]No columns to sort.[/]'; Read-IaPause; break }
+                $sProp = Read-IaMenu -Title 'Sort which property?' -Color $Accent -PageSize 20 -Choices $props
+                if (-not $sProp) { break }
+                $dir = Read-IaMenu -Title 'Direction' -Color $Accent -Choices @('Ascending ↑', 'Descending ↓')
+                $recipe.Sort += @{ Prop = $sProp; Desc = ($dir -like 'Desc*') }
+            }
+            'Clear sort' { $recipe.Sort = @() }
+            'Group / aggregate' {
+                if (-not $props) { Write-IaHost '[yellow]No columns to group.[/]'; Read-IaPause; break }
+                $gProp = Read-IaMenu -Title 'Group by (Back = no grouping)' -Color $Accent -PageSize 20 -Choices (@('(no grouping)') + $props)
+                if (-not $gProp -or $gProp -eq '(no grouping)') { $recipe.GroupBy = $null; $recipe.Agg = $null; break }
+                $recipe.GroupBy = $gProp
+                $func = Read-IaMenu -Title 'Aggregate' -Color $Accent -Choices @('Count only', 'Sum', 'Average', 'Min', 'Max')
+                if ($func -eq 'Count only' -or -not $func) {
+                    $recipe.Agg = @{ Func = 'Count'; Prop = $null }
+                } else {
+                    $mProp = Read-IaMenu -Title "Which numeric property to $func?" -Color $Accent -PageSize 20 -Choices $props
+                    $fmap = @{ 'Sum'='Sum'; 'Average'='Avg'; 'Min'='Min'; 'Max'='Max' }
+                    $recipe.Agg = @{ Func = $fmap[$func]; Prop = $mProp }
+                }
+            }
+            'Top N rows' {
+                $n = Read-IaText -Question 'Top N (0 = all)' -DefaultAnswer "$($recipe.Top)"
+                $parsed = 0; if ([int]::TryParse($n, [ref]$parsed)) { $recipe.Top = [Math]::Max(0, $parsed) }
+            }
+            'Run / preview' {
+                $result = @(Invoke-IaReportPipeline -Data $raw -Recipe $recipe)
+                Write-IaTuiHeader -Screen 'Custom report — preview' -Sub "$srcName  ·  $($result.Count) row(s)" -Accent $Accent
+                if (-not $result) {
+                    Write-IaHost '[yellow]No rows match the current recipe.[/]'
+                } else {
+                    @($result | Select-Object -First 200) | Format-IaTable -Color $Accent
+                    if ($result.Count -gt 200) {
+                        Write-IaHost "[grey]Showing first 200 of $($result.Count) — export for the full set.[/]"
+                    }
+                    # Wide table → suggest narrowing columns for readability.
+                    if (-not $recipe.GroupBy -and @($recipe.Select).Count -eq 0 -and @($props).Count -gt 8) {
+                        Write-IaHost "[grey]Tip: $(@($props).Count) columns shown — use [/][$Accent]Select columns[/][grey] to narrow for readability, or [/][$Accent]e[/][grey] to export the full width.[/]"
+                    }
+                }
+                Read-IaTablePause -Data $result -Stem "custom-$($srcName -replace '\W+','-')" -Color $Accent
+            }
+            'Export' {
+                $result = @(Invoke-IaReportPipeline -Data $raw -Recipe $recipe)
+                if (-not $result) { Write-IaHost '[yellow]Nothing to export — recipe returns no rows.[/]'; Read-IaPause; break }
+                Invoke-IaExport -Data $result -Stem "custom-$($srcName -replace '\W+','-')" -Color $Accent
+                Read-IaPause
+            }
+            'Show as PowerShell*' {
+                Write-IaTuiHeader -Screen 'Custom report — PowerShell' -Sub $srcName -Accent $Accent
+                $cmd = Get-IaReportCommandText -Cmd $sources[$srcName].Cmd -Recipe $recipe
+                Write-IaHost '[grey]Equivalent command (copy into a script or console):[/]'
+                Write-IaHost ''
+                # Render raw (no markup parse) so [ ] and | in the command survive intact.
+                $reset = Get-IaReset; $fg = Get-IaAnsi $Accent
+                Write-IaRaw ($fg + $cmd + $reset)
+                Write-IaHost ''
+                Read-IaPause
+            }
+            'Save report definition' {
+                $name = Read-IaText -Question 'Report name' -DefaultAnswer 'my-report'
+                $safe = ($name -replace '[^\w-]', '-')
+                $path = Join-Path ([Environment]::GetFolderPath('UserProfile')) "tide-report-$safe.json"
+                $def  = [pscustomobject]@{ Source = $srcName; Recipe = $recipe; SavedBy = 'IntuneTide'; Version = 1 }
+                try {
+                    $def | ConvertTo-Json -Depth 6 | Set-Content -Path $path -Encoding UTF8
+                    Write-IaHost "[$Accent]✓ Saved → $path[/]"
+                } catch { Write-IaHost "[coral]Save failed: $($_.Exception.Message)[/]" }
+                Read-IaPause
+            }
+            'Load report definition' {
+                $userHome = [Environment]::GetFolderPath('UserProfile')
+                $defs = @(Get-ChildItem -Path $userHome -Filter 'tide-report-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+                $path = $null
+                if ($defs) {
+                    $choice = Read-IaMenu -Title 'Load which report?' -Color $Accent -PageSize 15 -Choices (@($defs | ForEach-Object { $_.Name }) + 'Type a path…')
+                    if ($choice -eq 'Type a path…') { $path = Read-IaText -Question 'Path to .json' }
+                    elseif ($choice) { $path = (Join-Path $userHome $choice) }
+                } else {
+                    $path = Read-IaText -Question 'Path to report .json'
+                }
+                if ($path -and (Test-Path $path)) {
+                    try {
+                        $loaded = Get-Content -Path $path -Raw | ConvertFrom-Json
+                        if ($loaded.Source -and @($sources.Keys) -contains $loaded.Source) {
+                            $srcName = $loaded.Source
+                            $raw     = & $loadSource $srcName
+                            $props   = @(Get-IaReportProperties -Data $raw)
+                        }
+                        $r = $loaded.Recipe
+                        $recipe = @{
+                            Select  = @($r.Select)
+                            Where   = @($r.Where  | Where-Object { $_ } | ForEach-Object { @{ Prop = $_.Prop; Op = $_.Op; Val = $_.Val } })
+                            Sort    = @($r.Sort   | Where-Object { $_ } | ForEach-Object { @{ Prop = $_.Prop; Desc = [bool]$_.Desc } })
+                            GroupBy = $r.GroupBy
+                            Agg     = if ($r.Agg -and $r.Agg.Func) { @{ Func = $r.Agg.Func; Prop = $r.Agg.Prop } } else { $null }
+                            Top     = [int]$r.Top
+                        }
+                        Write-IaHost "[$Accent]✓ Loaded $([IO.Path]::GetFileName($path))[/]"
+                    } catch { Write-IaHost "[coral]Load failed: $($_.Exception.Message)[/]" }
+                } elseif ($path) {
+                    Write-IaHost "[coral]Not found: $path[/]"
+                }
+                Read-IaPause
+            }
+            'Reset recipe' {
+                $recipe = @{ Select = @(); Where = @(); Sort = @(); GroupBy = $null; Agg = $null; Top = 0 }
+            }
+            'Back' { return }
+        }
+    }
 }
 
 # ─── backup / restore / drift ─────────────────────────────────────────────────
