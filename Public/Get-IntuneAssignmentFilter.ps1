@@ -40,10 +40,18 @@ function Get-IntuneAssignmentFilter {
         return ConvertTo-IaFilterObject -Filter $filter
     }
 
+    $platformApiMap = @{
+        'Windows'      = 'windows10AndLater'
+        'iOS'          = 'iOS'
+        'macOS'        = 'macOS'
+        'Android'      = 'android'
+        'AndroidForWork' = 'androidForWork'
+    }
+
     $uri = 'deviceManagement/assignmentFilters'
     if ($Platform -ne 'All') {
-        $escaped = [uri]::EscapeDataString($Platform)
-        $uri     = "${uri}?`$filter=platform eq '$escaped'"
+        $apiPlatform = $platformApiMap[$Platform] ?? $Platform
+        $uri = "${uri}?`$filter=platform eq '$apiPlatform'"
     }
 
     $all = Get-IaCollection (Resolve-IaUri $uri)

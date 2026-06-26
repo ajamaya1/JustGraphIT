@@ -88,7 +88,7 @@ function Get-IaAdminTemplateDefinitionValues {
         [pscustomobject][ordered]@{
             DefinitionId = $def.id
             DisplayName  = $def.displayName
-            OmaUri       = $def.oemUrl ?? $def.categoryPath   # Graph beta exposes categoryPath; oemUrl is less common
+            OmaUri       = $def.categoryPath
             Value        = $value
             DataType     = $dv.presentationValues?[0].'@odata.type' -replace '#microsoft.graph.groupPolicyPresentationValue', '' -replace '^$', 'Boolean'
         }

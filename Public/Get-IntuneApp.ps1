@@ -4,7 +4,7 @@ function Get-IntuneApp {
         List or retrieve Intune mobile apps.
 
     .DESCRIPTION
-        Returns apps from deviceManagement/mobileApps. Without -Id all apps are
+        Returns apps from deviceAppManagement/mobileApps. Without -Id all apps are
         returned; use -AppType to filter to a specific category. With -Id a single
         app is resolved by GUID or display name. -IncludeAssignments appends the
         full assignment collection to each result object.
@@ -55,10 +55,10 @@ function Get-IntuneApp {
 
     if ($Id) {
         $resolvedId = Resolve-IaAppId -Value $Id
-        $app = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/mobileApps/$resolvedId")
+        $app = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$resolvedId")
         $obj = ConvertTo-IaAppObject -App $app
         if ($IncludeAssignments) {
-            $assignments = Get-IaCollection (Resolve-IaUri "deviceManagement/mobileApps/$resolvedId/assignments")
+            $assignments = Get-IaCollection (Resolve-IaUri "deviceAppManagement/mobileApps/$resolvedId/assignments")
             $obj | Add-Member -NotePropertyName Assignments -NotePropertyValue $assignments -Force
         }
         return $obj
@@ -78,7 +78,7 @@ function Get-IntuneApp {
         default    { $null }
     }
 
-    $path = 'deviceManagement/mobileApps'
+    $path = 'deviceAppManagement/mobileApps'
     if ($odataFilter) {
         $encoded = [uri]::EscapeDataString($odataFilter)
         $path = "${path}?`$filter=${encoded}"
@@ -89,7 +89,7 @@ function Get-IntuneApp {
     foreach ($app in $apps) {
         $obj = ConvertTo-IaAppObject -App $app
         if ($IncludeAssignments) {
-            $assignments = Get-IaCollection (Resolve-IaUri "deviceManagement/mobileApps/$($app.id)/assignments")
+            $assignments = Get-IaCollection (Resolve-IaUri "deviceAppManagement/mobileApps/$($app.id)/assignments")
             $obj | Add-Member -NotePropertyName Assignments -NotePropertyValue $assignments -Force
         }
         $obj
@@ -111,7 +111,7 @@ function Resolve-IaAppId {
     if (Test-IaGuid $Value) { return $Value }
 
     $encoded = [uri]::EscapeDataString($Value)
-    $results = Get-IaCollection (Resolve-IaUri "deviceManagement/mobileApps?`$filter=displayName eq '$encoded'&`$select=id,displayName")
+    $results = Get-IaCollection (Resolve-IaUri "deviceAppManagement/mobileApps?`$filter=displayName eq '$encoded'&`$select=id,displayName")
 
     if ($results.Count -eq 0) { throw "No app found matching '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple apps match '$Value'. Provide a unique GUID." }

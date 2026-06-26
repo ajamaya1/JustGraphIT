@@ -5,7 +5,7 @@ function Get-IntuneWin32App {
         requirement rules.
 
     .DESCRIPTION
-        Returns Win32 LOB apps (win32LobApp) from deviceManagement/mobileApps.
+        Returns Win32 LOB apps (win32LobApp) from deviceAppManagement/mobileApps.
         Without -Id all Win32 apps are listed with a summary view. With -Id a
         single app is fetched and the full detail object is returned, including
         detection rules, requirement rules, install/uninstall commands, install
@@ -51,7 +51,7 @@ function Get-IntuneWin32App {
         $resolvedId = Resolve-IaAppId -Value $Id
 
         # Verify the resolved app is actually a Win32 app; warn if not
-        $app = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/mobileApps/$resolvedId")
+        $app = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$resolvedId")
 
         if ($app.'@odata.type' -ne '#microsoft.graph.win32LobApp') {
             Write-Warning "App '$Id' is not a Win32 LOB app (@odata.type: $($app.'@odata.type')). Returning available detail anyway."
@@ -62,7 +62,7 @@ function Get-IntuneWin32App {
 
     # List all Win32 apps
     $encoded = [uri]::EscapeDataString("isOf('microsoft.graph.win32LobApp')")
-    $apps = Get-IaCollection (Resolve-IaUri "deviceManagement/mobileApps?`$filter=${encoded}")
+    $apps = Get-IaCollection (Resolve-IaUri "deviceAppManagement/mobileApps?`$filter=${encoded}")
 
     foreach ($app in $apps) {
         [pscustomobject][ordered]@{
