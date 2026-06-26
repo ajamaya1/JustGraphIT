@@ -271,6 +271,81 @@ function Test-IaArrowSupport {
     try { $null = [Console]::KeyAvailable; return $true } catch { return $false }
 }
 
+# ─── mouse + key input ───────────────────────────────────────────────────────
+# SGR mouse tracking (1006) over button events (1000). Enabling lets clicks and
+# the scroll wheel drive menus/tables; the terminal then reports each event as an
+# escape sequence  ESC [ < button ; col ; row  M/m  (M=press, m=release).
+$script:IaMouseOn  = "$($script:IaEsc)[?1000h$($script:IaEsc)[?1006h"
+$script:IaMouseOff = "$($script:IaEsc)[?1000l$($script:IaEsc)[?1006l"
+
+function Read-IaNextRawChar {
+    # Read one more char of an in-flight escape sequence. Bytes of a mouse/CSI
+    # sequence arrive as a contiguous burst, but we tolerate brief gaps so a
+    # momentarily-empty buffer mid-sequence doesn't truncate the parse. Returns the
+    # ConsoleKeyInfo, or $null on timeout.
+    param([int]$TimeoutMs = 50)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        if ([Console]::KeyAvailable) { return [Console]::ReadKey($true) }
+        Start-Sleep -Milliseconds 2
+    }
+    return $null
+}
+
+function Read-IaInputEvent {
+    <#
+    .SYNOPSIS
+        Blocking read of ONE input event — keyboard or mouse — as a hashtable:
+          @{ Type='key';   Key=<ConsoleKey>; KeyChar=<char> }
+          @{ Type='mouse'; Button=<int>; X=<int>; Y=<int>; Press=<bool> }
+          @{ Type='other' }   (an escape sequence we don't act on; already drained)
+        A real Esc press is distinguished from a mouse/CSI sequence by KeyAvailable:
+        the terminal sends the rest of a sequence as a burst, so nothing follows a
+        bare Esc.
+    #>
+    $k = [Console]::ReadKey($true)
+    if ($k.Key -ne [ConsoleKey]::Escape) {
+        return @{ Type = 'key'; Key = $k.Key; KeyChar = $k.KeyChar }
+    }
+    if (-not [Console]::KeyAvailable) {
+        return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 }
+    }
+    $c1 = Read-IaNextRawChar
+    if ($null -eq $c1 -or $c1.KeyChar -ne '[') {
+        return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 }
+    }
+    $c2 = Read-IaNextRawChar
+    if ($null -eq $c2 -or $c2.KeyChar -ne '<') {
+        # Some other CSI sequence (.NET already decodes arrows/Fn keys, so this is
+        # rare); swallow whatever trails so it can't leak into the next read.
+        while ([Console]::KeyAvailable) { $null = [Console]::ReadKey($true) }
+        return @{ Type = 'other' }
+    }
+    # SGR mouse payload:  button ; col ; row  terminated by M (press) or m (release)
+    $sb = [System.Text.StringBuilder]::new()
+    $term = $null
+    for ($i = 0; $i -lt 32; $i++) {
+        $c = Read-IaNextRawChar
+        if ($null -eq $c) { break }
+        if ($c.KeyChar -eq 'M' -or $c.KeyChar -eq 'm') { $term = $c.KeyChar; break }
+        [void]$sb.Append($c.KeyChar)
+    }
+    if ($null -eq $term) { return @{ Type = 'other' } }
+    $parts = $sb.ToString() -split ';'
+    if ($parts.Count -ne 3) { return @{ Type = 'other' } }
+    $b = 0; $x = 0; $y = 0
+    if (-not ([int]::TryParse($parts[0], [ref]$b)) -or
+        -not ([int]::TryParse($parts[1], [ref]$x)) -or
+        -not ([int]::TryParse($parts[2], [ref]$y))) {
+        return @{ Type = 'other' }
+    }
+    return @{ Type = 'mouse'; Button = $b; X = $x; Y = $y; Press = ($term -eq 'M') }
+}
+
+function Test-IaMouseWheelUp   { param($Ev) ($Ev.Button -band 64) -and -not ($Ev.Button -band 1) }
+function Test-IaMouseWheelDown { param($Ev) ($Ev.Button -band 64) -and      ($Ev.Button -band 1) }
+function Test-IaMouseLeftClick { param($Ev) $Ev.Press -and -not ($Ev.Button -band 64) -and (($Ev.Button -band 3) -eq 0) }
+
 # ─── output primitives ───────────────────────────────────────────────────────
 
 function Write-IaRaw {
@@ -603,7 +678,7 @@ function Read-IaMenuArrow {
             else { $lines.Add('') }
         }
         $lines.Add($(if (($vp.top + $page) -lt $count) { "$dim   ↓ more$reset" } else { '' }))
-        $lines.Add("$dim   ↑/↓ move · Enter select · Esc back$reset")
+        $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc back$reset")
 
         # Full clear + redraw from home on every keypress through the one shared
         # output path (Write-IaRaw). Constant line count keeps the region stable; a
@@ -611,12 +686,29 @@ function Read-IaMenuArrow {
         Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + ($lines -join "`n") + "`n") -NoNewline
     }
 
+    # Screen row (1-based) of the first visible choice — header lines, optional
+    # title, and the "↑ more" indicator precede it. Used to map a click to a row.
+    $firstChoiceRow = $headerLines.Count + $(if ($Title) { 1 } else { 0 }) + 2
+
     try {
-        Write-IaRaw (Get-IaSeq '?25l') -NoNewline   # hide cursor
+        Write-IaRaw ((Get-IaSeq '?25l') + $script:IaMouseOn) -NoNewline   # hide cursor + mouse on
         & $render
         while ($true) {
-            $key = [Console]::ReadKey($true)
-            switch ($key.Key) {
+            $ev = Read-IaInputEvent
+            if ($ev.Type -eq 'mouse') {
+                if (Test-IaMouseLeftClick $ev) {
+                    $j = $ev.Y - $firstChoiceRow
+                    if ($j -ge 0 -and $j -lt $page) {
+                        $idx = $vp.top + $j
+                        if ($idx -lt $count) { return $idx }   # click = pick that item
+                    }
+                }
+                elseif (Test-IaMouseWheelUp $ev)   { $sel = ($sel - 1 + $count) % $count; & $render }
+                elseif (Test-IaMouseWheelDown $ev) { $sel = ($sel + 1) % $count; & $render }
+                continue
+            }
+            if ($ev.Type -ne 'key') { continue }
+            switch ($ev.Key) {
                 'UpArrow'   { $sel = ($sel - 1 + $count) % $count; & $render }
                 'DownArrow' { $sel = ($sel + 1) % $count; & $render }
                 'Home'      { $sel = 0; & $render }
@@ -629,6 +721,7 @@ function Read-IaMenuArrow {
         }
     }
     finally {
+        Write-IaRaw $script:IaMouseOff -NoNewline   # mouse off (don't leave terminal tracking)
         # Blank the whole screen HERE, inside the menu's own render context where full
         # repaints take effect (a clear issued after this function returns can be
         # dropped by the host, leaving the menu visible under the next screen). Clear
@@ -726,12 +819,28 @@ function Read-IaMultiMenuArrow {
         Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + ($lines -join "`n") + "`n") -NoNewline
     }
 
+    # Screen row (1-based) of the first visible choice: optional title + "↑ more".
+    $firstChoiceRow = $(if ($Title) { 1 } else { 0 }) + 2
+
     try {
-        Write-IaRaw (Get-IaSeq '?25l') -NoNewline
+        Write-IaRaw ((Get-IaSeq '?25l') + $script:IaMouseOn) -NoNewline
         & $render
         while ($true) {
-            $key = [Console]::ReadKey($true)
-            switch ($key.Key) {
+            $ev = Read-IaInputEvent
+            if ($ev.Type -eq 'mouse') {
+                if (Test-IaMouseLeftClick $ev) {
+                    $j = $ev.Y - $firstChoiceRow
+                    if ($j -ge 0 -and $j -lt $page) {
+                        $idx = $vp.top + $j
+                        if ($idx -lt $count) { $sel = $idx; $checked[$sel] = -not $checked[$sel]; & $render }   # click = toggle
+                    }
+                }
+                elseif (Test-IaMouseWheelUp $ev)   { $sel = ($sel - 1 + $count) % $count; & $render }
+                elseif (Test-IaMouseWheelDown $ev) { $sel = ($sel + 1) % $count; & $render }
+                continue
+            }
+            if ($ev.Type -ne 'key') { continue }
+            switch ($ev.Key) {
                 'UpArrow'   { $sel = ($sel - 1 + $count) % $count; & $render }
                 'DownArrow' { $sel = ($sel + 1) % $count; & $render }
                 'Spacebar'  { $checked[$sel] = -not $checked[$sel]; & $render }
@@ -742,6 +851,7 @@ function Read-IaMultiMenuArrow {
         }
     }
     finally {
+        Write-IaRaw $script:IaMouseOff -NoNewline
         # Blank the screen in the menu's own render context (see Read-IaMenuArrow).
         $bh = 50; try { $bh = [Console]::WindowHeight } catch { }
         if ($bh -lt 1) { $bh = 50 }
@@ -956,7 +1066,6 @@ function Read-IaTableInteractive {
 
     # ── renderFrame: full screen repaint from state ──────────────────────────
     $renderFrame = {
-      try {
         $filtered = @(& $getFiltered)
         $total    = $filtered.Count
 
@@ -1035,10 +1144,6 @@ function Read-IaTableInteractive {
         }
 
         Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + $buf.ToString()) -NoNewline
-      } catch {
-        Write-IaRaw ("`nRENDER-ERR: $($_.Exception.GetType().Name): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n") -NoNewline
-        throw
-      }
     }
 
     # ── showHelp: ? overlay ─────────────────────────────────────────────────
@@ -1060,6 +1165,10 @@ function Read-IaTableInteractive {
         if ($Selectable) { $hl.Add('  [grey]Enter[/]       select row · drill-down') }
         $hl.Add('  [grey]q[/]           go back')
         $hl.Add('')
+        $hl.Add('  [grey]wheel[/]       scroll up / down')
+        $click = if ($Selectable) { 'select row' } else { 'highlight row' }
+        $hl.Add("  [grey]click[/]       $click")
+        $hl.Add('')
         $hl.Add('  [dim]press any key to dismiss…[/]')
 
         $maxW = ($hl | ForEach-Object { Measure-IaWidth (Strip-IaMarkup $_) } | Measure-Object -Maximum).Maximum
@@ -1077,20 +1186,46 @@ function Read-IaTableInteractive {
         [void]$out.AppendLine("$border$bl$($h * $bW)$br$reset")
 
         Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + $out.ToString()) -NoNewline
-        $null = [Console]::ReadKey($true)
+        $null = Read-IaInputEvent   # any key OR click dismisses (drains full mouse seq)
         & $renderFrame
     }
 
+    # Screen row (1-based) of the first data row: optional title, then header and
+    # underline precede it. Used to map a click to a row.
+    $firstDataRow = $(if ($Title) { 1 } else { 0 }) + 3
+
     # ── Main interactive loop ─────────────────────────────────────────────────
     try {
-        Write-IaRaw (Get-IaSeq '?25l') -NoNewline    # hide cursor
+        Write-IaRaw ((Get-IaSeq '?25l') + $script:IaMouseOn) -NoNewline    # hide cursor + mouse on
         & $renderFrame
 
         while ($true) {
-            $key = [Console]::ReadKey($true)
+            $ev = Read-IaInputEvent
+
+            # ── Mouse (ignored while typing a search query) ──
+            if ($ev.Type -eq 'mouse') {
+                if (-not $st.searching) {
+                    $filtered = @(& $getFiltered)
+                    $total    = $filtered.Count
+                    if (Test-IaMouseWheelUp $ev)   { if ($st.sel -gt 0)            { $st.sel-- }; & $renderFrame }
+                    elseif (Test-IaMouseWheelDown $ev) { if ($st.sel -lt ($total - 1)) { $st.sel++ }; & $renderFrame }
+                    elseif (Test-IaMouseLeftClick $ev) {
+                        $j = $ev.Y - $firstDataRow
+                        $endIdx = [Math]::Min($st.top + $pageSize - 1, $total - 1)
+                        $clicked = $st.top + $j
+                        if ($j -ge 0 -and $clicked -ge $st.top -and $clicked -le $endIdx -and $clicked -lt $total) {
+                            $st.sel = $clicked
+                            if ($Selectable) { return $rows[$filtered[$clicked]] }   # click = drill in
+                            & $renderFrame
+                        }
+                    }
+                }
+                continue
+            }
+            if ($ev.Type -ne 'key') { continue }
 
             if ($st.searching) {
-                switch ($key.Key) {
+                switch ($ev.Key) {
                     'Escape'    { $st.searching = $false; $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
                     'Enter'     { $st.searching = $false; & $renderFrame }
                     'Backspace' {
@@ -1098,7 +1233,7 @@ function Read-IaTableInteractive {
                         $st.sel = 0; $st.top = 0; & $renderFrame
                     }
                     default {
-                        if ($key.KeyChar -ge ' ') { $st.query += $key.KeyChar; $st.sel = 0; $st.top = 0; & $renderFrame }
+                        if ($ev.KeyChar -ge ' ') { $st.query += $ev.KeyChar; $st.sel = 0; $st.top = 0; & $renderFrame }
                     }
                 }
             }
@@ -1107,7 +1242,7 @@ function Read-IaTableInteractive {
                 $total    = $filtered.Count
                 $moved    = $false
 
-                switch ($key.Key) {
+                switch ($ev.Key) {
                     'UpArrow'   { if ($st.sel -gt 0)              { $st.sel-- };                                                    $moved = $true }
                     'DownArrow' { if ($st.sel -lt ($total - 1))   { $st.sel++ };                                                    $moved = $true }
                     'PageUp'    { $st.sel = [Math]::Max(0, $st.sel - $pageSize);                                                    $moved = $true }
@@ -1123,7 +1258,7 @@ function Read-IaTableInteractive {
                         else                               { return $null }
                     }
                     default     {
-                        switch ($key.KeyChar) {
+                        switch ($ev.KeyChar) {
                             '/'  { $st.searching = $true; & $renderFrame }
                             'e'  { Invoke-IaExport -Data $rows -Stem $Stem -Color $Color; & $renderFrame }
                             '?'  { & $showHelp }
@@ -1138,6 +1273,7 @@ function Read-IaTableInteractive {
         }
     }
     finally {
+        Write-IaRaw $script:IaMouseOff -NoNewline    # mouse off
         $bh = 50; try { $bh = [Console]::WindowHeight } catch { }
         Write-IaRaw ("$($script:IaEsc)[H" + ("$($script:IaEsc)[2K`n" * $bh) + "$($script:IaEsc)[H") -NoNewline
         Write-IaRaw (Get-IaSeq '?25h') -NoNewline    # show cursor
