@@ -130,25 +130,37 @@ function Test-IaCap {
 }
 
 function Format-IaTable {
-    # Format-SpectreTable, but render inline [color] markup when the installed
-    # version supports -AllowMarkup; otherwise strip the tags so nothing leaks.
+    # Format-SpectreTable wrapper. Accepts -Data (array) or pipeline input.
+    # -Accent aliases -Color; -Title is passed through when supported.
+    # Strips inline [markup] tags when -AllowMarkup is not available.
     [CmdletBinding()]
-    param([Parameter(ValueFromPipeline)]$InputObject, [string]$Color)
+    param(
+        [Parameter(ValueFromPipeline)][object]$InputObject,
+        [object[]]$Data,
+        [string]$Color,
+        [string]$Accent,
+        [string]$Title
+    )
     begin { $rows = [System.Collections.Generic.List[object]]::new() }
     process { foreach ($i in @($InputObject)) { if ($null -ne $i) { $rows.Add($i) } } }
     end {
+        if ($Data) { foreach ($i in @($Data)) { if ($null -ne $i) { $rows.Add($i) } } }
         if ($rows.Count -eq 0) { return }
+        $col = if ($Accent) { $Accent } elseif ($Color) { $Color } else { $null }
+        $p = @{}
+        if ($col)   { $p.Color = $col }
+        if ($Title -and (Test-IaCap 'Format-SpectreTable' 'Title')) { $p.Title = $Title }
         if (Test-IaCap 'Format-SpectreTable' 'AllowMarkup') {
-            $rows | Format-SpectreTable -Color $Color -AllowMarkup
+            $rows | Format-SpectreTable @p -AllowMarkup
         } else {
             $clean = foreach ($r in $rows) {
                 $o = [ordered]@{}
-                foreach ($p in $r.PSObject.Properties) {
-                    $o[$p.Name] = if ($p.Value -is [string]) { [regex]::Replace($p.Value, '\[/?[^\[\]]*\]', '') } else { $p.Value }
+                foreach ($prop in $r.PSObject.Properties) {
+                    $o[$prop.Name] = if ($prop.Value -is [string]) { [regex]::Replace($prop.Value, '\[/?[^\[\]]*\]', '') } else { $prop.Value }
                 }
                 [pscustomobject]$o
             }
-            $clean | Format-SpectreTable -Color $Color
+            $clean | Format-SpectreTable @p
         }
     }
 }
