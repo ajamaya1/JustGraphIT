@@ -384,7 +384,7 @@ function Invoke-IaTuiMirror {
     if (-not $cands) { Write-SpectreHost "[yellow]$($src.DisplayName) has no assignments to mirror.[/]"; return }
 
     $map = @{}; $i = 0
-    $labels = foreach ($c in $cands) { $i++; $lbl = "$i. [$($c.Area)] $($c.Name)"; $map[$lbl] = $c.Id; $lbl }
+    $labels = foreach ($c in $cands) { $i++; $lbl = "$i. ($($c.Area)) $($c.Name)"; $map[$lbl] = $c.Id; $lbl }
     $picked = Read-SpectreMultiSelection -Title "Select what to mirror from [$Accent]$($src.DisplayName)[/]" `
         -Choices $labels -Color $Accent
     if (-not $picked) { Write-SpectreHost '[yellow]Nothing selected.[/]'; return }
@@ -485,7 +485,7 @@ function Invoke-IaTuiBulkAssign {
 
     $map  = @{}; $i = 0
     $labels = foreach ($it in ($scoped | Sort-Object Area, Name)) {
-        $i++; $lbl = "$i. [$($it.Area)] $($it.Name)"; $map[$lbl] = $it; $lbl
+        $i++; $lbl = "$i. ($($it.Area)) $($it.Name)"; $map[$lbl] = $it; $lbl
     }
 
     $subTitle = if ($intent) { "group: $($g.DisplayName)  ·  area: $area  ·  intent: $intent" } `
