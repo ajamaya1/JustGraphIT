@@ -60,8 +60,10 @@ function Resolve-IaErrorCode {
         [long]$n = if ($Code -is [string] -and $Code -match '^0[xX]') {
             [Convert]::ToInt64($Code, 16)
         } else { [long]$Code }
-        # Mask to 32 bits (handles signed-negative codes like -2016330724 = 0x87D1041C)
-        $hex = '0x{0:X8}' -f ($n -band 0xFFFFFFFF)
+        # Mask to 32 bits. Use decimal 4294967295 rather than 0xFFFFFFFF — the hex
+        # literal is typed as signed int32 (-1) in PowerShell, which widens to
+        # 0xFFFFFFFFFFFFFFFF and leaves negative longs unchanged.
+        $hex = '0x{0:X8}' -f ($n -band 4294967295)
         $script:IaWin32ErrorTable[$hex]
     } catch { $null }
 }
