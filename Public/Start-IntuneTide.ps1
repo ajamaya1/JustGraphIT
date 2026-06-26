@@ -70,6 +70,10 @@ function Start-IntuneTide {
             'Policies (configuration · compliance · scripts · remediations)',
             'Reports (status · audit · approvals)',
             'Windows 365 (Cloud PCs · provisioning · connections)',
+            'Apps (list · assign · Win32 details)',
+            'Windows Update (rings · feature · driver)',
+            'Autopilot & enrollment (devices · profiles · restrictions)',
+            'Security baselines',
             'Elevate (PIM) — activate an eligible role',
             'Audit',
             'Export report (HTML · Excel · Rich HTML)',
@@ -89,6 +93,10 @@ function Start-IntuneTide {
                 'Policies*'       { Invoke-IaTuiPolicies    -Accent $accent }
                 'Reports*'        { Invoke-IaTuiReports     -Accent $accent }
                 'Windows 365*'    { Invoke-IaTuiCloudPC     -Accent $accent }
+                'Apps*'           { Invoke-IaTuiApps        -Accent $accent }
+                'Windows Update*' { Invoke-IaTuiWindowsUpdate -Accent $accent }
+                'Autopilot*'      { Invoke-IaTuiAutopilot   -Accent $accent }
+                'Security base*'  { Invoke-IaTuiSecurityBaselines -Accent $accent }
                 'Elevate*'        { Invoke-IaTuiElevate     -Accent $accent }
                 'Audit'           { Invoke-IaTuiAudit       -Accent $accent }
                 'Export*'         { Invoke-IaTuiExport      -Accent $accent }
@@ -572,6 +580,318 @@ function Invoke-IaTuiElevate {
         Write-SpectreHost '[yellow]Activation needs approval / is provisioning — re-check with Get-IntuneActiveRole.[/]'
     }
     Get-IntuneActiveRole | Format-IaTable -Color $Accent
+}
+
+# ─── apps submenu ─────────────────────────────────────────────────────────────
+function Invoke-IaTuiApps {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Apps' -Sub 'list · assign · Win32 details' -Accent $Accent
+
+    while ($true) {
+        $pick = Read-SpectreSelection -Title 'Apps' -Color $Accent -PageSize 10 -Choices @(
+            'List all apps',
+            'Filter by type (Win32 / Store / iOS / Android / macOS)',
+            'Win32 app details (detection · requirements · return codes)',
+            'Assign app to groups',
+            'Back'
+        )
+        switch -Wildcard ($pick) {
+            'List all*' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading apps…' -Color $Accent -ScriptBlock {
+                    $script:_apps = @(Get-IntuneApp)
+                }
+                if (-not $script:_apps) { Write-SpectreHost "[yellow]No apps found.[/]"; Read-SpectreText -Question 'Press Enter' | Out-Null; break }
+                $rows = $script:_apps | ForEach-Object { [ordered]@{ Name = $_.Name; Type = $_.AppType; Publisher = $_.Publisher; Version = $_.Version } }
+                Format-IaTable -Data $rows -Accent $Accent -Title "Apps ($($script:_apps.Count))"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Filter by type*' {
+                $type = Read-SpectreSelection -Title 'App type' -Color $Accent -Choices @('Win32','Store','iOS','Android','macOS','WebApp','LOB','VPP','Office365')
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
+                    $script:_apps = @(Get-IntuneApp -AppType $using:type)
+                }
+                $rows = $script:_apps | ForEach-Object { [ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title "$type Apps ($($script:_apps.Count))"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Win32 app details*' {
+                $name = Read-SpectreText -Question 'App name or GUID'
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_w32 = Get-IntuneWin32App -Id $using:name
+                }
+                if ($script:_w32) {
+                    Write-SpectreHost "[$Accent]$($script:_w32.Name)[/]  v$($script:_w32.Version)  ($($script:_w32.Publisher))"
+                    Write-SpectreHost "Install:   $($script:_w32.InstallCommandLine)"
+                    Write-SpectreHost "Uninstall: $($script:_w32.UninstallCommandLine)"
+                    Write-SpectreHost "Run as:    $($script:_w32.InstallExperience?.runAsAccount)"
+                    Write-SpectreHost "Min OS:    $($script:_w32.MinimumOS)"
+                    Write-SpectreHost "Detection rules: $($script:_w32.DetectionRules.Count)"
+                    Write-SpectreHost "Requirement rules: $($script:_w32.RequirementRules.Count)"
+                }
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Assign app*' {
+                $appName = Read-SpectreText -Question 'App name or GUID'
+                $mode    = Read-SpectreSelection -Title 'Assign to' -Color $Accent -Choices @('All Devices','All Users','Specific group','Clear all assignments')
+                switch ($mode) {
+                    'All Devices' {
+                        Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
+                            Set-IntuneAppAssignment -AppId $using:appName -AllDevices -Confirm:$false
+                        }
+                    }
+                    'All Users' {
+                        Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
+                            Set-IntuneAppAssignment -AppId $using:appName -AllUsers -Confirm:$false
+                        }
+                    }
+                    'Specific group' {
+                        $grp = Read-SpectreText -Question 'Group name or GUID'
+                        $excl = Read-SpectreSelection -Title 'Include or exclude?' -Color $Accent -Choices @('Include','Exclude')
+                        Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
+                            if ($using:excl -eq 'Include') {
+                                Set-IntuneAppAssignment -AppId $using:appName -Include @($using:grp) -Confirm:$false
+                            } else {
+                                Set-IntuneAppAssignment -AppId $using:appName -Exclude @($using:grp) -Confirm:$false
+                            }
+                        }
+                    }
+                    'Clear all assignments' {
+                        $confirm = Read-SpectreSelection -Title "[red]Remove all assignments from '$appName'?[/]" -Color $Accent -Choices @('Yes','Cancel')
+                        if ($confirm -eq 'Yes') {
+                            Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Clearing…' -Color $Accent -ScriptBlock {
+                                Set-IntuneAppAssignment -AppId $using:appName -Clear -Confirm:$false
+                            }
+                        }
+                    }
+                }
+                Write-SpectreHost "[$Accent]Done.[/]"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Back' { return }
+        }
+    }
+}
+
+# ─── windows update submenu ───────────────────────────────────────────────────
+function Invoke-IaTuiWindowsUpdate {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Windows Update' -Sub 'rings · feature updates · driver updates' -Accent $Accent
+
+    while ($true) {
+        $pick = Read-SpectreSelection -Title 'Windows Update' -Color $Accent -PageSize 10 -Choices @(
+            'List update rings',
+            'Create update ring',
+            'Delete update ring',
+            'List feature update profiles',
+            'Create feature update profile',
+            'List driver update profiles',
+            'Back'
+        )
+        switch -Wildcard ($pick) {
+            'List update rings' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_rings = @(Get-IntuneUpdateRing)
+                }
+                $rows = $script:_rings | ForEach-Object {
+                    [ordered]@{ Name = $_.Name; QualityDeferral = $_.QualityUpdateDeferralDays; FeatureDeferral = $_.FeatureUpdateDeferralDays; AutoMode = $_.AutomaticUpdateMode; Modified = $_.Modified }
+                }
+                Format-IaTable -Data $rows -Accent $Accent -Title 'Windows Update Rings'
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Create update ring' {
+                $name    = Read-SpectreText -Question 'Ring name'
+                $qDefer  = [int](Read-SpectreText -Question 'Quality deferral days (0-30)')
+                $fDefer  = [int](Read-SpectreText -Question 'Feature deferral days (0-365)')
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
+                    $script:_ring = New-IntuneUpdateRing -Name $using:name -QualityDeferralDays $using:qDefer -FeatureDeferralDays $using:fDefer -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Created:[/] $($script:_ring.Name) ($($script:_ring.Id))"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Delete update ring' {
+                $name = Read-SpectreText -Question 'Ring name or GUID to delete'
+                $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')
+                if ($confirm -eq 'Yes, delete') {
+                    Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
+                        Remove-IntuneUpdateRing -Id $using:name -Confirm:$false
+                    }
+                    Write-SpectreHost "[$Accent]Deleted.[/]"
+                }
+            }
+            'List feature update*' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_fups = @(Get-IntuneFeatureUpdate)
+                }
+                $rows = $script:_fups | ForEach-Object { [ordered]@{ Name = $_.Name; Version = $_.FeatureUpdateVersion; RolloutStart = $_.RolloutSettings?.offerStartDateTimeInUTC; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title 'Feature Update Profiles'
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Create feature update*' {
+                $name    = Read-SpectreText -Question 'Profile name'
+                $version = Read-SpectreText -Question 'Feature update version (e.g. Windows 11, version 23H2)'
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
+                    $script:_fup = New-IntuneFeatureUpdate -Name $using:name -FeatureUpdateVersion $using:version -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Created:[/] $($script:_fup.Name)"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'List driver update*' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_dups = @(Get-IntuneDriverUpdate)
+                }
+                $rows = $script:_dups | ForEach-Object { [ordered]@{ Name = $_.Name; ApprovalType = $_.ApprovalType; Deferral = $_.DeploymentDeferralInDays; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title 'Driver Update Profiles'
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Back' { return }
+        }
+    }
+}
+
+# ─── autopilot & enrollment submenu ──────────────────────────────────────────
+function Invoke-IaTuiAutopilot {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Autopilot & Enrollment' -Sub 'devices · profiles · restrictions · ESP' -Accent $Accent
+
+    while ($true) {
+        $pick = Read-SpectreSelection -Title 'Autopilot & Enrollment' -Color $Accent -PageSize 10 -Choices @(
+            'List Autopilot devices',
+            'Search Autopilot device (by serial)',
+            'Update Autopilot device (group tag)',
+            'List Autopilot profiles',
+            'Enrollment restrictions',
+            'Enrollment Status Pages (ESP)',
+            'Back'
+        )
+        switch -Wildcard ($pick) {
+            'List Autopilot devices' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_apdevs = @(Get-IntuneAutopilotDevice)
+                }
+                $rows = $script:_apdevs | ForEach-Object { [ordered]@{ Serial = $_.SerialNumber; Model = $_.Model; Manufacturer = $_.Manufacturer; GroupTag = $_.GroupTag; EnrollState = $_.EnrollmentState } }
+                Format-IaTable -Data $rows -Accent $Accent -Title "Autopilot Devices ($($script:_apdevs.Count))"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Search Autopilot device*' {
+                $serial = Read-SpectreText -Question 'Serial number'
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Searching…' -Color $Accent -ScriptBlock {
+                    $script:_apdev = @(Get-IntuneAutopilotDevice -SerialNumber $using:serial)
+                }
+                if (-not $script:_apdev) { Write-SpectreHost "[yellow]No device found.[/]" }
+                else {
+                    $d = $script:_apdev[0]
+                    Write-SpectreHost "[$Accent]$($d.SerialNumber)[/]  $($d.Model)  GroupTag: $($d.GroupTag)  State: $($d.EnrollmentState)"
+                }
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Update Autopilot device*' {
+                $serial   = Read-SpectreText -Question 'Serial number or GUID'
+                $groupTag = Read-SpectreText -Question 'New group tag (leave blank to skip)'
+                $dispName = Read-SpectreText -Question 'New display name (leave blank to skip)'
+                $params   = @{ Id = $serial }
+                if ($groupTag) { $params['GroupTag']    = $groupTag }
+                if ($dispName) { $params['DisplayName'] = $dispName }
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Updating…' -Color $Accent -ScriptBlock {
+                    Set-IntuneAutopilotDevice @using:params -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Updated.[/]"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'List Autopilot profiles' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_appros = @(Get-IntuneAutopilotProfile)
+                }
+                $rows = $script:_appros | ForEach-Object { [ordered]@{ Name = $_.Name; Language = $_.Language; DeviceUsageType = $_.OobeSettings?.deviceUsageType; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title 'Autopilot Profiles'
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Enrollment restrictions' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_restr = @(Get-IntuneEnrollmentRestriction)
+                }
+                $rows = $script:_restr | ForEach-Object { [ordered]@{ Name = $_.Name; Type = $_.Type; Priority = $_.Priority; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title 'Enrollment Restrictions'
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Enrollment Status Pages*' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_esps = @(Get-IntuneESP)
+                }
+                $rows = $script:_esps | ForEach-Object { [ordered]@{ Name = $_.Name; Priority = $_.Priority; ShowProgress = $_.ShowInstallationProgress; TimeoutMin = $_.InstallProgressTimeoutInMinutes; TrackedApps = $_.TrackedAppCount } }
+                Format-IaTable -Data $rows -Accent $Accent -Title 'Enrollment Status Pages'
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Back' { return }
+        }
+    }
+}
+
+# ─── security baselines submenu ───────────────────────────────────────────────
+function Invoke-IaTuiSecurityBaselines {
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Security Baselines' -Sub 'endpoint security · antivirus · firewall · disk encryption' -Accent $Accent
+
+    while ($true) {
+        $pick = Read-SpectreSelection -Title 'Security Baselines' -Color $Accent -PageSize 8 -Choices @(
+            'List all security baselines',
+            'Filter by category',
+            'View baseline details',
+            'Create from template',
+            'Delete a baseline',
+            'Back'
+        )
+        switch -Wildcard ($pick) {
+            'List all*' {
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_baselines = @(Get-IntuneSecurityBaseline)
+                }
+                $rows = $script:_baselines | ForEach-Object { [ordered]@{ Name = $_.Name; Category = $_.Category; Platform = $_.Platform; Settings = $_.SettingCount; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title "Security Baselines ($($script:_baselines.Count))"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Filter by category' {
+                $cat = Read-SpectreSelection -Title 'Category' -Color $Accent -Choices @('Baseline','Antivirus','DiskEncryption','Firewall','EndpointDetectionResponse','AttackSurfaceReduction','AccountProtection')
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_baselines = @(Get-IntuneSecurityBaseline -Category $using:cat)
+                }
+                $rows = $script:_baselines | ForEach-Object { [ordered]@{ Name = $_.Name; Platform = $_.Platform; Settings = $_.SettingCount; Modified = $_.Modified } }
+                Format-IaTable -Data $rows -Accent $Accent -Title "$cat Baselines"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'View baseline details' {
+                $name = Read-SpectreText -Question 'Baseline name or GUID'
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
+                    $script:_bl = Get-IntuneSecurityBaseline -Id $using:name
+                }
+                if ($script:_bl) {
+                    Write-SpectreHost "[$Accent]$($script:_bl.Name)[/]  Category: $($script:_bl.Category)  Platform: $($script:_bl.Platform)"
+                    Write-SpectreHost "Baseline type: $($script:_bl.BaselineType)"
+                    Write-SpectreHost "Settings: $($script:_bl.SettingCount)  Created: $($script:_bl.Created)  Modified: $($script:_bl.Modified)"
+                }
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Create from template' {
+                $name  = Read-SpectreText -Question 'New baseline name'
+                $tmplId = Read-SpectreText -Question 'Template ID (GUID from Get-IntuneSecurityTemplate)'
+                Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
+                    $script:_newbl = New-IntuneSecurityBaseline -Name $using:name -TemplateId $using:tmplId -Confirm:$false
+                }
+                Write-SpectreHost "[$Accent]Created:[/] $($script:_newbl.Name) ($($script:_newbl.Id))"
+                Read-SpectreText -Question 'Press Enter to continue' | Out-Null
+            }
+            'Delete a baseline' {
+                $name = Read-SpectreText -Question 'Baseline name or GUID'
+                $confirm = Read-SpectreSelection -Title "[red]Delete '$name'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')
+                if ($confirm -eq 'Yes, delete') {
+                    Invoke-SpectreCommandWithStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
+                        Remove-IntuneConfigurationPolicy -Id $using:name -Confirm:$false
+                    }
+                    Write-SpectreHost "[$Accent]Deleted.[/]"
+                }
+            }
+            'Back' { return }
+        }
+    }
 }
 
 # ─── policies submenu ─────────────────────────────────────────────────────────
