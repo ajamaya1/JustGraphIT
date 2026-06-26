@@ -447,14 +447,17 @@ function Show-IaTableObjects {
     $data = @($Rows | Where-Object { $null -ne $_ })
     if ($data.Count -eq 0) { return }
 
-    $cols = @($data[0].PSObject.Properties.Name)
+    # Support both PSCustomObject and Hashtable/OrderedDictionary rows.
+    $isDictionary = $data[0] -is [System.Collections.IDictionary]
+    $cols = if ($isDictionary) { @($data[0].Keys) } else { @($data[0].PSObject.Properties.Name) }
     if ($cols.Count -eq 0) { return }
 
     # Cell matrix (raw markup strings). Use a List to keep each row an intact array.
     $matrix = [System.Collections.Generic.List[object[]]]::new()
     foreach ($r in $data) {
+        $isDict = $r -is [System.Collections.IDictionary]
         $cells = foreach ($c in $cols) {
-            $cv = $r.PSObject.Properties[$c].Value
+            $cv = if ($isDict) { $r[$c] } else { $r.PSObject.Properties[$c].Value }
             if ($null -eq $cv) { '' } else { [string]$cv }
         }
         $matrix.Add(@($cells))
@@ -770,4 +773,98 @@ function Read-IaMultiMenu {
     }
     $out = foreach ($i in $idx) { if ($i -ge 0 -and $i -lt $list.Count) { $list[$i] } }
     return @($out)
+}
+
+# ─── export ──────────────────────────────────────────────────────────────────
+
+function Invoke-IaExport {
+    # Export an array of objects to CSV, Excel, or JSON.  Strips markup from
+    # values so the file contains plain text.  Opens the containing folder on
+    # Windows/macOS after writing.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object[]]$Data,
+        [string]$Stem  = 'tide-export',
+        [string]$Color = 'turquoise2'
+    )
+    $clean = @($Data | ForEach-Object {
+        $src = $_
+        $isDict = $src -is [System.Collections.IDictionary]
+        $o = [ordered]@{}
+        if ($isDict) {
+            foreach ($k in $src.Keys) {
+                $o[$k] = Strip-IaMarkup ([string]($src[$k] ?? ''))
+            }
+        } else {
+            foreach ($p in $src.PSObject.Properties) {
+                $o[$p.Name] = Strip-IaMarkup ([string]($p.Value ?? ''))
+            }
+        }
+        [pscustomobject]$o
+    })
+
+    $choices = [System.Collections.Generic.List[string]]@('CSV')
+    if (Get-Module ImportExcel -ListAvailable -ErrorAction SilentlyContinue) { $choices.Add('Excel (.xlsx)') }
+    $choices.Add('JSON'); $choices.Add('Cancel')
+
+    $fmt = Read-IaMenu -Title 'Export format' -Color $Color -Choices $choices.ToArray()
+    if (-not $fmt -or $fmt -eq 'Cancel') { return }
+
+    $ts   = (Get-Date -Format 'yyyyMMdd-HHmm')
+    $safe = ($Stem -replace '[^\w-]','-') + "-$ts"
+    $tmp  = [IO.Path]::GetTempPath()
+    $path = $null
+
+    switch -Wildcard ($fmt) {
+        'CSV' {
+            $path = Join-Path $tmp "$safe.csv"
+            $clean | Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
+            Write-IaHost "[$Color]✓ CSV → $path[/]"
+        }
+        'Excel*' {
+            $path = Join-Path $tmp "$safe.xlsx"
+            $clean | Export-Excel -Path $path -AutoSize -BoldTopRow -FreezeTopRow
+            Write-IaHost "[$Color]✓ Excel → $path[/]"
+        }
+        'JSON' {
+            $path = Join-Path $tmp "$safe.json"
+            $clean | ConvertTo-Json -Depth 5 | Set-Content -Path $path -Encoding UTF8
+            Write-IaHost "[$Color]✓ JSON → $path[/]"
+        }
+    }
+    if ($path -and (Test-Path $path)) {
+        try {
+            if ($IsWindows) { Start-Process 'explorer.exe' "/select,`"$path`"" }
+            elseif ($IsMacOS) { & open -R $path }
+        } catch { }
+    }
+}
+
+function Read-IaTablePause {
+    # Drop-in for Read-IaPause when you have exportable data.
+    # Shows "any key continue · e export"; 'e' calls Invoke-IaExport.
+    [CmdletBinding()]
+    param(
+        [object[]]$Data,
+        [string]$Stem  = 'tide-export',
+        [string]$Color = 'turquoise2'
+    )
+    $hasData = $Data -and @($Data).Count -gt 0
+    if ($hasData) {
+        Write-IaHost "[grey]any key continue  ·  [/][$Color]e[/][grey] export[/]" -NoNewline
+    } else {
+        Write-IaHost '[grey]Press any key to continue…[/]' -NoNewline
+    }
+    try {
+        if (-not [Console]::IsInputRedirected) {
+            $k = [Console]::ReadKey($true)
+            Write-IaRaw ''
+            if ($hasData -and $k.KeyChar -eq 'e') {
+                Invoke-IaExport -Data $Data -Stem $Stem -Color $Color
+                Read-IaPause
+            }
+            return
+        }
+    } catch { }
+    try { Read-Host | Out-Null } catch { }
 }

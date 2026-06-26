@@ -642,19 +642,25 @@ function Invoke-IaTuiApps {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading apps…' -Color $Accent -ScriptBlock {
                     $script:_apps = @(Get-IntuneApp)
                 }
-                if (-not $script:_apps) { Write-IaHost "[yellow]No apps found.[/]"; Read-IaText -Question 'Press Enter' | Out-Null; break }
-                $rows = $script:_apps | ForEach-Object { [ordered]@{ Name = $_.Name; Type = $_.AppType; Publisher = $_.Publisher; Version = $_.Version } }
-                Format-IaTable -Data $rows -Accent $Accent -Title "Apps ($($script:_apps.Count))"
-                Read-IaText -Question 'Press Enter to continue' | Out-Null
+                if (-not $script:_apps) { Write-IaHost "[yellow]No apps found.[/]"; Read-IaPause | Out-Null; break }
+                $rows = @($script:_apps | ForEach-Object {
+                    [pscustomobject][ordered]@{ Name = $_.Name; Type = $_.AppType; Publisher = $_.Publisher; Version = $_.Version }
+                })
+                Write-IaTuiHeader -Screen 'Apps' -Sub "all apps ($($rows.Count))" -Accent $Accent
+                $rows | Format-IaTable -Color $Accent -Title "All Apps ($($rows.Count))"
+                Read-IaTablePause -Data $script:_apps -Stem 'apps-all' -Color $Accent
             }
             'Filter by type*' {
                 $type = Read-IaMenu -Title 'App type' -Color $Accent -Choices @('Win32','Store','iOS','Android','macOS','WebApp','LOB','VPP','Office365')
                 Invoke-IaStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
                     $script:_apps = @(Get-IntuneApp -AppType $type)
                 }
-                $rows = $script:_apps | ForEach-Object { [ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; Modified = $_.Modified } }
-                Format-IaTable -Data $rows -Accent $Accent -Title "$type Apps ($($script:_apps.Count))"
-                Read-IaText -Question 'Press Enter to continue' | Out-Null
+                $rows = @($script:_apps | ForEach-Object {
+                    [pscustomobject][ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; Modified = $_.Modified }
+                })
+                Write-IaTuiHeader -Screen 'Apps' -Sub "$type ($($rows.Count))" -Accent $Accent
+                $rows | Format-IaTable -Color $Accent -Title "$type Apps ($($rows.Count))"
+                Read-IaTablePause -Data $script:_apps -Stem "apps-$($type.ToLower())" -Color $Accent
             }
             'Win32 app details*' {
                 $name = Read-IaText -Question 'App name or GUID'
@@ -1270,33 +1276,141 @@ function Invoke-IaTuiReports {
             }
         }
         'Device inventory*' {
-            $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All devices', 'Non-compliant only', 'Stale (no sync 30d+)')
-            Write-IaTuiHeader -Screen 'Device inventory' -Sub $scope.ToLower() -Accent $Accent
-            $rows = Invoke-IaStatus -Spinner Dots -Title 'Reading managed devices…' -ScriptBlock {
-                switch -Wildcard ($scope) {
-                    'Non-compliant*' { Get-IntuneDeviceInventory -ComplianceState noncompliant }
-                    'Stale*'         { Get-IntuneDeviceInventory -StaleDays 30 }
-                    default          { Get-IntuneDeviceInventory }
+            # Filter submenu
+            $filt = Read-IaMenu -Title 'Filter' -Color $Accent -PageSize 10 -Choices @(
+                'All devices',
+                'Non-compliant only',
+                'Stale (no sync 30d+)',
+                'Cloud PCs only',
+                'Autopilot enrolled only',
+                'By platform (Windows / iOS / Android / macOS)',
+                'By manufacturer',
+                'By compliance state'
+            )
+            $invParams = @{}
+            $subTitle  = $filt.ToLower()
+            switch -Wildcard ($filt) {
+                'Non-compliant*'   { $invParams.ComplianceState = 'noncompliant' }
+                'Stale*'           { $invParams.StaleDays = 30 }
+                'Cloud PCs*'       { $invParams.Source = 'CloudPC' }
+                'Autopilot*'       { $invParams.Source = 'Autopilot' }
+                'By platform*'     {
+                    $pl = Read-IaMenu -Title 'Platform' -Color $Accent -Choices @('Windows','iOS','Android','macOS','Linux')
+                    $invParams.Platform = $pl; $subTitle = "platform: $pl"
+                }
+                'By manufacturer*' {
+                    $mfr = Read-IaText -Question 'Manufacturer contains'
+                    $invParams.Manufacturer = $mfr; $subTitle = "manufacturer: $mfr"
+                }
+                'By compliance*'   {
+                    $cs = Read-IaMenu -Title 'Compliance state' -Color $Accent -Choices @(
+                        'compliant','noncompliant','error','conflict','inGracePeriod','notApplicable','unknown'
+                    )
+                    $invParams.ComplianceState = $cs; $subTitle = "compliance: $cs"
                 }
             }
-            if (-not $rows) { Write-IaHost '[yellow]No devices match.[/]'; return }
-            Write-IaHost "[$Accent]$(@($rows).Count)[/] device(s)"
-            @($rows) | Select-Object -First 200 | ForEach-Object {
-                $cs = "$($_.Compliance)"
-                $cc = switch ($cs) { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
-                $dsc = if ($null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 30) { 'coral' }
-                       elseif ($null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 7) { 'yellow' } else { 'grey' }
-                [pscustomobject]@{
-                    Device     = $_.Device
-                    OS         = "[$Accent]$($_.OS)[/]"
-                    Version    = $_.OSVersion
-                    Compliance = "[$cc]$cs[/]"
-                    Owner      = $_.Owner
-                    User       = $_.User
-                    'Sync(d)'  = if ($null -ne $_.DaysSinceSync) { "[$dsc]$($_.DaysSinceSync)[/]" } else { '[grey]—[/]' }
+            Write-IaTuiHeader -Screen 'Device inventory' -Sub $subTitle -Accent $Accent
+            $rawDevices = @(Invoke-IaStatus -Spinner Dots -Title 'Reading managed devices…' -ScriptBlock {
+                Get-IntuneDeviceInventory @invParams
+            })
+            if (-not $rawDevices) { Write-IaHost '[yellow]No devices match.[/]'; Read-IaPause | Out-Null; return }
+            Write-IaHost "[$Accent]$($rawDevices.Count)[/] device(s)"
+
+            # Colour-coded display rows
+            $displayDevices = @($rawDevices | Select-Object -First 300 | ForEach-Object {
+                $cs   = "$($_.Compliance)"
+                $cc   = switch ($cs) { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
+                $dsc  = if ($null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 30) { 'coral' }
+                        elseif ($null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 7) { 'yellow' } else { 'grey' }
+                $srcC = switch ($_.Source) { 'CloudPC' { 'deepskyblue1' } 'Autopilot' { 'orange1' } default { 'grey' } }
+                [pscustomobject][ordered]@{
+                    Device       = $_.Device
+                    OS           = "[$Accent]$($_.OS)[/]"
+                    Compliance   = "[$cc]$cs[/]"
+                    Source       = "[$srcC]$($_.Source)[/]"
+                    Manufacturer = $_.Manufacturer
+                    Model        = $_.Model
+                    User         = $_.User
+                    'Sync(d)'    = if ($null -ne $_.DaysSinceSync) { "[$dsc]$($_.DaysSinceSync)[/]" } else { '[grey]—[/]' }
                 }
-            } | Format-IaTable -Color $Accent
-            if (@($rows).Count -gt 200) { Write-IaHost "[grey]Showing first 200 of $(@($rows).Count) — use Get-IntuneDeviceInventory for the full list.[/]" }
+            })
+            $displayDevices | Format-IaTable -Color $Accent
+            if ($rawDevices.Count -gt 300) {
+                Write-IaHost "[grey]Showing first 300 of $($rawDevices.Count) — export or use Get-IntuneDeviceInventory for the full list.[/]"
+            }
+
+            # Drill-down or export
+            $action = Read-IaMenu -Title 'Next' -Color $Accent -Choices @(
+                'View device detail (type a name)',
+                'Export this list',
+                'Back'
+            )
+            switch -Wildcard ($action) {
+                'View device*' {
+                    $devName = Read-IaText -Question 'Device name'
+                    Write-IaTuiHeader -Screen 'Device detail' -Sub $devName -Accent $Accent
+                    $detail = Invoke-IaStatus -Spinner Dots -Title "Loading $devName…" -ScriptBlock {
+                        Get-IntuneDeviceDetail -Device $devName
+                    }
+                    if ($detail) {
+                        $fields = [ordered]@{
+                            Device        = $detail.Device
+                            OS            = "$($detail.OS) $($detail.OSVersion)"
+                            Model         = "$($detail.Manufacturer) $($detail.Model)"
+                            Serial        = $detail.SerialNumber
+                            Compliance    = $detail.ComplianceState
+                            EnrollmentType = $detail.EnrollmentType
+                            JoinType      = $detail.JoinType
+                            Encrypted     = $detail.Encrypted
+                            User          = "$($detail.UserDisplayName)  $($detail.UserEmail)"
+                            LastSync      = $detail.LastSyncAt
+                            AzureADId     = $detail.AzureADDeviceId
+                            StorageGB     = "Free $($detail.FreeStorageGB) / Total $($detail.TotalStorageGB)"
+                        }
+                        foreach ($kv in $fields.GetEnumerator()) {
+                            $lc = if ([string]::IsNullOrWhiteSpace($kv.Value)) { 'grey' } else { 'white' }
+                            Write-IaHost ("[grey]{0,-15}[/] [$lc]{1}[/]" -f $kv.Key, $kv.Value)
+                        }
+
+                        $sub = Read-IaMenu -Title 'Drill further' -Color $Accent -Choices @(
+                            'Compliance policy states',
+                            'Configuration profile states',
+                            'Detected apps',
+                            'Done'
+                        )
+                        switch -Wildcard ($sub) {
+                            'Compliance pol*' {
+                                $cs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
+                                    (Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState).ComplianceStates
+                                })
+                                $cs | ForEach-Object {
+                                    $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant','error') { 'coral' } else { 'grey' }
+                                    [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$sc]$($_.state)[/]"; Platform = $_.platformType }
+                                } | Format-IaTable -Color $Accent
+                                Read-IaTablePause -Data $cs -Stem "device-$devName-compliance" -Color $Accent
+                            }
+                            'Configuration*' {
+                                $cfg = @(Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
+                                    (Get-IntuneDeviceDetail -Device $devName -IncludeConfigState).ConfigStates
+                                })
+                                $cfg | ForEach-Object {
+                                    $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error','conflict') { 'coral' } else { 'grey' }
+                                    [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$sc]$($_.state)[/]"; Version = $_.version }
+                                } | Format-IaTable -Color $Accent
+                                Read-IaTablePause -Data $cfg -Stem "device-$devName-config" -Color $Accent
+                            }
+                            'Detected apps*' {
+                                $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
+                                    (Get-IntuneDeviceDetail -Device $devName -IncludeApps).Apps
+                                })
+                                $apps | Format-IaTable -Color $Accent -Title "Apps on $devName ($($apps.Count))"
+                                Read-IaTablePause -Data $apps -Stem "device-$devName-apps" -Color $Accent
+                            }
+                        }
+                    }
+                }
+                'Export*' { Invoke-IaExport -Data $rawDevices -Stem 'device-inventory' -Color $Accent; Read-IaPause | Out-Null }
+            }
         }
         'App install*' {
             $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
@@ -1308,22 +1422,16 @@ function Invoke-IaTuiReports {
                 Get-IntuneAppInstallStatus -App $name -By $by
             }
             if ($by -eq 'Device') {
-                $rows | ForEach-Object {
+                $displayRows = @($rows | ForEach-Object {
                     $sc = switch ($_.Status) {
-                        'installed'     { $Accent }
-                        'failed'        { 'coral'  }
-                        'pending'       { 'yellow' }
-                        default         { 'grey'   }
+                        'installed' { $Accent } 'failed' { 'coral' } 'pending' { 'yellow' } default { 'grey' }
                     }
-                    [pscustomobject]@{
-                        Device      = $_.Device
-                        Status      = "[$sc]$($_.Status)[/]"
-                        Detail      = $_.Detail
-                        ErrorCode   = $_.ErrorCode
-                        ErrorReason = $_.ErrorReason
-                        User        = $_.User
+                    [pscustomobject][ordered]@{
+                        Device = $_.Device; Status = "[$sc]$($_.Status)[/]"
+                        Detail = $_.Detail; ErrorCode = $_.ErrorCode; User = $_.User
                     }
-                } | Format-IaTable -Color $Accent
+                })
+                $displayRows | Format-IaTable -Color $Accent
                 $failHints = @($rows | Where-Object { $_.Hint })
                 if ($failHints) {
                     Write-IaRule -Title 'Remediation hints' -Color $Accent
@@ -1335,25 +1443,45 @@ function Invoke-IaTuiReports {
             } else {
                 $rows | Format-IaTable -Color $Accent
             }
+            Read-IaTablePause -Data $rows -Stem "app-install-$($name -replace '\s+','-')" -Color $Accent
         }
         'Configuration*' {
             $p = Select-IaInventoryItem -Accent $Accent -Area 'Configuration' -Title 'Which configuration profile?'
             if (-not $p) { return }
             Write-IaTuiHeader -Screen 'Configuration profile status' -Sub "profile: $($p.Name)" -Accent $Accent
-            Get-IntuneConfigurationStatus -Profile $p.Name | Format-IaTable -Color $Accent
+            $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Loading profile status…' -ScriptBlock {
+                Get-IntuneConfigurationStatus -Profile $p.Name
+            })
+            $rows | Format-IaTable -Color $Accent
+            Read-IaTablePause -Data $rows -Stem "config-$($p.Name -replace '\s+','-')" -Color $Accent
         }
         'Compliance*' {
             $mode = Read-IaMenu -Title 'Compliance by' -Choices @('Tenant summary', 'Policy', 'Device') -Color $Accent
             Write-IaTuiHeader -Screen 'Compliance status' -Sub $mode.ToLower() -Accent $Accent
-            $rows = switch -Wildcard ($mode) {
+            $rows = @(switch -Wildcard ($mode) {
                 'Policy'  {
                     $pol = Select-IaInventoryItem -Accent $Accent -Area 'Compliance' -Title 'Which compliance policy?'
                     if ($pol) { Get-IntuneComplianceStatus -Policy $pol.Name }
                 }
                 'Device'  { Get-IntuneComplianceStatus -Device (Read-IaText -Question 'Device name') }
                 default   { Get-IntuneComplianceStatus }
+            })
+            if ($mode -eq 'Policy' -or $mode -eq 'Device') {
+                # Colour-grade the Status/State column
+                $displayRows = @($rows | ForEach-Object {
+                    $sc = if ($_.Status -eq 'compliant' -or $_.State -eq 'compliant') { $Accent }
+                          elseif ($_.Status -in 'noncompliant','error' -or $_.State -in 'noncompliant','error') { 'coral' }
+                          else { 'grey' }
+                    $r = $_ | Select-Object *
+                    if ($r.Status) { $r.Status = "[$sc]$($r.Status)[/]" }
+                    if ($r.State)  { $r.State  = "[$sc]$($r.State)[/]"  }
+                    $r
+                })
+                $displayRows | Format-IaTable -Color $Accent
+            } else {
+                $rows | Format-IaTable -Color $Accent
             }
-            $rows | Format-IaTable -Color $Accent
+            Read-IaTablePause -Data $rows -Stem "compliance-$mode" -Color $Accent
         }
         'Deployment*' {
             $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
@@ -1361,51 +1489,123 @@ function Invoke-IaTuiReports {
             if ($scope -like 'Scope*') { $grp = (Select-IaGroup -Accent $Accent -Title 'Scope to group').DisplayName }
             Write-IaTuiHeader -Screen 'Deployment summary' `
                 -Sub "for everything assigned to '$(if ($grp) { $grp } else { 'all resources' })'" -Accent $Accent
-            $data = Invoke-IaStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
+            $data = @(Invoke-IaStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
                 if ($grp) { Get-IntuneDeploymentSummary -Group $grp }
-                else { Get-IntuneDeploymentSummary }
-            }
-            $data | ForEach-Object {
+                else       { Get-IntuneDeploymentSummary }
+            })
+            if (-not $data) { Write-IaHost '[yellow]No deployment data found.[/]'; Read-IaPause | Out-Null; return }
+
+            # Show summary table
+            $displayData = @($data | ForEach-Object {
                 $fr      = [double]$_.FailRate
                 $frColor = if ($fr -gt 15) { 'coral' } elseif ($fr -gt 5) { 'yellow' } else { $Accent }
-                [pscustomobject]@{
+                [pscustomobject][ordered]@{
                     Area     = "[$Accent]$($_.Area)[/]"
                     Resource = $_.Resource
                     OK       = $_.Success
-                    FAIL     = if ($_.Failed -gt 0) { "[coral]$($_.Failed)[/]" } else { "$($_.Failed)" }
+                    FAIL     = if ($_.Failed -gt 0) { "[coral]$($_.Failed)[/]" } else { '0' }
                     PEND     = $_.Pending
                     TOTAL    = $_.Total
                     'FAIL%'  = "[$frColor]$($_.FailRate)[/]"
                 }
-            } | Format-IaTable -Color $Accent
+            })
+            $displayData | Format-IaTable -Color $Accent
             Write-IaHost "[grey]FailRate colour-graded — [coral]coral >15%[/] · [yellow]amber >5%[/] · ok otherwise[/]"
+
+            # Build selectable list for drill-down
+            $drillChoices = @($data | ForEach-Object {
+                $fr = [double]$_.FailRate
+                $fc = if ($fr -gt 15) { 'coral' } elseif ($fr -gt 5) { 'yellow' } else { $Accent }
+                '{0,-18} · {1,-50} · {2,4} OK · [{3}]{4} FAIL[/]' -f $_.Area, $_.Resource, $_.Success, $fc, $_.Failed
+            }) + @('Export', 'Back')
+
+            $drillPick = Read-IaMenu -Title 'Select a row to drill into device status' -Color $Accent -PageSize 20 -Choices $drillChoices
+            switch -Wildcard ($drillPick) {
+                'Export' { Invoke-IaExport -Data $data -Stem 'deployment-summary' -Color $Accent; Read-IaPause | Out-Null }
+                'Back'   { }
+                default  {
+                    $idx = [array]::IndexOf($drillChoices, $drillPick)
+                    if ($idx -ge 0 -and $idx -lt $data.Count) {
+                        Invoke-IaTuiPolicyDeviceDrilldown -Accent $Accent -Row $data[$idx]
+                    }
+                }
+            }
         }
         'Audit*' {
             $since = Read-IaText -Question 'Since (e.g. 7d, 24h)' -DefaultAnswer '7d'
             $act   = Read-IaText -Question 'Activity contains (blank = any)' -DefaultAnswer ''
             Write-IaTuiHeader -Screen 'Audit log' -Sub "since $since$(if ($act) { "  ·  activity: $act" })" -Accent $Accent
             $p = @{ Since = $since }; if ($act) { $p.Activity = $act }
-            Get-IntuneAuditLog @p | Select-Object -First 50 | Format-IaTable -Color $Accent
+            $rows = @(Get-IntuneAuditLog @p | Select-Object -First 50)
+            $rows | Format-IaTable -Color $Accent
+            Read-IaTablePause -Data $rows -Stem 'audit-log' -Color $Accent
         }
         'Multi Admin*' {
             Write-IaTuiHeader -Screen 'Multi Admin Approval requests' -Accent $Accent
-            Get-IntuneApprovalRequest | Format-IaTable -Color $Accent
+            $rows = @(Get-IntuneApprovalRequest)
+            $rows | Format-IaTable -Color $Accent
+            Read-IaTablePause -Data $rows -Stem 'approval-requests' -Color $Accent
         }
         'PIM*' {
             Write-IaTuiHeader -Screen 'PIM activations' -Accent $Accent
-            Get-IntunePimActivation | Format-IaTable -Color $Accent
+            $rows = @(Get-IntunePimActivation)
+            $rows | Format-IaTable -Color $Accent
+            Read-IaTablePause -Data $rows -Stem 'pim-activations' -Color $Accent
         }
         'Run any*' {
             $name = Read-IaSelection -Title 'Pick a report' -Color $Accent `
                 -Choices (@(Get-IntuneReportCatalog | ForEach-Object Name) + 'Other (type a name)')
             if ($name -like 'Other*') { $name = Read-IaText -Question 'Report name' }
             Write-IaTuiHeader -Screen "Report: $name" -Accent $Accent
-            Invoke-IaStatus -Spinner Dots -Title "Running $name…" -ScriptBlock {
+            $rows = @(Invoke-IaStatus -Spinner Dots -Title "Running $name…" -ScriptBlock {
                 Export-IntuneReport -Name $name
-            } | Select-Object -First 100 | Format-IaTable -Color $Accent
+            } | Select-Object -First 100)
+            $rows | Format-IaTable -Color $Accent
+            Read-IaTablePause -Data $rows -Stem "report-$($name -replace '\s+','-')" -Color $Accent
         }
         default { return }
     }
+}
+
+# ─── deployment summary drill-down ───────────────────────────────────────────
+function Invoke-IaTuiPolicyDeviceDrilldown {
+    param([string]$Accent, [pscustomobject]$Row)
+    $area = $Row.Area
+    $name = $Row.Resource
+    Write-IaTuiHeader -Screen 'Device status' -Sub "$area · $name" -Accent $Accent
+    $rows = @(Invoke-IaStatus -Spinner Dots -Title "Loading per-device status for $name…" -ScriptBlock {
+        switch ($area) {
+            'Compliance'    { Get-IntuneComplianceStatus -Policy $name }
+            'Configuration' { Get-IntuneConfigurationStatus -Profile $name }
+            'Apps'          { Get-IntuneAppInstallStatus -App $name -By Device }
+            default {
+                Write-IaHost "[yellow]Device-level drill-down is not yet available for '$area'.[/]"
+                @()
+            }
+        }
+    })
+    if (-not $rows) { Write-IaHost "[yellow]No device data returned.[/]"; Read-IaPause | Out-Null; return }
+    $displayRows = @($rows | ForEach-Object {
+        $statusVal = $_.Status ?? $_.State ?? $_.status ?? $_.state ?? ''
+        $sc = switch ($statusVal) {
+            { $_ -in 'compliant','installed','success' } { $Accent }
+            { $_ -in 'noncompliant','failed','error'   } { 'coral'  }
+            { $_ -in 'pending','inGracePeriod'         } { 'yellow' }
+            default { 'grey' }
+        }
+        $r = [ordered]@{}
+        foreach ($p in $_.PSObject.Properties) {
+            $v = "$($p.Value)"
+            if ($p.Name -in 'Status','State','status','state' -and $v) {
+                $r[$p.Name] = "[$sc]$v[/]"
+            } else {
+                $r[$p.Name] = $v
+            }
+        }
+        [pscustomobject]$r
+    })
+    $displayRows | Format-IaTable -Color $Accent -Title "Devices ($($rows.Count))"
+    Read-IaTablePause -Data $rows -Stem "$($area.ToLower())-$($name -replace '\s+','-')-devices" -Color $Accent
 }
 
 # ─── backup / restore / drift ─────────────────────────────────────────────────
