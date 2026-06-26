@@ -1168,6 +1168,33 @@ Describe 'TUI engine · mouse event classification' {
     }
 }
 
+Describe 'TUI engine · id masking (Format-IaMaskedId)' {
+
+    It 'reveals only the last 4 characters of a tenant GUID by default' {
+        InModuleScope IntuneTide {
+            $masked = Format-IaMaskedId '11111111-2222-3333-4444-555555555555'
+            $masked | Should -BeLike '*5555'
+            $masked | Should -Not -Match '1111|2222|3333|4444'   # nothing identifiable leaks
+            $masked | Should -Match '^•+5555$'                   # bullets + last 4 only
+        }
+    }
+
+    It 'hides everything when -Reveal 0' {
+        InModuleScope IntuneTide {
+            $masked = Format-IaMaskedId '11111111-2222-3333-4444-555555555555' -Reveal 0
+            $masked | Should -Not -Match '[0-9a-fA-F]'           # no hex at all
+            $masked | Should -Match '^•+$'
+        }
+    }
+
+    It 'passes through empty / null without throwing' {
+        InModuleScope IntuneTide {
+            (Format-IaMaskedId '')    | Should -Be ''
+            (Format-IaMaskedId $null) | Should -BeNullOrEmpty
+        }
+    }
+}
+
 Describe 'TUI engine · table rendering' {
 
     It 'renders objects with markup cells without throwing' {

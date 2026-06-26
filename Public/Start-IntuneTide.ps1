@@ -59,7 +59,7 @@ function Start-IntuneTide {
     # would erase it).
     $splashHeader = @(
         (Get-IaFigletString -Text 'TIDE' -Color $accent)
-        (ConvertFrom-IaMarkup "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev")
+        (ConvertFrom-IaMarkup "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev")
         (ConvertFrom-IaMarkup "[$accent]≈ targeted intune deployment & endpoints[/]")
         ''
     ) -join "`n"
@@ -67,7 +67,7 @@ function Start-IntuneTide {
     function Show-IaTuiSplash {
         Clear-IaHost
         Write-IaFiglet -Text 'TIDE' -Color $accent
-        Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$($ctx.TenantId)[/]  ·  $elev"
+        Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev"
         Write-IaRule -Title 'TIDE · targeted intune deployment & endpoints' -Color $accent
     }
 
