@@ -1302,9 +1302,11 @@ function Invoke-IaTuiReports {
                 'Autopilot enrolled only',
                 'By platform (Windows / iOS / Android / macOS)',
                 'By manufacturer',
-                'By compliance state'
+                'By compliance state',
+                'Group by a column (count per value)'
             )
             $invParams = @{}
+            $groupProp = $null
             $subTitle  = $filt.ToLower()
             switch -Wildcard ($filt) {
                 'Non-compliant*'   { $invParams.ComplianceState = 'noncompliant' }
@@ -1325,12 +1327,41 @@ function Invoke-IaTuiReports {
                     )
                     $invParams.ComplianceState = $cs; $subTitle = "compliance: $cs"
                 }
+                'Group by*'        {
+                    $groupProp = Read-IaMenu -Title 'Group devices by' -Color $Accent -PageSize 12 -Choices @(
+                        'Model','Manufacturer','OS','OSVersion','Compliance','Owner','User','EnrollmentType','JoinType','Source','Encrypted'
+                    )
+                    if (-not $groupProp) { return }
+                    $subTitle = "grouped by $groupProp"
+                }
             }
             Write-IaTuiHeader -Screen 'Device inventory' -Sub $subTitle -Accent $Accent
             $rawDevices = @(Invoke-IaStatus -Spinner Dots -Title 'Reading managed devices…' -ScriptBlock {
                 Get-IntuneDeviceInventory @invParams
             })
             if (-not $rawDevices) { Write-IaHost '[yellow]No devices match.[/]'; Read-IaPause | Out-Null; return }
+            if ($groupProp) {
+                # Group-by pivot — count of devices per value of the chosen column; pick a
+                # value to drill into just those devices (then the normal grid + console).
+                $groups = $rawDevices | Group-Object -Property $groupProp | Sort-Object Count -Descending
+                $gmax   = [Math]::Max(1, ($groups | Measure-Object -Property Count -Maximum).Maximum)
+                $pivot  = @($groups | ForEach-Object {
+                    $o = [ordered]@{}
+                    $o[$groupProp] = if ([string]::IsNullOrWhiteSpace([string]$_.Name)) { '(none)' } else { $_.Name }
+                    $o['Count']    = $_.Count
+                    $o['Share']    = "[$Accent]$('█' * [Math]::Max(1, [int](($_.Count / $gmax) * 22)))[/]"
+                    [pscustomobject]$o
+                })
+                $gv = Read-IaTableInteractive -Data $pivot -Color $Accent -Title "Devices grouped by $groupProp ($($rawDevices.Count) total · pick a group)" -Stem "devices-by-$groupProp" -Selectable
+                if (-not $gv) { return }
+                $val        = [string]$gv.$groupProp
+                $rawDevices = @($rawDevices | Where-Object {
+                    $v = if ([string]::IsNullOrWhiteSpace([string]$_.$groupProp)) { '(none)' } else { [string]$_.$groupProp }
+                    $v -eq $val
+                })
+                $subTitle = "$groupProp = $val"
+                Write-IaTuiHeader -Screen 'Device inventory' -Sub $subTitle -Accent $Accent
+            }
             Write-IaHost "[$Accent]$($rawDevices.Count)[/] device(s)"
 
             # Colour-coded display rows
