@@ -137,7 +137,9 @@ function Start-IntuneTide {
         } catch {
             Write-IaHost "[red]Error:[/] $($_.Exception.Message)"
         }
-        if ($choice -ne 'Quit') {
+        if ($choice -ne 'Quit' -and $choice -notlike 'View all*') {
+            # 'View all' is self-paced by its interactive table (own q/Esc exit), so
+            # it skips the trailing pause to avoid a redundant "press any key".
             Read-IaPause | Out-Null
             # No splash here: the next Read-IaMenu repaints the banner via -Header.
         }
@@ -272,7 +274,9 @@ function Invoke-IaTuiViewAll {
             'Assigned To' = if ($targets) { $targets -join '; ' } else { '[grey](unassigned)[/]' }
         }
     }
-    $rows | Format-IaTable -Color $Accent
+    # Scrollable / searchable / exportable — handles a 500-resource tenant instead
+    # of dumping every row at once. (↑/↓/PgUp/PgDn · / search · e export · q back)
+    Read-IaTablePause -Data $rows -Stem 'assignments-all' -Color $Accent -Title 'View all assignments'
 }
 
 # ─── group lookup ─────────────────────────────────────────────────────────────
@@ -1344,21 +1348,15 @@ function Invoke-IaTuiReports {
                     'Sync(d)'    = if ($null -ne $_.DaysSinceSync) { "[$dsc]$($_.DaysSinceSync)[/]" } else { '[grey]—[/]' }
                 }
             })
-            $displayDevices | Format-IaTable -Color $Accent
-            if ($rawDevices.Count -gt 300) {
-                Write-IaHost "[grey]Showing first 300 of $($rawDevices.Count) — export or use Get-IntuneDeviceInventory for the full list.[/]"
-            }
-
-            # Drill-down or export
-            $action = Read-IaMenu -Title 'Next' -Color $Accent -Choices @(
-                'View device detail (type a name)',
-                'Export this list',
-                'Back'
-            )
-            switch -Wildcard ($action) {
-                'View device*' {
-                    $devName = Read-IaText -Question 'Device name'
-                    Write-IaTuiHeader -Screen 'Device detail' -Sub $devName -Accent $Accent
+            # Scrollable / searchable grid — Enter or click a device to drill into its
+            # detail; e exports, q goes back. (Was: dump every row + "type a name".)
+            $capNote = if ($rawDevices.Count -gt 300) { '  ·  first 300 shown' } else { '' }
+            while ($true) {
+                $picked = Read-IaTableInteractive -Data $displayDevices -Color $Accent `
+                    -Title "Device inventory ($($rawDevices.Count)$capNote)" -Stem 'device-inventory' -Selectable
+                if (-not $picked) { break }   # q / Esc leaves the inventory
+                $devName = "$($picked.Device)"
+                Write-IaTuiHeader -Screen 'Device detail' -Sub $devName -Accent $Accent
                     $detail = Invoke-IaStatus -Spinner Dots -Title "Loading $devName…" -ScriptBlock {
                         Get-IntuneDeviceDetail -Device $devName
                     }
@@ -1418,8 +1416,6 @@ function Invoke-IaTuiReports {
                             }
                         }
                     }
-                }
-                'Export*' { Invoke-IaExport -Data $rawDevices -Stem 'device-inventory' -Color $Accent; Read-IaPause | Out-Null }
             }
         }
         'App install*' {

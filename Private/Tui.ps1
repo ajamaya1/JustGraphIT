@@ -1355,7 +1355,8 @@ function Compare-IaReportValue {
     $nb = ConvertTo-IaReportNumber $B
     if ($null -ne $na -and $null -ne $nb) { return [math]::Sign($na - $nb) }
     $da = [datetime]::MinValue; $db = [datetime]::MinValue
-    if ([datetime]::TryParse("$A", [ref]$da) -and [datetime]::TryParse("$B", [ref]$db)) {
+    $ic = [cultureinfo]::InvariantCulture; $dts = [Globalization.DateTimeStyles]::None
+    if ([datetime]::TryParse("$A", $ic, $dts, [ref]$da) -and [datetime]::TryParse("$B", $ic, $dts, [ref]$db)) {
         return $da.CompareTo($db)
     }
     return [string]::Compare("$A", "$B", $true)
