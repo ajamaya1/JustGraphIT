@@ -893,6 +893,33 @@ Describe 'Public cmdlets — Get-IntuneLapsCredential' {
     }
 }
 
+Describe 'Public cmdlets — Get-IntuneDeviceGroupMembership' {
+
+    It 'returns transitive groups with names and flags dynamic membership rules' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaDevice { [pscustomobject]@{ Id='dev-obj-1'; DisplayName='LAPTOP-01' } }
+            Mock Get-IaCollection {
+                @(
+                    [pscustomobject]@{ id='g1'; displayName='All Pilot Devices'; membershipRule=$null }
+                    [pscustomobject]@{ id='g2'; displayName='Autopilot Devices'; membershipRule='(device.devicePhysicalIds -any (_ -contains "[ZTDId]"))' }
+                )
+            }
+            $r = @(Get-IntuneDeviceGroupMembership -Device 'LAPTOP-01')
+            $r.Count                | Should -Be 2
+            $r[0].GroupName         | Should -Be 'All Pilot Devices'
+            $r[0].MembershipRule    | Should -BeNullOrEmpty           # assigned (static) group
+            $r[1].MembershipRule    | Should -Match 'ZTDId'           # dynamic group rule surfaced
+        }
+    }
+
+    It 'throws when the device cannot be resolved to an Entra object' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaDevice { [pscustomobject]@{ Id=$null; DisplayName=$null } }
+            { Get-IntuneDeviceGroupMembership -Device 'nope' } | Should -Throw '*resolve*'
+        }
+    }
+}
+
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {

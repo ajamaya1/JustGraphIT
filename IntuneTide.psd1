@@ -57,6 +57,7 @@
         'Get-IntuneDeviceDetail',
         'Get-IntuneBitLockerKey',
         'Get-IntuneLapsCredential',
+        'Get-IntuneDeviceGroupMembership',
         # --- Windows 365 Cloud PC ---
         'Get-IntuneCloudPC',
         'Invoke-IntuneCloudPCAction',
