@@ -346,7 +346,8 @@ function Invoke-IaTuiCompare {
     if ($export -eq 'Skip') { return }
 
     $ext  = switch ($export) { 'Excel' { 'xlsx' } 'HTML' { 'html' } default { 'csv' } }
-    $path = Read-IaText -Question 'Save to' -DefaultAnswer "group-diff.$ext"
+    $path = Read-IaSavePath -Prompt 'Save comparison as' -DefaultName "group-diff.$ext"
+    if (-not $path) { return }   # cancelled
 
     switch ($export) {
         'CSV'   { $rows | Export-Csv -Path $path -NoTypeInformation -Encoding utf8 }
@@ -1946,7 +1947,8 @@ function Invoke-IaTuiBackup {
     )
     switch -Wildcard ($pick) {
         'Backup assignments*' {
-            $p    = Read-IaText -Question 'Save snapshot to' -DefaultAnswer (Get-IaBackupName)
+            $p    = Read-IaSavePath -Prompt 'Save assignment snapshot as' -DefaultName (Get-IaBackupName)
+            if (-not $p) { return }   # cancelled
             Write-IaTuiHeader -Screen 'Backup' -Sub "→ $p" -Accent $Accent
             $snap = Backup-IntuneAssignment -Path $p
             Write-IaHost "[$Accent]Backed up[/] $($snap.count) resource(s) → $p"
@@ -2025,7 +2027,8 @@ function Invoke-IaTuiExport {
     )
     switch -Wildcard ($fmt) {
         'Built-in*' {
-            $p = Read-IaText -Question 'Output path' -DefaultAnswer 'intune-assignments.html'
+            $p = Read-IaSavePath -Prompt 'Save HTML report as' -DefaultName 'intune-assignments.html'
+            if (-not $p) { return }   # cancelled in the native dialog
             New-IaHtmlReport -Items (Get-IaTuiInventory) | Set-Content -Path $p -Encoding utf8
             Write-IaHost "[$Accent]Wrote[/] $p"
         }
@@ -2033,7 +2036,8 @@ function Invoke-IaTuiExport {
             if (-not (Get-Command Export-Excel -ErrorAction SilentlyContinue)) {
                 Write-IaHost "[yellow]ImportExcel not installed.[/] Install-Module ImportExcel -Scope CurrentUser"; return
             }
-            $p = Read-IaText -Question 'Output path' -DefaultAnswer 'intune-assignments.xlsx'
+            $p = Read-IaSavePath -Prompt 'Save Excel workbook as' -DefaultName 'intune-assignments.xlsx'
+            if (-not $p) { return }
             Get-IntuneAssignment -Flat | Export-IntuneExcel -Path $p -WorksheetName Assignments -Title 'Intune assignments'
             Write-IaHost "[$Accent]Wrote[/] $p"
         }
@@ -2041,7 +2045,8 @@ function Invoke-IaTuiExport {
             if (-not (Get-Command New-HTML -ErrorAction SilentlyContinue)) {
                 Write-IaHost "[yellow]PSWriteHTML not installed.[/] Install-Module PSWriteHTML -Scope CurrentUser"; return
             }
-            $p = Read-IaText -Question 'Output path' -DefaultAnswer 'intune-assignments-rich.html'
+            $p = Read-IaSavePath -Prompt 'Save rich HTML report as' -DefaultName 'intune-assignments-rich.html'
+            if (-not $p) { return }
             Export-IntuneHtmlReport -Path $p
             Write-IaHost "[$Accent]Wrote[/] $p"
         }

@@ -1232,6 +1232,18 @@ Describe 'TUI engine · Graph-calls footer (Get-IaCallFooter)' {
     }
 }
 
+Describe 'TUI engine · save-path picker (Read-IaSavePath)' {
+
+    It 'falls back to a typed path prompt when no native dialog is available' {
+        InModuleScope IntuneTide {
+            Mock Get-Command { $null } -ParameterFilter { $Name -in 'osascript', 'zenity' }
+            Mock Read-IaText { 'typed-fallback.html' }
+            (Read-IaSavePath -Prompt 'x' -DefaultName 'typed-fallback.html') | Should -Be 'typed-fallback.html'
+            Should -Invoke Read-IaText -Times 1 -Exactly
+        }
+    }
+}
+
 Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
     # The TUI is a self-contained ANSI renderer — the cross-platform stand-in for
     # Out-GridView. These guards stop a Windows-only dependency from creeping back
