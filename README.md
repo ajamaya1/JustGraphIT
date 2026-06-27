@@ -44,9 +44,9 @@ and Linux.
   **Intune-managed apps** on the device with intent (required/available) and install state.
 - **Help-desk user lookup** - Type a UPN and pull the caller's whole footprint from one
   prompt: every managed **device**, all **Entra group memberships** (kind · assigned vs
-  dynamic + rule), assigned **licenses** (friendly SKU names + service-plan health) and
-  **effective assignments** — with an **Overview** that lays devices, groups and licenses
-  out on a single page. Groups and licenses come from the **beta `/users`** endpoints.
+  dynamic + rule) and assigned **licenses** (friendly SKU names + service-plan health) —
+  with an **Overview** that lays devices, groups and licenses out on a single page. Groups
+  and licenses come from the **beta `/users`** endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
   multi-admin approvals, and HTML / CSV / JSON / Excel exports.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
