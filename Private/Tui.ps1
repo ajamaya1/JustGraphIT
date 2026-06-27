@@ -649,6 +649,29 @@ function Show-IaTableObjects {
 
 # ─── menus ───────────────────────────────────────────────────────────────────
 
+function Get-IaCallFooter {
+    # Compact one-line strip of the most recent Microsoft Graph calls, for a screen
+    # footer — e.g.  ⟳ 47 Graph calls   GET /configurationPolicies 200  ·  GET /groups 200
+    param([int]$Recent = 3)
+    # Get-IaCallLogEntries uses the ,@() idiom to preserve the array — do NOT wrap in
+    # @() again or it double-nests (one element that is the whole array).
+    $all = Get-IaCallLogEntries
+    if ($all.Count -eq 0) { return '' }
+    $reset = Get-IaReset
+    $dim   = Get-IaAnsi 'dim'
+    $ok    = Get-IaAnsi 'green'
+    $bad   = Get-IaAnsi 'coral'
+    $last  = @($all | Select-Object -Last $Recent)
+    $parts = foreach ($e in $last) {
+        $sc   = if ($e.Error) { $bad } elseif ($e.Status -ge 200 -and $e.Status -lt 300) { $ok } else { $dim }
+        $path = ([string]$e.Uri) -replace '^/(beta|v1\.0)', '' -replace '\?…$', ''
+        if ($path.Length -gt 32) { $path = $path.Substring(0, 31) + '…' }
+        $ct = if ($e.Count) { "$dim×$($e.Count)$reset" } else { '' }
+        "$dim$($e.Method)$reset $path $sc$($e.Status)$reset$ct"
+    }
+    "$dim⟳ $($all.Count) Graph calls$reset   " + ($parts -join "$dim  ·  $reset")
+}
+
 function Read-IaMenuClassic {
     # Numbered selection via Read-Host. Non-interactive fallback (testable).
     [CmdletBinding()]
@@ -671,7 +694,7 @@ function Read-IaMenuArrow {
     # Arrow-key single-select with viewport. Returns chosen index, or -1 on Escape.
     # -Header is a pre-rendered (ANSI) banner drawn at the top of every frame.
     [CmdletBinding()]
-    param([string]$Title, [Parameter(Mandatory)][string[]]$Choices, [string]$Color = 'grey', [int]$PageSize = 15, [string]$Header = '')
+    param([string]$Title, [Parameter(Mandatory)][string[]]$Choices, [string]$Color = 'grey', [int]$PageSize = 15, [string]$Header = '', [switch]$ShowGraphFooter)
 
     $reset = Get-IaReset
     $accent = Get-IaAnsi $Color
@@ -700,6 +723,12 @@ function Read-IaMenuArrow {
         }
         $lines.Add($(if (($vp.top + $page) -lt $count) { "$dim   ↓ more$reset" } else { '' }))
         $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc back$reset")
+        if ($ShowGraphFooter) {
+            # Live footer: recomputed each frame so it reflects the latest Graph activity.
+            $gf = Get-IaCallFooter
+            $lines.Add('')
+            $lines.Add($(if ($gf) { "   $gf" } else { "$dim   ⟳ no Graph calls yet$reset" }))
+        }
 
         # Full clear + redraw from home on every keypress through the one shared
         # output path (Write-IaRaw). Constant line count keeps the region stable; a
@@ -767,12 +796,13 @@ function Read-IaMenu {
         [string]$Color = 'grey',
         [int]$PageSize = 15,
         [switch]$EnableSearch,
-        [string]$Header = ''
+        [string]$Header = '',
+        [switch]$ShowGraphFooter
     )
     $list = @($Choices)
     if ($list.Count -eq 0) { return $null }
     if (Test-IaArrowSupport) {
-        $idx = Read-IaMenuArrow -Title $Title -Choices $list -Color $Color -PageSize $PageSize -Header $Header
+        $idx = Read-IaMenuArrow -Title $Title -Choices $list -Color $Color -PageSize $PageSize -Header $Header -ShowGraphFooter:$ShowGraphFooter
     }
     else {
         $idx = Read-IaMenuClassic -Title $Title -Choices $list
