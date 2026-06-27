@@ -1424,9 +1424,11 @@ function Invoke-IaTuiReports {
 
                         $devHeader = ($hdr -join "`n")
                         while ($true) {
-                          $sub = Read-IaMenu -Title 'Help desk · drill further' -Color $Accent -Header $devHeader -PageSize 9 -Choices @(
+                          $sub = Read-IaMenu -Title 'Help desk · drill further' -Color $Accent -Header $devHeader -PageSize 11 -Choices @(
                             'Compliance policy states',
+                            'Compliance failures (which settings · why non-compliant)',
                             'Configuration profile states',
+                            'Configuration conflicts (profiles that disagree)',
                             'Detected apps (discovered inventory)',
                             'Managed apps (Intune-deployed + install state)',
                             'Group memberships (why it gets its policies)',
@@ -1447,7 +1449,26 @@ function Invoke-IaTuiReports {
                                 } | Format-IaTable -Color $Accent
                                 Read-IaTablePause -Data $cs -Stem "device-$devName-compliance" -Color $Accent
                             }
-                            'Configuration*' {
+                            'Compliance failures*' {
+                                $cf = @(Invoke-IaStatus -Spinner Dots -Title 'Loading failing compliance settings…' -ScriptBlock {
+                                    Get-IntuneDeviceComplianceDetail -Device $devName -FailingOnly
+                                })
+                                if (-not $cf) { Write-IaHost "[$Accent]✓ No failing settings — the device meets every assigned compliance policy.[/]"; Read-IaPause | Out-Null }
+                                else {
+                                    $rows = $cf | ForEach-Object {
+                                        $sc = if ("$($_.State)" -in 'compliant') { $Accent } elseif ("$($_.State)" -in 'noncompliant','nonCompliant','error') { 'coral' } else { 'yellow' }
+                                        [pscustomobject][ordered]@{
+                                            Policy  = $_.Policy
+                                            Setting = $_.Setting
+                                            State   = "[$sc]$($_.State)[/]"
+                                            Current = $_.CurrentValue
+                                            Error   = $_.ErrorCode
+                                        }
+                                    }
+                                    Read-IaTablePause -Data $rows -Stem "device-$devName-compfail" -Color $Accent -Title "Compliance failures · $devName ($($cf.Count))"
+                                }
+                            }
+                            'Configuration profile*' {
                                 $cfg = @(Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
                                     (Get-IntuneDeviceDetail -Device $devName -IncludeConfigState).ConfigStates
                                 })
@@ -1456,6 +1477,23 @@ function Invoke-IaTuiReports {
                                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$sc]$($_.state)[/]"; Version = $_.version }
                                 } | Format-IaTable -Color $Accent
                                 Read-IaTablePause -Data $cfg -Stem "device-$devName-config" -Color $Accent
+                            }
+                            'Configuration conflict*' {
+                                $cc = @(Invoke-IaStatus -Spinner Dots -Title 'Looking for configuration conflicts…' -ScriptBlock {
+                                    Get-IntuneDeviceConfigConflict -Device $devName
+                                })
+                                if (-not $cc) { Write-IaHost "[$Accent]✓ No conflicts — no two profiles disagree on a setting for this device.[/]"; Read-IaPause | Out-Null }
+                                else {
+                                    $rows = $cc | ForEach-Object {
+                                        [pscustomobject][ordered]@{
+                                            Setting  = $_.Setting
+                                            State    = "[coral]$($_.State)[/]"
+                                            Profiles = "[yellow]$($_.Profiles)[/]"
+                                            Value    = $_.CurrentValue
+                                        }
+                                    }
+                                    Read-IaTablePause -Data $rows -Stem "device-$devName-conflicts" -Color $Accent -Title "Configuration conflicts · $devName ($($cc.Count))"
+                                }
                             }
                             'Detected apps*' {
                                 $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
@@ -1599,11 +1637,12 @@ function Invoke-IaTuiReports {
             })
 
             while ($true) {
-                $sub = Read-IaMenu -Title 'Help desk · user' -Color $Accent -Header $userHeader -PageSize 6 -Choices @(
+                $sub = Read-IaMenu -Title 'Help desk · user' -Color $Accent -Header $userHeader -PageSize 7 -Choices @(
                     'Overview — devices · groups · licenses (everything)',
                     'Devices (managed by Intune)',
                     'Group memberships (Entra)',
                     'Licenses (assigned SKUs + service plans)',
+                    'Sign-in & MFA diagnostics (why can''t they log in)',
                     'Back'
                 )
                 if (-not $sub -or $sub -eq 'Back') { break }
@@ -1630,6 +1669,38 @@ function Invoke-IaTuiReports {
                     'Licenses*' {
                         if (-not $uLicenses) { Write-IaHost '[yellow]No licenses assigned to this user.[/]'; Read-IaPause | Out-Null }
                         else { Read-IaTablePause -Data $licRows -Stem "user-$stemU-licenses" -Color $Accent -Title "Licenses · $upn ($($uLicenses.Count))" }
+                    }
+                    'Sign-in*' {
+                        $si = @(Invoke-IaStatus -Spinner Dots -Title "Loading recent sign-ins for $upn…" -ScriptBlock {
+                            Get-IntuneUserSignIn -User $upn -Top 20
+                        })
+                        if (-not $si) { Write-IaHost '[yellow]No sign-in records returned (needs AuditLog.Read.All + Entra ID P1).[/]' }
+                        else {
+                            # Curated columns for the on-screen table; the cmdlet keeps CA / IP /
+                            # client / device too — press `e` in the viewer to export the lot.
+                            $rows = $si | ForEach-Object {
+                                $sc = if ("$($_.Status)" -like 'success*') { $Accent } else { 'coral' }
+                                [pscustomobject][ordered]@{
+                                    When    = $_.When
+                                    App     = $_.App
+                                    Status  = "[$sc]$($_.Status)[/]"
+                                    Reason  = $_.Reason
+                                    Blocked = if ($_.BlockedBy) { "[coral]$($_.BlockedBy)[/]" } else { '' }
+                                }
+                            }
+                            Read-IaTablePause -Data $rows -Stem "user-$stemU-signins" -Color $Accent -Title "Recent sign-ins · $upn ($($si.Count))"
+                        }
+                        # MFA methods are rendered AFTER the table viewer so its full-screen
+                        # repaint can't wipe them.
+                        $mfa = @(Invoke-IaStatus -Spinner Dots -Title 'Loading registered MFA methods…' -ScriptBlock {
+                            Get-IntuneUserAuthMethod -User $upn
+                        })
+                        Write-IaRule -Title "Registered MFA methods ($($mfa.Count))" -Color $Accent
+                        if (-not $mfa) { Write-IaHost '[coral]No methods registered — the user has no MFA method on file.[/]' }
+                        else {
+                            $mfa | ForEach-Object { [pscustomobject][ordered]@{ Method = "[$Accent]$($_.Method)[/]"; Detail = $_.Detail } } | Format-IaTable -Color $Accent
+                        }
+                        Read-IaPause | Out-Null
                     }
                 }
             }

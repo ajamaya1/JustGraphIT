@@ -1064,6 +1064,109 @@ Describe 'Public cmdlets — Get-IntuneUserLicense' {
     }
 }
 
+Describe 'Public cmdlets — Get-IntuneDeviceComplianceDetail' {
+
+    It 'returns per-setting results; -FailingOnly drops compliant/notApplicable' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaManagedDeviceId { 'dev-1' }
+            Mock Get-IaCollection {
+                if ($Path -match 'settingStates') {
+                    @(
+                        [pscustomobject]@{ setting='pol.bitlocker'; settingName='BitLocker';  state='nonCompliant'; currentValue='NotEncrypted'; errorCode=0; errorDescription='' }
+                        [pscustomobject]@{ setting='pol.os';        settingName='Min OS';     state='nonCompliant'; currentValue='10.0.19045';  errorCode=0; errorDescription='too old' }
+                        [pscustomobject]@{ setting='pol.pw';        settingName='Password';   state='compliant';    currentValue='True';         errorCode=0; errorDescription='' }
+                    )
+                } else {
+                    @([pscustomobject]@{ id='ps1'; displayName='Win Compliance'; state='nonCompliant'; platformType='windows10AndLater' })
+                }
+            }
+            (@(Get-IntuneDeviceComplianceDetail -Device 'LAPTOP-01')).Count | Should -Be 3
+            $fail = @(Get-IntuneDeviceComplianceDetail -Device 'LAPTOP-01' -FailingOnly)
+            $fail.Count      | Should -Be 2
+            $fail[0].Setting | Should -Be 'BitLocker'
+            $fail[0].Policy  | Should -Be 'Win Compliance'
+            $fail[1].Setting | Should -Be 'Min OS'
+        }
+    }
+}
+
+Describe 'Public cmdlets — Get-IntuneDeviceConfigConflict' {
+
+    It 'surfaces conflict settings and names the conflicting profiles (sources)' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaManagedDeviceId { 'dev-1' }
+            Mock Get-IaCollection {
+                if ($Path -match 'settingStates') {
+                    @(
+                        [pscustomobject]@{ setting='edge.home';  settingName='Edge home page'; state='conflict';  currentValue='(conflict)'; sources=@(
+                            [pscustomobject]@{ id='p1'; displayName='Edge Hardening' }
+                            [pscustomobject]@{ id='p2'; displayName='Edge Baseline' }) }
+                        [pscustomobject]@{ setting='power.sleep'; settingName='Sleep';         state='compliant'; currentValue='15';         sources=@() }
+                    )
+                } else {
+                    @(
+                        [pscustomobject]@{ id='cs1'; displayName='Edge Hardening'; state='conflict' }
+                        [pscustomobject]@{ id='cs2'; displayName='Wi-Fi';          state='compliant' }   # skipped — not a conflict
+                    )
+                }
+            }
+            $r = @(Get-IntuneDeviceConfigConflict -Device 'LAPTOP-01')
+            $r.Count       | Should -Be 1
+            $r[0].Setting  | Should -Be 'Edge home page'
+            $r[0].Profiles | Should -Be 'Edge Hardening, Edge Baseline'
+        }
+    }
+}
+
+Describe 'Public cmdlets — Get-IntuneUserSignIn' {
+
+    It 'maps status, surfaces the blocking CA policy, and builds the signIns query' {
+        InModuleScope IntuneTide {
+            $script:capturedUri = $null
+            Mock Invoke-IaRequest {
+                $script:capturedUri = $Uri
+                [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ createdDateTime='2026-06-27T08:00:00Z'; appDisplayName='Teams';    ipAddress='1.1.1.1'; clientAppUsed='Browser'; conditionalAccessStatus='success'; status=[pscustomobject]@{ errorCode=0;     failureReason='Other.' };     deviceDetail=[pscustomobject]@{ displayName='LAPTOP-01' }; appliedConditionalAccessPolicies=@() }
+                    [pscustomobject]@{ createdDateTime='2026-06-27T07:00:00Z'; appDisplayName='Exchange'; ipAddress='2.2.2.2'; clientAppUsed='Mobile';  conditionalAccessStatus='failure'; status=[pscustomobject]@{ errorCode=53003; failureReason='Blocked by CA.' }; deviceDetail=[pscustomobject]@{ displayName='' };          appliedConditionalAccessPolicies=@(
+                        [pscustomobject]@{ displayName='Require compliant device'; result='failure' }
+                        [pscustomobject]@{ displayName='MFA';                      result='success' }) }
+                ) }
+            }
+            $r = @(Get-IntuneUserSignIn -User 'alice@contoso.com' -Top 5)
+            $r.Count          | Should -Be 2
+            $r[0].Status      | Should -Be 'success'
+            $r[1].Status      | Should -Be 'failure (53003)'
+            $r[1].BlockedBy   | Should -Be 'Require compliant device'   # only result=failure surfaced
+            $script:capturedUri | Should -Match "userPrincipalName eq 'alice@contoso.com'"
+            $script:capturedUri | Should -Match '\$top=5'
+            $script:capturedUri | Should -Match 'orderby=createdDateTime desc'
+        }
+    }
+}
+
+Describe 'Public cmdlets — Get-IntuneUserAuthMethod' {
+
+    It 'maps @odata.type to friendly names and coalesces the detail' {
+        InModuleScope IntuneTide {
+            Mock Get-IaCollection {
+                @(
+                    [pscustomobject]@{ '@odata.type'='#microsoft.graph.microsoftAuthenticatorAuthenticationMethod'; id='m1'; displayName='Pixel 8' }
+                    [pscustomobject]@{ '@odata.type'='#microsoft.graph.phoneAuthenticationMethod';                  id='m2'; phoneNumber='+1 206 555 0142'; phoneType='mobile' }
+                    [pscustomobject]@{ '@odata.type'='#microsoft.graph.fido2AuthenticationMethod';                  id='m3'; displayName='YubiKey 5' }
+                    [pscustomobject]@{ '@odata.type'='#microsoft.graph.someBrandNewAuthenticationMethod';           id='m4' }
+                )
+            }
+            $r = @(Get-IntuneUserAuthMethod -User 'alice@contoso.com')
+            $r.Count     | Should -Be 4
+            $r[0].Method | Should -Be 'Microsoft Authenticator'
+            $r[0].Detail | Should -Be 'Pixel 8'
+            $r[1].Method | Should -Be 'Phone (SMS / call)'
+            $r[1].Detail | Should -Be '+1 206 555 0142'
+            $r[3].Method | Should -Be 'some Brand New'                  # unknown type → de-camel-cased fallback
+        }
+    }
+}
+
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {

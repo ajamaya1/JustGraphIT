@@ -3,7 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-166%20passing-3FB950)](IntuneTide.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-170%20passing-3FB950)](IntuneTide.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** for inspecting,
@@ -41,12 +41,18 @@ and Linux.
   (which Entra groups drive its policies — assigned vs dynamic + rule), per-policy
   compliance & configuration states, and quick **actions** (sync · reboot · remote lock ·
   rotate BitLocker keys · collect diagnostics · Defender scan). Also surfaces the
-  **Intune-managed apps** on the device with intent (required/available) and install state.
+  **Intune-managed apps** on the device with intent (required/available) and install state,
+  the exact **compliance settings that failed** (*why* it's non-compliant, not just that it
+  is), and **configuration conflicts** — settings two profiles disagree on, with the
+  conflicting profiles named.
 - **Help-desk user lookup** - Type a UPN and pull the caller's whole footprint from one
   prompt: every managed **device**, all **Entra group memberships** (kind · assigned vs
-  dynamic + rule) and assigned **licenses** (friendly SKU names + service-plan health) —
-  with an **Overview** that lays devices, groups and licenses out on a single page. Groups
-  and licenses come from the **beta `/users`** endpoints.
+  dynamic + rule), assigned **licenses** (friendly SKU names + service-plan health) and
+  **sign-in & MFA diagnostics** — recent sign-ins with the result, the **Conditional Access
+  policy that blocked** them and the user's registered MFA methods (the "why can't they log
+  in?" view) — with an **Overview** that lays devices, groups and licenses out on a single
+  page. Groups, licenses and sign-ins come from the **beta `/users`** and **`auditLogs`**
+  endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
   multi-admin approvals, and HTML / CSV / JSON / Excel exports.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
@@ -77,6 +83,21 @@ provisioned service plans):
 
 <p align="center">
   <img src="docs/img/user-lookup-overview.png" width="820" alt="User lookup Overview: devices, Entra groups and licenses on a single page">
+</p>
+
+…and its **sign-in & MFA diagnostics** answer "why can't they log in?" — recent sign-ins
+with the result, the failure reason and the **Conditional Access policy that blocked** the
+attempt, alongside the user's registered MFA methods:
+
+<p align="center">
+  <img src="docs/img/user-signin-diagnostics.png" width="820" alt="Recent sign-ins with result, reason and the blocking Conditional Access policy">
+</p>
+
+On the device side, **compliance failures** drill past the `noncompliant` label to the exact
+settings that failed — so the tech sees *what to fix*:
+
+<p align="center">
+  <img src="docs/img/device-compliance-failures.png" width="760" alt="Per-setting compliance failures for a device: BitLocker and minimum OS version">
 </p>
 
 ## Prerequisites
@@ -169,6 +190,8 @@ Connect-IntuneTide -TenantId contoso.com -ClientId <id> -CertificateThumbprint <
 | `BitLockerKey.Read.All` | BitLocker recovery keys (help-desk) |
 | `DeviceLocalCredential.Read.All` | Windows LAPS password (help-desk; `ReadBasic.All` omits the password) |
 | `User.Read.All` | User licenses & profile for the help-desk user lookup |
+| `AuditLog.Read.All` | User sign-in diagnostics (needs an Entra ID P1/P2 tenant) |
+| `UserAuthenticationMethod.Read.All` | A user's registered MFA methods |
 | `Group.Read.All`, `Directory.Read.All` | Resolve group/user/device names; user/device group memberships |
 | `*.ReadWrite.All` (matching) | Any write / mirror / assign / remediate |
 
@@ -223,9 +246,13 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneLapsCredential` | Windows LAPS local-admin account + password (decoded) |
 | `Get-IntuneDeviceGroupMembership` | Entra groups a device belongs to (assigned + dynamic) |
 | `Get-IntuneDeviceManagedApp` | Intune-managed apps on a device + intent & install state |
+| `Get-IntuneDeviceComplianceDetail` | Per-setting compliance results — *why* a device is non-compliant (`-FailingOnly`) |
+| `Get-IntuneDeviceConfigConflict` | Settings two profiles disagree on, with the conflicting profiles named |
 | `Get-IntuneUserDevice` | All Intune-managed devices for a user (UPN) |
 | `Get-IntuneUserGroupMembership` | Entra groups a user belongs to — kind · assigned/dynamic + rule (beta `/users`) |
 | `Get-IntuneUserLicense` | Licenses assigned to a user — friendly SKU name + service-plan health (beta `/users`) |
+| `Get-IntuneUserSignIn` | Recent Entra sign-ins — result, failure reason + the blocking CA policy |
+| `Get-IntuneUserAuthMethod` | A user's registered authentication (MFA) methods |
 
 </details>
 
