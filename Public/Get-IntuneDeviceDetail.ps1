@@ -40,6 +40,11 @@ function Get-IntuneDeviceDetail {
 
     $id = Resolve-IaManagedDeviceId -Value $Device
     $d  = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/managedDevices/$id")
+    # ipAddressV4 (and the rest of hardwareInformation) lives in the hardwareInformation
+    # complex property, which Graph only populates when it is explicitly $select-ed —
+    # so pull it on its own. A failure here must not sink the whole detail view.
+    $hw = $null
+    try { $hw = (Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/managedDevices/$id`?`$select=hardwareInformation")).hardwareInformation } catch { }
 
     $result = [pscustomobject][ordered]@{
         # Core
@@ -56,7 +61,7 @@ function Get-IntuneDeviceDetail {
         MEID                = $d.meid
         WiFiMacAddress      = $d.wiFiMacAddress
         EthernetMacAddress  = $d.ethernetMacAddress
-        IPAddressV4         = $d.ipAddressV4
+        IPAddressV4         = $hw.ipAddressV4
         SubscriberCarrier   = $d.subscriberCarrier
         # Enrollment
         EnrolledAt          = $d.enrolledDateTime
@@ -66,7 +71,6 @@ function Get-IntuneDeviceDetail {
         OwnerType           = $d.managedDeviceOwnerType
         # Security
         Encrypted           = $d.isEncrypted
-        ActivationLock      = $d.activationLockEnabled
         JailBroken          = $d.jailBroken
         # Compliance
         ComplianceState         = $d.complianceState
