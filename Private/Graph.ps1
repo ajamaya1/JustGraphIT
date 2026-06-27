@@ -16,8 +16,9 @@ function Add-IaCall {
     param([string]$Method, [string]$Uri, [int]$Status, [double]$Ms, [int]$Count, [string]$ErrorText)
     if (-not $script:IaCallLogOn) { return }
     $short = $Uri -replace '^https://graph\.microsoft\.com', '' -replace '\?.*$', '?…'
+    $full  = $Uri -replace '^https://graph\.microsoft\.com', ''   # host-stripped, query KEPT (copy-paste)
     $entry = [pscustomobject]@{
-        Time = (Get-Date); Method = $Method; Uri = $short
+        Time = (Get-Date); Method = $Method; Uri = $short; Full = $full
         Status = $Status; Ms = [math]::Round($Ms); Count = $Count; Error = $ErrorText
     }
     $script:IaCallLog.Add($entry)
