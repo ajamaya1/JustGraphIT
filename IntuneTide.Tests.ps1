@@ -860,6 +860,21 @@ Describe 'Public cmdlets — Get-IntuneDeviceDetail' {
             $dev.OwnerType | Should -Be 'company'
         }
     }
+
+    It 'reads ipAddressV4 from hardwareInformation and drops the nonexistent activationLockEnabled' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest {
+                if ($Uri -match 'select=hardwareInformation') {
+                    return [pscustomobject]@{ hardwareInformation = [pscustomobject]@{ ipAddressV4 = '10.1.2.3' } }
+                }
+                # top-level ipAddressV4 is WRONG (not a managedDevice property); must be ignored
+                return [pscustomobject]@{ id = 'dev-1'; deviceName = 'PC'; ipAddressV4 = 'WRONG'; activationLockEnabled = $true }
+            }
+            $dev = Get-IntuneDeviceDetail -Device '12345678-0000-0000-0000-000000000002'
+            $dev.IPAddressV4                          | Should -Be '10.1.2.3'    # from hardwareInformation
+            $dev.PSObject.Properties['ActivationLock'] | Should -BeNullOrEmpty   # field removed — no such Graph property
+        }
+    }
 }
 
 Describe 'Public cmdlets — Get-IntuneLapsCredential' {
@@ -1259,6 +1274,20 @@ Describe 'Public cmdlets — Cloud PC' {
             }
             Get-IntuneCloudPC
             ($uris -join '|') | Should -Match 'virtualEndpoint/cloudPCs'
+        }
+    }
+
+    It 'maps Region from deviceRegionName and LastLogin from lastLoginResult.time' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest {
+                return [pscustomobject]@{ value = @(
+                    [pscustomobject]@{ id = 'cpc1'; displayName = 'CPC-1'; status = 'provisioned'
+                        deviceRegionName = 'westus2'; lastLoginResult = [pscustomobject]@{ time = '2026-06-26T09:00:00Z' } }
+                ) }
+            }
+            $pc = @(Get-IntuneCloudPC)[0]
+            $pc.Region    | Should -Be 'westus2'                  # deviceRegionName, not 'region'
+            $pc.LastLogin | Should -Be '2026-06-26T09:00:00Z'    # lastLoginResult.time, not 'lastLoginDateTime'
         }
     }
 

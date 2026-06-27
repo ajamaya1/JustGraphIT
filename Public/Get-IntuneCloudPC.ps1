@@ -59,8 +59,8 @@ function Get-IntuneCloudPC {
             User               = $pc.userPrincipalName
             ServicePlan        = $pc.servicePlanName
             ProvisioningPolicy = $pc.provisioningPolicyName
-            Region             = if ($pc.PSObject.Properties['region']) { $pc.region } else { $null }
-            LastLogin          = $pc.lastLoginDateTime
+            Region             = $pc.deviceRegionName
+            LastLogin          = $pc.lastLoginResult.time
             GracePeriodEnd     = $pc.gracePeriodEndDateTime
             ManagedDeviceId    = $pc.managedDeviceId
             AadDeviceId        = $pc.aadDeviceId
