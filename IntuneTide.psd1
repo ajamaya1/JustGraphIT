@@ -59,9 +59,13 @@
         'Get-IntuneLapsCredential',
         'Get-IntuneDeviceGroupMembership',
         'Get-IntuneDeviceManagedApp',
+        'Get-IntuneDeviceComplianceDetail',
+        'Get-IntuneDeviceConfigConflict',
         'Get-IntuneUserDevice',
         'Get-IntuneUserGroupMembership',
         'Get-IntuneUserLicense',
+        'Get-IntuneUserSignIn',
+        'Get-IntuneUserAuthMethod',
         # --- Windows 365 Cloud PC ---
         'Get-IntuneCloudPC',
         'Invoke-IntuneCloudPCAction',
