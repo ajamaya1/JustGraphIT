@@ -321,7 +321,7 @@ function Invoke-IaTuiCompare {
 
     if (-not $rows) { Write-IaHost '[yellow]No assignments differ between these groups.[/]'; return }
 
-    $rows | ForEach-Object {
+    $displayRows = @($rows | ForEach-Object {
         $relColor = switch ($_.Relationship) {
             'OnlyA'    { $Accent }
             'OnlyB'    { 'deepskyblue1' }
@@ -335,10 +335,12 @@ function Invoke-IaTuiCompare {
             A            = if ($_.AMode -eq 'exclude') { '[coral]exclude[/]' } elseif ($_.AMode -eq 'none') { '[grey]—[/]' } else { $_.AMode }
             B            = if ($_.BMode -eq 'exclude') { '[coral]exclude[/]' } elseif ($_.BMode -eq 'none') { '[grey]—[/]' } else { $_.BMode }
         }
-    } | Format-IaTable -Color $Accent
+    })
 
     $conflicts = @($rows | Where-Object Relationship -eq 'Conflict').Count
-    if ($conflicts) { Write-IaHost "[coral]$conflicts conflict(s)[/] — one group includes while the other excludes (mirroring would clash)" }
+    # Scrollable comparison (e exports here too); the explicit menu below adds HTML / custom path.
+    $cmpTitle = if ($conflicts) { "Group comparison · $conflicts conflict(s) — include vs exclude clash" } else { 'Group comparison' }
+    Read-IaTablePause -Data $displayRows -Title $cmpTitle -Stem 'group-diff' -Color $Accent
 
     $export = Read-IaMenu -Title 'Export comparison?' -Color $Accent -Choices @('Skip', 'CSV', 'Excel', 'HTML')
     if ($export -eq 'Skip') { return }
@@ -1375,12 +1377,19 @@ function Invoke-IaTuiReports {
                             AzureADId     = $detail.AzureADDeviceId
                             StorageGB     = "Free $($detail.FreeStorageGB) / Total $($detail.TotalStorageGB)"
                         }
+                        # Render the detail block into the menu's -Header so it stays on
+                        # screen — Read-IaMenu repaints full-screen and would otherwise wipe it.
+                        $hdr = [System.Collections.Generic.List[string]]::new()
+                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ TIDE[/]  [bold]· Device detail[/]"))
+                        $hdr.Add((ConvertFrom-IaMarkup "[grey]$devName[/]"))
+                        $hdr.Add('')
                         foreach ($kv in $fields.GetEnumerator()) {
                             $lc = if ([string]::IsNullOrWhiteSpace($kv.Value)) { 'grey' } else { 'white' }
-                            Write-IaHost ("[grey]{0,-15}[/] [$lc]{1}[/]" -f $kv.Key, $kv.Value)
+                            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-15}[/] [$lc]{1}[/]" -f $kv.Key, $kv.Value)))
                         }
+                        $hdr.Add('')
 
-                        $sub = Read-IaMenu -Title 'Drill further' -Color $Accent -Choices @(
+                        $sub = Read-IaMenu -Title 'Drill further' -Color $Accent -Header ($hdr -join "`n") -Choices @(
                             'Compliance policy states',
                             'Configuration profile states',
                             'Detected apps',
@@ -1438,6 +1447,12 @@ function Invoke-IaTuiReports {
                     }
                 })
                 $displayRows | Format-IaTable -Color $Accent
+            } else {
+                $rows | Format-IaTable -Color $Accent
+            }
+            Read-IaTablePause -Data $rows -Stem "app-install-$($name -replace '\s+','-')" -Color $Accent
+            # Remediation hints AFTER the table view so the viewer's repaint can't wipe them.
+            if ($by -eq 'Device') {
                 $failHints = @($rows | Where-Object { $_.Hint })
                 if ($failHints) {
                     Write-IaRule -Title 'Remediation hints' -Color $Accent
@@ -1446,10 +1461,7 @@ function Invoke-IaTuiReports {
                         Write-IaHost "  [grey]→ $($fh.Hint)[/]"
                     }
                 }
-            } else {
-                $rows | Format-IaTable -Color $Accent
             }
-            Read-IaTablePause -Data $rows -Stem "app-install-$($name -replace '\s+','-')" -Color $Accent
         }
         'Configuration*' {
             $p = Select-IaInventoryItem -Accent $Accent -Area 'Configuration' -Title 'Which configuration profile?'
@@ -1515,25 +1527,16 @@ function Invoke-IaTuiReports {
                     'FAIL%'  = "[$frColor]$($_.FailRate)[/]"
                 }
             })
-            $displayData | Format-IaTable -Color $Accent
-            Write-IaHost "[grey]FailRate colour-graded — [coral]coral >15%[/] · [yellow]amber >5%[/] · ok otherwise[/]"
-
-            # Build selectable list for drill-down
-            $drillChoices = @($data | ForEach-Object {
-                $fr = [double]$_.FailRate
-                $fc = if ($fr -gt 15) { 'coral' } elseif ($fr -gt 5) { 'yellow' } else { $Accent }
-                '{0,-18} · {1,-50} · {2,4} OK · [{3}]{4} FAIL[/]' -f $_.Area, $_.Resource, $_.Success, $fc, $_.Failed
-            }) + @('Export', 'Back')
-
-            $drillPick = Read-IaMenu -Title 'Select a row to drill into device status' -Color $Accent -PageSize 20 -Choices $drillChoices
-            switch -Wildcard ($drillPick) {
-                'Export' { Invoke-IaExport -Data $data -Stem 'deployment-summary' -Color $Accent; Read-IaPause | Out-Null }
-                'Back'   { }
-                default  {
-                    $idx = [array]::IndexOf($drillChoices, $drillPick)
-                    if ($idx -ge 0 -and $idx -lt $data.Count) {
-                        Invoke-IaTuiPolicyDeviceDrilldown -Accent $Accent -Row $data[$idx]
-                    }
+            # Selectable summary — scroll, / search, e export; Enter or click a row to
+            # drill into its per-device status. FAIL% is colour-graded in-table
+            # (coral >15% · amber >5%). Was: dump + a menu of abbreviated row strings.
+            while ($true) {
+                $picked = Read-IaTableInteractive -Data $displayData -Color $Accent `
+                    -Title "Deployment summary ($($data.Count))" -Stem 'deployment-summary' -Selectable
+                if (-not $picked) { break }
+                $idx = [array]::IndexOf($displayData, $picked)
+                if ($idx -ge 0 -and $idx -lt $data.Count) {
+                    Invoke-IaTuiPolicyDeviceDrilldown -Accent $Accent -Row $data[$idx]
                 }
             }
         }
