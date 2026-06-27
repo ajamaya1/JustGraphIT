@@ -672,6 +672,31 @@ function Get-IaCallFooter {
     "$dim⟳ $($all.Count) Graph calls$reset   " + ($parts -join "$dim  ·  $reset")
 }
 
+function Get-IaCallPanelLines {
+    # Multi-line, copy-pasteable Graph-call log — one call per line, newest last,
+    # up to -Max rows fitted to -Width. Returns a header line + call lines.
+    param([int]$Max = 12, [int]$Width = 120)
+    $log   = Get-IaCallLogEntries
+    $reset = Get-IaReset
+    $dim   = Get-IaAnsi 'dim'
+    $ok    = Get-IaAnsi 'green'
+    $bad   = Get-IaAnsi 'coral'
+    $out   = [System.Collections.Generic.List[string]]::new()
+    $out.Add("$dim── Graph calls · $($log.Count) total · newest last · ⇧-drag to select & copy (⌥ on iTerm2 · Fn on Terminal.app) ──$reset")
+    if ($log.Count -eq 0) { $out.Add("$dim   (none yet)$reset"); return , $out.ToArray() }
+    foreach ($e in @($log | Select-Object -Last $Max)) {
+        $sc   = if ($e.Error) { $bad } elseif ($e.Status -ge 200 -and $e.Status -lt 300) { $ok } else { $dim }
+        $meta = "$($e.Status) · $($e.Ms)ms" + $(if ($e.Count) { " · $($e.Count) items" } else { '' })
+        $m    = ([string]$e.Method).PadRight(4)
+        $u    = [string]$e.Full
+        $room = $Width - $m.Length - 4 - $meta.Length
+        if ($room -lt 8) { $room = 8 }
+        if ($u.Length -gt $room) { $u = $u.Substring(0, $room - 1) + '…' }
+        $out.Add("$dim$m$reset $u  $sc$meta$reset")
+    }
+    , $out.ToArray()
+}
+
 function Read-IaMenuClassic {
     # Numbered selection via Read-Host. Non-interactive fallback (testable).
     [CmdletBinding()]
@@ -724,10 +749,15 @@ function Read-IaMenuArrow {
         $lines.Add($(if (($vp.top + $page) -lt $count) { "$dim   ↓ more$reset" } else { '' }))
         $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc back$reset")
         if ($ShowGraphFooter) {
-            # Live footer: recomputed each frame so it reflects the latest Graph activity.
-            $gf = Get-IaCallFooter
-            $lines.Add('')
-            $lines.Add($(if ($gf) { "   $gf" } else { "$dim   ⟳ no Graph calls yet$reset" }))
+            # Fill the rest of the screen with a copy-pasteable Graph-call log (recomputed
+            # each frame so it stays live). Sized to whatever space is left below the menu.
+            $termH = 46; try { if ([Console]::WindowHeight -gt 0) { $termH = [Console]::WindowHeight } } catch { }
+            $termW = 120; try { if ([Console]::WindowWidth -gt 0) { $termW = [Console]::WindowWidth } } catch { }
+            $avail = $termH - $lines.Count - 2     # rows left (incl. the panel's own header line)
+            if ($avail -ge 2) {
+                $lines.Add('')
+                foreach ($pl in (Get-IaCallPanelLines -Max ($avail - 1) -Width ($termW - 3))) { $lines.Add("   $pl") }
+            }
         }
 
         # Full clear + redraw from home on every keypress through the one shared

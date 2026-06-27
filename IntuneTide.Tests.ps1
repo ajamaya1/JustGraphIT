@@ -1217,6 +1217,19 @@ Describe 'TUI engine · Graph-calls footer (Get-IaCallFooter)' {
             Clear-IaCallLog
         }
     }
+
+    It 'renders a multi-line, copy-pasteable panel with full path + query, one call per line' {
+        InModuleScope IntuneTide {
+            Clear-IaCallLog
+            Add-IaCall -Method GET  -Uri 'https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$select=id,name' -Status 200 -Ms 12 -Count 6
+            Add-IaCall -Method POST -Uri 'https://graph.microsoft.com/beta/x/assign' -Status 204 -Ms 9 -Count 0
+            $panel = Get-IaCallPanelLines -Max 10 -Width 120         # do NOT @()-wrap (,@() idiom)
+            $panel.Count | Should -Be 3                              # header + 2 calls
+            ($panel -join "`n") | Should -Match '\$select=id,name'   # query string preserved for copy-paste
+            $panel[1] | Should -Match 'configurationPolicies'        # one call per line (oldest-shown first)
+            Clear-IaCallLog
+        }
+    }
 }
 
 Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
