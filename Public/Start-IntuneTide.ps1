@@ -1396,6 +1396,7 @@ function Invoke-IaTuiReports {
                             'Compliance policy states',
                             'Configuration profile states',
                             'Detected apps (discovered inventory)',
+                            'Group memberships (why it gets its policies)',
                             'BitLocker recovery keys',
                             'LAPS local admin password',
                             'Device actions (sync · reboot · lock · …)',
@@ -1429,6 +1430,22 @@ function Invoke-IaTuiReports {
                                 })
                                 $apps | Format-IaTable -Color $Accent -Title "Apps on $devName ($($apps.Count))"
                                 Read-IaTablePause -Data $apps -Stem "device-$devName-apps" -Color $Accent
+                            }
+                            'Group memberships*' {
+                                $grps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading group memberships…' -ScriptBlock {
+                                    Get-IntuneDeviceGroupMembership -Device $devName
+                                })
+                                if (-not $grps) { Write-IaHost '[yellow]Device is not a member of any Entra group (or name did not resolve).[/]'; Read-IaPause | Out-Null }
+                                else {
+                                    $rows = $grps | ForEach-Object {
+                                        [pscustomobject][ordered]@{
+                                            Group = $_.GroupName
+                                            Type  = if ($_.MembershipRule) { '[deepskyblue1]dynamic[/]' } else { '[grey]assigned[/]' }
+                                            Rule  = $_.MembershipRule
+                                        }
+                                    }
+                                    Read-IaTablePause -Data $rows -Stem "device-$devName-groups" -Color $Accent -Title "Group memberships · $devName ($($grps.Count))"
+                                }
                             }
                             'BitLocker*' {
                                 $bk = @(Invoke-IaStatus -Spinner Dots -Title 'Loading BitLocker recovery keys…' -ScriptBlock {

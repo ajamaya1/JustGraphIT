@@ -37,9 +37,10 @@ and Linux.
   PowerShell pipeline.
 - **Help-desk device console** - Pick a device and pull everything a tech needs from one
   screen: hardware & compliance detail, **BitLocker recovery keys**, the **Windows LAPS
-  local-admin password** (decoded), detected (discovered) apps, per-policy compliance &
-  configuration states, and quick **actions** (sync · reboot · remote lock · rotate
-  BitLocker keys · collect diagnostics · Defender scan).
+  local-admin password** (decoded), detected (discovered) apps, **group memberships**
+  (which Entra groups drive its policies — assigned vs dynamic + rule), per-policy
+  compliance & configuration states, and quick **actions** (sync · reboot · remote lock ·
+  rotate BitLocker keys · collect diagnostics · Defender scan).
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
   multi-admin approvals, and HTML / CSV / JSON / Excel exports.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
@@ -204,6 +205,7 @@ skipped — the rest of the sweep continues.
 | `Export-IntuneAssignmentReport` / `Export-IntuneHtmlReport` / `Export-IntuneExcel` | HTML / CSV / JSON / Excel |
 | `Get-IntuneBitLockerKey` | BitLocker recovery keys for a device |
 | `Get-IntuneLapsCredential` | Windows LAPS local-admin account + password (decoded) |
+| `Get-IntuneDeviceGroupMembership` | Entra groups a device belongs to (assigned + dynamic) |
 
 </details>
 
