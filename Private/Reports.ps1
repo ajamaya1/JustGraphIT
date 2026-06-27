@@ -23,7 +23,9 @@ function ConvertTo-IaDateTime {
         }
         return (Get-Date).ToUniversalTime().Subtract($span)
     }
-    [datetime]::Parse($Value).ToUniversalTime()
+    # Parse with the invariant culture so an absolute date string is read the same
+    # way regardless of the host locale (macOS/Linux may default differently).
+    [datetime]::Parse($Value, [cultureinfo]::InvariantCulture).ToUniversalTime()
 }
 
 function Invoke-IaDownload {
