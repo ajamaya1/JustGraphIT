@@ -853,6 +853,60 @@ Describe 'Public cmdlets — Get-IntuneDeviceDetail' {
     }
 }
 
+Describe 'Public cmdlets — Get-IntuneLapsCredential' {
+
+    It 'resolves the AAD device id and decodes the base64 password (newest backup first)' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest {
+                if ($Uri -match 'deviceLocalCredentials') {
+                    return [pscustomobject]@{ credentials = @(
+                        [pscustomobject]@{ accountName='Administrator'; accountSid='S-1-5-21-1'; backupDateTime='2026-06-20T00:00:00Z'
+                                           passwordBase64=([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes('old-pass'))) }
+                        [pscustomobject]@{ accountName='Administrator'; accountSid='S-1-5-21-1'; backupDateTime='2026-06-26T00:00:00Z'
+                                           passwordBase64=([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes('P@ssw0rd-NEW!'))) }
+                    ) }
+                }
+                return [pscustomobject]@{ id='dev-1'; deviceName='DESKTOP-001'; azureADDeviceId='aad-guid-1' }
+            }
+            $r = @(Get-IntuneLapsCredential -Device '12345678-0000-0000-0000-000000000001')
+            $r[0].Account  | Should -Be 'Administrator'
+            $r[0].Password | Should -Be 'P@ssw0rd-NEW!'     # newest backup decoded & first
+            $r[0].Device   | Should -Be 'DESKTOP-001'
+            $r[1].Password | Should -Be 'old-pass'
+        }
+    }
+
+    It 'throws when the device has no Azure AD device id' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest { [pscustomobject]@{ id='dev-1'; deviceName='WORKGROUP-PC'; azureADDeviceId=$null } }
+            { Get-IntuneLapsCredential -Device '12345678-0000-0000-0000-000000000002' } | Should -Throw '*Azure AD device ID*'
+        }
+    }
+}
+
+Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
+
+    It 'parses relative spans (7d / 24h / 2w)' {
+        InModuleScope IntuneTide {
+            (ConvertTo-IaDateTime '7d')  | Should -BeOfType [datetime]
+            ((Get-Date).ToUniversalTime() - (ConvertTo-IaDateTime '7d')).TotalDays | Should -BeGreaterThan 6.5
+        }
+    }
+
+    It 'parses an ISO 8601 absolute date regardless of host culture' {
+        InModuleScope IntuneTide {
+            (ConvertTo-IaDateTime '2026-01-15').Year  | Should -Be 2026
+            (ConvertTo-IaDateTime '2026-01-15').Month | Should -Be 1
+        }
+    }
+
+    It 'throws a helpful error on an unparseable value (not a silent bad date)' {
+        InModuleScope IntuneTide {
+            { ConvertTo-IaDateTime 'not-a-date' } | Should -Throw '*Could not parse date*'
+        }
+    }
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 Describe 'New-IntuneAssignmentFilter parameter validation' {
 

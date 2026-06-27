@@ -1390,13 +1390,19 @@ function Invoke-IaTuiReports {
                         }
                         $hdr.Add('')
 
-                        $sub = Read-IaMenu -Title 'Drill further' -Color $Accent -Header ($hdr -join "`n") -Choices @(
+                        $devHeader = ($hdr -join "`n")
+                        while ($true) {
+                          $sub = Read-IaMenu -Title 'Help desk · drill further' -Color $Accent -Header $devHeader -PageSize 9 -Choices @(
                             'Compliance policy states',
                             'Configuration profile states',
-                            'Detected apps',
-                            'Done'
-                        )
-                        switch -Wildcard ($sub) {
+                            'Detected apps (discovered inventory)',
+                            'BitLocker recovery keys',
+                            'LAPS local admin password',
+                            'Device actions (sync · reboot · lock · …)',
+                            'Back to device list'
+                          )
+                          if (-not $sub -or $sub -eq 'Back to device list') { break }
+                          switch -Wildcard ($sub) {
                             'Compliance pol*' {
                                 $cs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
                                     (Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState).ComplianceStates
@@ -1424,6 +1430,43 @@ function Invoke-IaTuiReports {
                                 $apps | Format-IaTable -Color $Accent -Title "Apps on $devName ($($apps.Count))"
                                 Read-IaTablePause -Data $apps -Stem "device-$devName-apps" -Color $Accent
                             }
+                            'BitLocker*' {
+                                $bk = @(Invoke-IaStatus -Spinner Dots -Title 'Loading BitLocker recovery keys…' -ScriptBlock {
+                                    Get-IntuneBitLockerKey -Device $devName
+                                })
+                                if (-not $bk) { Write-IaHost '[yellow]No BitLocker recovery keys escrowed for this device.[/]'; Read-IaPause | Out-Null }
+                                else { Read-IaTablePause -Data $bk -Stem "device-$devName-bitlocker" -Color $Accent -Title "BitLocker recovery keys · $devName" }
+                            }
+                            'LAPS*' {
+                                $laps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading LAPS credential…' -ScriptBlock {
+                                    Get-IntuneLapsCredential -Device $devName
+                                })
+                                if (-not $laps) { Write-IaHost '[yellow]No Windows LAPS credential backed up for this device.[/]'; Read-IaPause | Out-Null }
+                                else { Read-IaTablePause -Data $laps -Stem "device-$devName-laps" -Color $Accent -Title "LAPS local admin · $devName" }
+                            }
+                            'Device actions*' {
+                                $actLabels = [ordered]@{
+                                    'Sync (check in now)'   = 'Sync'
+                                    'Reboot'                = 'Reboot'
+                                    'Remote lock'           = 'RemoteLock'
+                                    'Rotate BitLocker keys' = 'RotateBitLockerKeys'
+                                    'Collect diagnostics'   = 'CollectDiagnostics'
+                                    'Defender quick scan'   = 'DefenderScan'
+                                    'Cancel'                = $null
+                                }
+                                $actPick = Read-IaMenu -Title "Action on $devName" -Color $Accent -Choices @($actLabels.Keys)
+                                $action  = if ($actPick) { $actLabels[$actPick] } else { $null }
+                                if ($action) {
+                                    if (Read-IaConfirm "Send '$actPick' to $devName?") {
+                                        try {
+                                            Invoke-IntuneDeviceAction -Device $devName -Action $action -Confirm:$false | Out-Null
+                                            Write-IaHost "[$Accent]✓ $actPick sent to $devName.[/]"
+                                        } catch { Write-IaHost "[red]Failed:[/] $($_.Exception.Message)" }
+                                        Read-IaPause | Out-Null
+                                    }
+                                }
+                            }
+                          }
                         }
                     }
             }

@@ -307,9 +307,10 @@ function Read-IaInputEvent {
     if ($k.Key -ne [ConsoleKey]::Escape) {
         return @{ Type = 'key'; Key = $k.Key; KeyChar = $k.KeyChar }
     }
-    if (-not [Console]::KeyAvailable) {
-        return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 }
-    }
+    # Distinguish a bare Esc from the start of a CSI/mouse sequence. Read the next
+    # byte WITH a grace timeout — the rest of an escape sequence can lag a few ms over
+    # a high-latency link, so an immediate KeyAvailable check would misread a click as
+    # Esc. Nothing within the window ⇒ it really was an Esc keypress.
     $c1 = Read-IaNextRawChar
     if ($null -eq $c1 -or $c1.KeyChar -ne '[') {
         return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 }
@@ -488,20 +489,22 @@ function Read-IaSavePath {
         if ($IsMacOS -and (Get-Command osascript -ErrorAction SilentlyContinue)) {
             $pp = $Prompt -replace '"', "'"; $dn = $DefaultName -replace '"', "'"
             $errF = [IO.Path]::GetTempFileName()
-            $out  = & osascript -e "POSIX path of (choose file name with prompt `"$pp`" default name `"$dn`")" 2>$errF
-            $code = $LASTEXITCODE
-            $err  = (Get-Content $errF -Raw -ErrorAction SilentlyContinue)
-            Remove-Item $errF -ErrorAction SilentlyContinue
+            try {
+                $out  = & osascript -e "POSIX path of (choose file name with prompt `"$pp`" default name `"$dn`")" 2>$errF
+                $code = $LASTEXITCODE
+                $err  = (Get-Content $errF -Raw -ErrorAction SilentlyContinue)
+            } finally { Remove-Item $errF -ErrorAction SilentlyContinue }
             if ($code -eq 0 -and $out) { return ([string]$out).Trim() }
             if ($err -match '-128') { return $null }          # user pressed Cancel → abort
             # any other error (no GUI session, not permitted) → fall through to typed prompt
         }
         elseif ($IsLinux -and (Get-Command zenity -ErrorAction SilentlyContinue)) {
             $errF = [IO.Path]::GetTempFileName()
-            $out  = & zenity --file-selection --save --confirm-overwrite --filename "$DefaultName" --title "$Prompt" 2>$errF
-            $code = $LASTEXITCODE
-            $err  = (Get-Content $errF -Raw -ErrorAction SilentlyContinue)
-            Remove-Item $errF -ErrorAction SilentlyContinue
+            try {
+                $out  = & zenity --file-selection --save --confirm-overwrite --filename "$DefaultName" --title "$Prompt" 2>$errF
+                $code = $LASTEXITCODE
+                $err  = (Get-Content $errF -Raw -ErrorAction SilentlyContinue)
+            } finally { Remove-Item $errF -ErrorAction SilentlyContinue }
             if ($code -eq 0 -and $out) { return ([string]$out).Trim() }
             if ($code -eq 1 -and -not ($err -match 'display|annot|Gtk|GTK')) { return $null }   # cancelled
             # no display / zenity error → fall through to typed prompt

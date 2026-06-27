@@ -23,9 +23,17 @@ function ConvertTo-IaDateTime {
         }
         return (Get-Date).ToUniversalTime().Subtract($span)
     }
-    # Parse with the invariant culture so an absolute date string is read the same
-    # way regardless of the host locale (macOS/Linux may default differently).
-    [datetime]::Parse($Value, [cultureinfo]::InvariantCulture).ToUniversalTime()
+    # Parse an absolute date robustly across locales: try the host culture first (so a
+    # user's own date format works), then the invariant culture (so ISO 8601 like
+    # 2026-01-15 always parses regardless of host locale — InvariantCulture-only would
+    # reject a non-US format such as 15/01/2026).
+    $dt = [datetime]::MinValue
+    foreach ($ci in @([cultureinfo]::CurrentCulture, [cultureinfo]::InvariantCulture)) {
+        if ([datetime]::TryParse($Value, $ci, [System.Globalization.DateTimeStyles]::AssumeLocal, [ref]$dt)) {
+            return $dt.ToUniversalTime()
+        }
+    }
+    throw "Could not parse date '$Value'. Use ISO format (2026-01-15) or a relative span like 7d / 24h / 2w."
 }
 
 function Invoke-IaDownload {
