@@ -1599,12 +1599,11 @@ function Invoke-IaTuiReports {
             })
 
             while ($true) {
-                $sub = Read-IaMenu -Title 'Help desk · user' -Color $Accent -Header $userHeader -PageSize 7 -Choices @(
+                $sub = Read-IaMenu -Title 'Help desk · user' -Color $Accent -Header $userHeader -PageSize 6 -Choices @(
                     'Overview — devices · groups · licenses (everything)',
                     'Devices (managed by Intune)',
                     'Group memberships (Entra)',
                     'Licenses (assigned SKUs + service plans)',
-                    'Effective assignments (what policies actually land)',
                     'Back'
                 )
                 if (-not $sub -or $sub -eq 'Back') { break }
@@ -1631,24 +1630,6 @@ function Invoke-IaTuiReports {
                     'Licenses*' {
                         if (-not $uLicenses) { Write-IaHost '[yellow]No licenses assigned to this user.[/]'; Read-IaPause | Out-Null }
                         else { Read-IaTablePause -Data $licRows -Stem "user-$stemU-licenses" -Color $Accent -Title "Licenses · $upn ($($uLicenses.Count))" }
-                    }
-                    'Effective assignments*' {
-                        $eff = @(Invoke-IaStatus -Spinner Dots -Title 'Evaluating effective assignments…' -ScriptBlock {
-                            Get-IntuneEffectiveAssignment -User $upn
-                        })
-                        if (-not $eff) { Write-IaHost '[yellow]No assignments resolve to this user.[/]'; Read-IaPause | Out-Null }
-                        else {
-                            $rows = $eff | ForEach-Object {
-                                [pscustomobject][ordered]@{
-                                    Area      = $_.Area
-                                    Resource  = $_.Resource
-                                    Effective = if ($_.Effective) { "[$Accent]yes[/]" } else { '[coral]excluded[/]' }
-                                    Via       = $_.Via
-                                    Filtered  = if ($_.Filtered) { '[yellow]filter[/]' } else { '' }
-                                }
-                            }
-                            Read-IaTablePause -Data $rows -Stem "user-$stemU-effective" -Color $Accent -Title "Effective assignments · $upn ($($eff.Count))"
-                        }
                     }
                 }
             }
