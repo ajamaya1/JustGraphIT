@@ -1195,6 +1195,30 @@ Describe 'TUI engine · id masking (Format-IaMaskedId)' {
     }
 }
 
+Describe 'TUI engine · Graph-calls footer (Get-IaCallFooter)' {
+
+    It 'is empty when no calls have been logged' {
+        InModuleScope IntuneTide {
+            Clear-IaCallLog
+            (Get-IaCallFooter) | Should -Be ''
+        }
+    }
+
+    It 'reports the true call count and recent calls (no double-wrap)' {
+        InModuleScope IntuneTide {
+            Clear-IaCallLog
+            Add-IaCall -Method GET  -Uri 'https://graph.microsoft.com/beta/groups?x=1' -Status 200 -Ms 3 -Count 5
+            Add-IaCall -Method GET  -Uri 'https://graph.microsoft.com/beta/deviceManagement/configurationPolicies' -Status 200 -Ms 2 -Count 6
+            Add-IaCall -Method POST -Uri 'https://graph.microsoft.com/beta/x/assign' -Status 204 -Ms 9 -Count 0
+            $f = Get-IaCallFooter                      # contains ANSI, but the text is findable
+            $f | Should -Match '3 Graph calls'         # the real count, not 1 (the double-wrap bug)
+            $f | Should -Match 'POST'                  # most-recent call shown
+            $f | Should -Not -Match 'GET.{0,6}GET'     # methods not flattened/adjacent across entries
+            Clear-IaCallLog
+        }
+    }
+}
+
 Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
     # The TUI is a self-contained ANSI renderer — the cross-platform stand-in for
     # Out-GridView. These guards stop a Windows-only dependency from creeping back

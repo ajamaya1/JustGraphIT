@@ -86,7 +86,7 @@ function Start-IntuneTide {
     }
 
     while ($true) {
-        $choice = Read-IaMenu -Title "Choose an action" -Header $splashHeader -Color $accent -PageSize 16 -Choices @(
+        $choice = Read-IaMenu -Title "Choose an action" -Header $splashHeader -Color $accent -PageSize 16 -ShowGraphFooter -Choices @(
             'View all assignments',
             'Group lookup (what is a group assigned to)',
             'Compare two groups',
