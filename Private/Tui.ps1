@@ -474,6 +474,42 @@ function Read-IaText {
     return $in
 }
 
+function Read-IaSavePath {
+    <#
+    .SYNOPSIS
+        Ask where to save a file. Pops the OS-native "Save as…" dialog when one is
+        available (macOS: osascript · Linux: zenity), so you can click a folder
+        instead of typing a path. Falls back to a typed prompt over SSH / headless /
+        Windows. Returns the chosen path, or $null if the native dialog was cancelled.
+    #>
+    [CmdletBinding()]
+    param([string]$Prompt = 'Save as', [string]$DefaultName = 'export', [string]$Question = 'Save to')
+    try {
+        if ($IsMacOS -and (Get-Command osascript -ErrorAction SilentlyContinue)) {
+            $pp = $Prompt -replace '"', "'"; $dn = $DefaultName -replace '"', "'"
+            $errF = [IO.Path]::GetTempFileName()
+            $out  = & osascript -e "POSIX path of (choose file name with prompt `"$pp`" default name `"$dn`")" 2>$errF
+            $code = $LASTEXITCODE
+            $err  = (Get-Content $errF -Raw -ErrorAction SilentlyContinue)
+            Remove-Item $errF -ErrorAction SilentlyContinue
+            if ($code -eq 0 -and $out) { return ([string]$out).Trim() }
+            if ($err -match '-128') { return $null }          # user pressed Cancel → abort
+            # any other error (no GUI session, not permitted) → fall through to typed prompt
+        }
+        elseif ($IsLinux -and (Get-Command zenity -ErrorAction SilentlyContinue)) {
+            $errF = [IO.Path]::GetTempFileName()
+            $out  = & zenity --file-selection --save --confirm-overwrite --filename "$DefaultName" --title "$Prompt" 2>$errF
+            $code = $LASTEXITCODE
+            $err  = (Get-Content $errF -Raw -ErrorAction SilentlyContinue)
+            Remove-Item $errF -ErrorAction SilentlyContinue
+            if ($code -eq 0 -and $out) { return ([string]$out).Trim() }
+            if ($code -eq 1 -and -not ($err -match 'display|annot|Gtk|GTK')) { return $null }   # cancelled
+            # no display / zenity error → fall through to typed prompt
+        }
+    } catch { }
+    Read-IaText -Question $Question -DefaultAnswer $DefaultName
+}
+
 function Read-IaConfirm {
     # Y/N prompt. Returns [bool].
     [CmdletBinding()]
