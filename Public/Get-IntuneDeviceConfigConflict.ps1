@@ -12,7 +12,10 @@ function Get-IntuneDeviceConfigConflict {
 
         Graph (beta):
             GET /beta/deviceManagement/managedDevices/{id}/deviceConfigurationStates
-            GET /beta/deviceManagement/managedDevices/{id}/deviceConfigurationStates/{stateId}/settingStates
+        Each deviceConfigurationState carries its per-setting results inline in the
+        `settingStates` structural property (a Collection(deviceConfigurationSettingState),
+        not a navigable sub-resource); the conflicting profiles are in each setting's
+        `sources`. Read inline from the collection, with a single-entity fallback.
         Permission: DeviceManagementManagedDevices.Read.All.
 
     .PARAMETER Device
@@ -40,11 +43,16 @@ function Get-IntuneDeviceConfigConflict {
     foreach ($s in $states) {
         # Skip profiles that are wholly fine — only descend into ones flagged conflict/error.
         if ("$($s.state)" -notin $wanted) { continue }
-        $settings = @()
-        try {
-            $settings = Get-IaCollection "deviceManagement/managedDevices/$id/deviceConfigurationStates/$($s.id)/settingStates"
-        } catch {
-            Write-Verbose "No settingStates for profile '$($s.displayName)': $($_.Exception.Message)"
+        # settingStates is an inline structural property; re-read the single entity only
+        # if the collection omitted it.
+        $settings = @($s.settingStates)
+        if (-not $settings -and $s.id) {
+            try {
+                $full = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceConfigurationStates/$($s.id)")
+                $settings = @($full.settingStates)
+            } catch {
+                Write-Verbose "Could not read settingStates for profile '$($s.displayName)': $($_.Exception.Message)"
+            }
         }
         foreach ($ss in $settings) {
             if ("$($ss.state)" -notin $wanted) { continue }

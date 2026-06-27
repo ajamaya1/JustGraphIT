@@ -1066,19 +1066,16 @@ Describe 'Public cmdlets — Get-IntuneUserLicense' {
 
 Describe 'Public cmdlets — Get-IntuneDeviceComplianceDetail' {
 
-    It 'returns per-setting results; -FailingOnly drops compliant/notApplicable' {
+    It 'reads inline settingStates; -FailingOnly drops compliant/notApplicable' {
         InModuleScope IntuneTide {
             Mock Resolve-IaManagedDeviceId { 'dev-1' }
+            Mock Invoke-IaRequest { throw 'should not be called — settingStates is inline' }
             Mock Get-IaCollection {
-                if ($Path -match 'settingStates') {
-                    @(
-                        [pscustomobject]@{ setting='pol.bitlocker'; settingName='BitLocker';  state='nonCompliant'; currentValue='NotEncrypted'; errorCode=0; errorDescription='' }
-                        [pscustomobject]@{ setting='pol.os';        settingName='Min OS';     state='nonCompliant'; currentValue='10.0.19045';  errorCode=0; errorDescription='too old' }
-                        [pscustomobject]@{ setting='pol.pw';        settingName='Password';   state='compliant';    currentValue='True';         errorCode=0; errorDescription='' }
-                    )
-                } else {
-                    @([pscustomobject]@{ id='ps1'; displayName='Win Compliance'; state='nonCompliant'; platformType='windows10AndLater' })
-                }
+                @([pscustomobject]@{ id='ps1'; displayName='Win Compliance'; state='nonCompliant'; platformType='windows10AndLater'; settingStates=@(
+                    [pscustomobject]@{ setting='pol.bitlocker'; settingName='BitLocker'; state='nonCompliant'; currentValue='NotEncrypted'; errorCode=0; errorDescription='' }
+                    [pscustomobject]@{ setting='pol.os';        settingName='Min OS';   state='nonCompliant'; currentValue='10.0.19045';  errorCode=0; errorDescription='too old' }
+                    [pscustomobject]@{ setting='pol.pw';        settingName='Password'; state='compliant';    currentValue='True';         errorCode=0; errorDescription='' }
+                ) })
             }
             (@(Get-IntuneDeviceComplianceDetail -Device 'LAPTOP-01')).Count | Should -Be 3
             $fail = @(Get-IntuneDeviceComplianceDetail -Device 'LAPTOP-01' -FailingOnly)
@@ -1088,27 +1085,38 @@ Describe 'Public cmdlets — Get-IntuneDeviceComplianceDetail' {
             $fail[1].Setting | Should -Be 'Min OS'
         }
     }
+
+    It 'falls back to the single-entity read when the collection omits settingStates' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaManagedDeviceId { 'dev-1' }
+            Mock Get-IaCollection { @([pscustomobject]@{ id='ps1'; displayName='Win Compliance'; state='nonCompliant' }) }   # no inline settingStates
+            Mock Invoke-IaRequest { [pscustomobject]@{ id='ps1'; displayName='Win Compliance'; settingStates=@(
+                [pscustomobject]@{ setting='pol.bitlocker'; settingName='BitLocker'; state='nonCompliant'; currentValue='NotEncrypted'; errorCode=0; errorDescription='' }
+            ) } }
+            $r = @(Get-IntuneDeviceComplianceDetail -Device 'LAPTOP-01' -FailingOnly)
+            $r.Count      | Should -Be 1
+            $r[0].Setting | Should -Be 'BitLocker'
+            Should -Invoke Invoke-IaRequest -Times 1 -Exactly
+        }
+    }
 }
 
 Describe 'Public cmdlets — Get-IntuneDeviceConfigConflict' {
 
-    It 'surfaces conflict settings and names the conflicting profiles (sources)' {
+    It 'surfaces conflict settings (inline) and names the conflicting profiles (sources)' {
         InModuleScope IntuneTide {
             Mock Resolve-IaManagedDeviceId { 'dev-1' }
+            Mock Invoke-IaRequest { throw 'should not be called — settingStates is inline' }
             Mock Get-IaCollection {
-                if ($Path -match 'settingStates') {
-                    @(
+                @(
+                    [pscustomobject]@{ id='cs1'; displayName='Edge Hardening'; state='conflict'; settingStates=@(
                         [pscustomobject]@{ setting='edge.home';  settingName='Edge home page'; state='conflict';  currentValue='(conflict)'; sources=@(
                             [pscustomobject]@{ id='p1'; displayName='Edge Hardening' }
                             [pscustomobject]@{ id='p2'; displayName='Edge Baseline' }) }
-                        [pscustomobject]@{ setting='power.sleep'; settingName='Sleep';         state='compliant'; currentValue='15';         sources=@() }
-                    )
-                } else {
-                    @(
-                        [pscustomobject]@{ id='cs1'; displayName='Edge Hardening'; state='conflict' }
-                        [pscustomobject]@{ id='cs2'; displayName='Wi-Fi';          state='compliant' }   # skipped — not a conflict
-                    )
-                }
+                        [pscustomobject]@{ setting='power.sleep'; settingName='Sleep'; state='compliant'; currentValue='15'; sources=@() }
+                    ) }
+                    [pscustomobject]@{ id='cs2'; displayName='Wi-Fi'; state='compliant'; settingStates=@() }   # skipped — not a conflict
+                )
             }
             $r = @(Get-IntuneDeviceConfigConflict -Device 'LAPTOP-01')
             $r.Count       | Should -Be 1

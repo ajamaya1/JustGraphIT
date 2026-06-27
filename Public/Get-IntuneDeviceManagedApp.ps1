@@ -10,12 +10,13 @@ function Get-IntuneDeviceManagedApp {
         and install state (installed / failed / pending / notInstalled).
 
         Graph:  GET /beta/users/{userId}/mobileAppIntentAndStates/{managedDeviceId}
-        The collection is keyed by the device's primary user, so a device with no
-        primary user (shared / kiosk) reports nothing here.
+        (user.mobileAppIntentAndStates is keyed by managed-device id; each entity
+        exposes a `mobileAppList` of mobileAppIntentAndStateDetail). The collection is
+        keyed by the device's primary user, so a device with no primary user
+        (shared / kiosk) reports nothing here.
         Permission: DeviceManagementApps.Read.All.
-
-        NOTE: this beta path was implemented from the documented Graph schema; verify
-        the install-state values against your tenant on first use.
+        installState carries the resultantAppState enum (installed / failed / pending /
+        notInstalled / …).
 
     .PARAMETER Device
         Device name or managed-device GUID.
