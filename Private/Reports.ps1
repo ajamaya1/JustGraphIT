@@ -134,8 +134,13 @@ function Get-IaResourceDeploymentCounts {
     param([Parameter(Mandatory)][object]$Item)
     switch ($Item.ResourceType) {
         'mobileApps' {
-            $o = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$($Item.Id)/installSummary")
-            return ConvertTo-IaDeploymentCounts -Overview $o -Kind app
+            # installSummary is a legacy nav property (absent from the current beta
+            # $metadata); if a tenant rejects it, return $null so the caller uses the
+            # report export API instead.
+            try {
+                $o = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$($Item.Id)/installSummary")
+                return ConvertTo-IaDeploymentCounts -Overview $o -Kind app
+            } catch { return $null }
         }
         { $_ -in 'deviceConfigurations', 'windowsUpdateRings' } {
             $o = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/deviceConfigurations/$($Item.Id)/deviceStatusOverview")

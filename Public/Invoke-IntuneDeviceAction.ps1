@@ -86,8 +86,8 @@ function Invoke-IntuneDeviceAction {
         'Reboot'                   { 'rebootNow' }
         'RemoteLock'               { 'remoteLock' }
         'ResetPasscode'            { 'resetPasscode' }
-        'Rename'                   { 'rename' }
-        'CollectDiagnostics'       { 'collectDiagnostics' }
+        'Rename'                   { 'setDeviceName' }
+        'CollectDiagnostics'       { 'createDeviceLogCollectionRequest' }
         'RotateBitLockerKeys'      { 'rotateBitLockerKeys' }
         'LocateDevice'             { 'locateDevice' }
         'FreshStart'               { 'cleanWindowsDevice' }
@@ -99,11 +99,12 @@ function Invoke-IntuneDeviceAction {
     }
 
     $body = switch ($Action) {
-        'Wipe'         { @{ keepEnrollmentData = [bool]($KeepEnrollmentState -or $KeepUserData); keepUserData = [bool]$KeepUserData } }
-        'Rename'       { @{ deviceName = $NewName } }
-        'FreshStart'   { @{ keepUserData = [bool]$KeepUserData } }
-        'DefenderScan' { @{ quickScan = [bool]$QuickScan } }
-        default        { @{} }
+        'Wipe'               { @{ keepEnrollmentData = [bool]($KeepEnrollmentState -or $KeepUserData); keepUserData = [bool]$KeepUserData } }
+        'Rename'             { @{ deviceName = $NewName } }                         # setDeviceName(deviceName)
+        'FreshStart'         { @{ keepUserData = [bool]$KeepUserData } }
+        'DefenderScan'       { @{ quickScan = [bool]$QuickScan } }
+        'CollectDiagnostics' { @{ templateType = @{ templateType = 'predefined' } } }   # createDeviceLogCollectionRequest(templateType)
+        default              { @{} }
     }
 
     if ($PSCmdlet.ShouldProcess("$Device — $Action", 'Invoke-IntuneDeviceAction')) {

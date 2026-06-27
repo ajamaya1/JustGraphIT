@@ -1175,6 +1175,28 @@ Describe 'Public cmdlets — Get-IntuneUserAuthMethod' {
     }
 }
 
+Describe 'Public cmdlets — Invoke-IntuneDeviceAction (CSDL-verified action verbs)' {
+
+    It 'maps friendly actions to the correct managedDevice action names + bodies' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaManagedDeviceId { 'md-1' }
+            $script:capUri = $null; $script:capBody = $null
+            Mock Invoke-IaRequest { $script:capUri = $Uri; $script:capBody = $Body }
+
+            Invoke-IntuneDeviceAction -Device 'LAPTOP-01' -Action Sync -Confirm:$false | Out-Null
+            $script:capUri | Should -Match '/managedDevices/md-1/syncDevice$'
+
+            Invoke-IntuneDeviceAction -Device 'LAPTOP-01' -Action Rename -NewName 'NEW-PC' -Confirm:$false | Out-Null
+            $script:capUri             | Should -Match '/managedDevices/md-1/setDeviceName$'   # NOT 'rename' (that binds to cloudPC)
+            $script:capBody.deviceName | Should -Be 'NEW-PC'
+
+            Invoke-IntuneDeviceAction -Device 'LAPTOP-01' -Action CollectDiagnostics -Confirm:$false | Out-Null
+            $script:capUri                            | Should -Match '/managedDevices/md-1/createDeviceLogCollectionRequest$'   # NOT 'collectDiagnostics'
+            $script:capBody.templateType.templateType | Should -Be 'predefined'
+        }
+    }
+}
+
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {
