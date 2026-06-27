@@ -35,9 +35,11 @@ and Linux.
 - **Custom report builder** - Point at any data source and *select · where · sort ·
   group/aggregate · top-N · export* across **every property** — or print the equivalent
   PowerShell pipeline.
-- **Devices** - Managed-device inventory (compliance, ownership, encryption, last sync)
-  and per-device detail with drill-down into compliance, configuration and app states,
-  plus 16 device actions.
+- **Help-desk device console** - Pick a device and pull everything a tech needs from one
+  screen: hardware & compliance detail, **BitLocker recovery keys**, the **Windows LAPS
+  local-admin password** (decoded), detected (discovered) apps, per-policy compliance &
+  configuration states, and quick **actions** (sync · reboot · remote lock · rotate
+  BitLocker keys · collect diagnostics · Defender scan).
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
   multi-admin approvals, and HTML / CSV / JSON / Excel exports.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
@@ -147,7 +149,9 @@ Connect-IntuneTide -TenantId contoso.com -ClientId <id> -CertificateThumbprint <
 | `DeviceManagementConfiguration.Read.All` | Config / compliance / scripts / baselines |
 | `DeviceManagementApps.Read.All` | Apps and app protection |
 | `DeviceManagementServiceConfig.Read.All` | Enrollment, Autopilot, ESP |
-| `DeviceManagementManagedDevices.Read.All` | Device inventory & detail |
+| `DeviceManagementManagedDevices.Read.All` | Device inventory, detail & actions |
+| `BitLockerKey.Read.All` | BitLocker recovery keys (help-desk) |
+| `DeviceLocalCredential.Read.All` | Windows LAPS password (help-desk; `ReadBasic.All` omits the password) |
 | `Group.Read.All`, `Directory.Read.All` | Resolve group/user/device names |
 | `*.ReadWrite.All` (matching) | Any write / mirror / assign / remediate |
 
@@ -198,7 +202,8 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneApprovalRequest` | Multi-admin approval requests |
 | `Get-IntuneReportCatalog` / `Export-IntuneReport` | Native Intune report exports |
 | `Export-IntuneAssignmentReport` / `Export-IntuneHtmlReport` / `Export-IntuneExcel` | HTML / CSV / JSON / Excel |
-| `Get-IntuneBitLockerKey` | Recovery keys for a device |
+| `Get-IntuneBitLockerKey` | BitLocker recovery keys for a device |
+| `Get-IntuneLapsCredential` | Windows LAPS local-admin account + password (decoded) |
 
 </details>
 
