@@ -3,7 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-149%20passing-3FB950)](IntuneTide.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-166%20passing-3FB950)](IntuneTide.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** for inspecting,
@@ -40,7 +40,13 @@ and Linux.
   local-admin password** (decoded), detected (discovered) apps, **group memberships**
   (which Entra groups drive its policies — assigned vs dynamic + rule), per-policy
   compliance & configuration states, and quick **actions** (sync · reboot · remote lock ·
-  rotate BitLocker keys · collect diagnostics · Defender scan).
+  rotate BitLocker keys · collect diagnostics · Defender scan). Also surfaces the
+  **Intune-managed apps** on the device with intent (required/available) and install state.
+- **Help-desk user lookup** - Type a UPN and pull the caller's whole footprint from one
+  prompt: every managed **device**, all **Entra group memberships** (kind · assigned vs
+  dynamic + rule), assigned **licenses** (friendly SKU names + service-plan health) and
+  **effective assignments** — with an **Overview** that lays devices, groups and licenses
+  out on a single page. Groups and licenses come from the **beta `/users`** endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
   multi-admin approvals, and HTML / CSV / JSON / Excel exports.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
@@ -62,6 +68,15 @@ count/sum/avg/min/max aggregation:
 
 <p align="center">
   <img src="docs/img/report-builder.png" width="760" alt="The custom report builder: select, where, sort, group, export">
+</p>
+
+The **help-desk user lookup** answers "what does this caller have, and why?" from a single
+UPN — its **Overview** shows the user's devices, Entra group memberships and licenses on one
+page (licenses carry friendly product names like *Microsoft 365 E5* and flag any half-
+provisioned service plans):
+
+<p align="center">
+  <img src="docs/img/user-lookup-overview.png" width="820" alt="User lookup Overview: devices, Entra groups and licenses on a single page">
 </p>
 
 ## Prerequisites
@@ -153,7 +168,8 @@ Connect-IntuneTide -TenantId contoso.com -ClientId <id> -CertificateThumbprint <
 | `DeviceManagementManagedDevices.Read.All` | Device inventory, detail & actions |
 | `BitLockerKey.Read.All` | BitLocker recovery keys (help-desk) |
 | `DeviceLocalCredential.Read.All` | Windows LAPS password (help-desk; `ReadBasic.All` omits the password) |
-| `Group.Read.All`, `Directory.Read.All` | Resolve group/user/device names |
+| `User.Read.All` | User licenses & profile for the help-desk user lookup |
+| `Group.Read.All`, `Directory.Read.All` | Resolve group/user/device names; user/device group memberships |
 | `*.ReadWrite.All` (matching) | Any write / mirror / assign / remediate |
 
 A `403` on one area is treated as "no permission / not licensed" for that area and
@@ -206,6 +222,10 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneBitLockerKey` | BitLocker recovery keys for a device |
 | `Get-IntuneLapsCredential` | Windows LAPS local-admin account + password (decoded) |
 | `Get-IntuneDeviceGroupMembership` | Entra groups a device belongs to (assigned + dynamic) |
+| `Get-IntuneDeviceManagedApp` | Intune-managed apps on a device + intent & install state |
+| `Get-IntuneUserDevice` | All Intune-managed devices for a user (UPN) |
+| `Get-IntuneUserGroupMembership` | Entra groups a user belongs to — kind · assigned/dynamic + rule (beta `/users`) |
+| `Get-IntuneUserLicense` | Licenses assigned to a user — friendly SKU name + service-plan health (beta `/users`) |
 
 </details>
 

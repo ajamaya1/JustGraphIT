@@ -920,6 +920,150 @@ Describe 'Public cmdlets — Get-IntuneDeviceGroupMembership' {
     }
 }
 
+Describe 'Public cmdlets — Get-IntuneUserDevice' {
+
+    It 'filters managedDevices by userPrincipalName and projects device fields' {
+        InModuleScope IntuneTide {
+            $script:capturedPath = $null
+            Mock Get-IaCollection {
+                $script:capturedPath = $Path
+                @(
+                    [pscustomobject]@{ id='d1'; deviceName='LAPTOP-01'; operatingSystem='Windows'; osVersion='10.0.22631'
+                                       complianceState='compliant'; managedDeviceOwnerType='company'
+                                       lastSyncDateTime='2026-06-26T00:00:00Z'; manufacturer='Dell'; model='Latitude 7420' }
+                    [pscustomobject]@{ id='d2'; deviceName='PHONE-01'; operatingSystem='iOS'; osVersion='17.5'
+                                       complianceState='noncompliant'; managedDeviceOwnerType='personal'
+                                       lastSyncDateTime='2026-06-25T00:00:00Z'; manufacturer='Apple'; model='iPhone 15' }
+                )
+            }
+            $r = @(Get-IntuneUserDevice -User 'alice@contoso.com')
+            $script:capturedPath | Should -Match "userPrincipalName eq 'alice@contoso.com'"
+            $r.Count             | Should -Be 2
+            $r[0].Device         | Should -Be 'LAPTOP-01'
+            $r[0].OS             | Should -Be 'Windows 10.0.22631'
+            $r[0].Model          | Should -Be 'Dell Latitude 7420'
+            $r[0].Owner          | Should -Be 'company'
+        }
+    }
+
+    It 'escapes apostrophes in the UPN to keep the OData filter valid' {
+        InModuleScope IntuneTide {
+            $script:capturedPath = $null
+            Mock Get-IaCollection { $script:capturedPath = $Path; @() }
+            Get-IntuneUserDevice -User "o'brien@contoso.com" | Out-Null
+            $script:capturedPath | Should -Match "o''brien@contoso.com"   # doubled, not a broken quote
+        }
+    }
+}
+
+Describe 'Public cmdlets — Get-IntuneDeviceManagedApp' {
+
+    It 'projects intent + install state for the device primary user' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaManagedDeviceId { 'mdm-1' }
+            Mock Invoke-IaRequest {
+                if ($Uri -match 'mobileAppIntentAndStates') {
+                    return [pscustomobject]@{ mobileAppList = @(
+                        [pscustomobject]@{ displayName='Company Portal'; mobileAppIntent='required'; installState='installed'; displayVersion='5.0' }
+                        [pscustomobject]@{ displayName='Contoso VPN';    mobileAppIntent='available'; installState='failed';    displayVersion='2.1' }
+                    ) }
+                }
+                return [pscustomobject]@{ id='mdm-1'; deviceName='LAPTOP-01'; userId='user-1'; userPrincipalName='alice@contoso.com' }
+            }
+            $r = @(Get-IntuneDeviceManagedApp -Device 'LAPTOP-01')
+            $r.Count     | Should -Be 2
+            $r[0].App    | Should -Be 'Company Portal'
+            $r[0].Intent | Should -Be 'required'
+            $r[0].State  | Should -Be 'installed'
+            $r[1].State  | Should -Be 'failed'
+        }
+    }
+
+    It 'warns and returns nothing for a device with no primary user (shared/kiosk)' {
+        InModuleScope IntuneTide {
+            Mock Resolve-IaManagedDeviceId { 'mdm-2' }
+            Mock Invoke-IaRequest { [pscustomobject]@{ id='mdm-2'; deviceName='KIOSK-01'; userId=$null; userPrincipalName=$null } }
+            $r = @(Get-IntuneDeviceManagedApp -Device 'KIOSK-01' -WarningAction SilentlyContinue)
+            $r.Count | Should -Be 0
+        }
+    }
+}
+
+Describe 'Public cmdlets — Get-IntuneUserGroupMembership' {
+
+    It 'classifies group Kind + Membership from the beta /users transitiveMemberOf set' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest { [pscustomobject]@{ id='u-1'; displayName='Alice'; userPrincipalName='alice@contoso.com' } }
+            Mock Get-IaCollection {
+                @(
+                    [pscustomobject]@{ id='g1'; displayName='Finance Users'; securityEnabled=$true;  mailEnabled=$false; groupTypes=@();          membershipRule=$null }
+                    [pscustomobject]@{ id='g2'; displayName='All Staff';     securityEnabled=$false; mailEnabled=$true;  groupTypes=@('Unified'); membershipRule=$null }
+                    [pscustomobject]@{ id='g3'; displayName='IT Dynamic';    securityEnabled=$true;  mailEnabled=$false; groupTypes=@();          membershipRule='(user.department -eq "IT")' }
+                )
+            }
+            $r = @(Get-IntuneUserGroupMembership -User 'alice@contoso.com')
+            $r.Count            | Should -Be 3
+            $r[0].Kind          | Should -Be 'Security'
+            $r[0].Membership    | Should -Be 'assigned'
+            $r[1].Kind          | Should -Be 'Microsoft 365'        # groupTypes contains Unified
+            $r[2].Membership    | Should -Be 'dynamic'              # has a membershipRule
+            $r[2].MembershipRule| Should -Match 'department'
+        }
+    }
+
+    It 'queries the user transitiveMemberOf group path' {
+        InModuleScope IntuneTide {
+            $script:capturedPath = $null
+            Mock Invoke-IaRequest { [pscustomobject]@{ id='u-7'; userPrincipalName='x@contoso.com' } }
+            Mock Get-IaCollection { $script:capturedPath = $Path; @() }
+            Get-IntuneUserGroupMembership -User 'x@contoso.com' | Out-Null
+            $script:capturedPath | Should -Match 'users/u-7/transitiveMemberOf/microsoft.graph.group'
+        }
+    }
+
+    It 'throws when the user cannot be resolved' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest { [pscustomobject]@{ id=$null } }
+            { Get-IntuneUserGroupMembership -User 'ghost@contoso.com' } | Should -Throw '*resolve*'
+        }
+    }
+}
+
+Describe 'Public cmdlets — Get-IntuneUserLicense' {
+
+    It 'maps SKU part numbers to friendly names and counts enabled service plans' {
+        InModuleScope IntuneTide {
+            Mock Get-IaCollection {
+                @(
+                    [pscustomobject]@{ id='l1'; skuId='sku-e5'; skuPartNumber='SPE_E5'; servicePlans=@(
+                        [pscustomobject]@{ servicePlanName='TEAMS1'; provisioningStatus='Success' }
+                        [pscustomobject]@{ servicePlanName='INTUNE_A'; provisioningStatus='Success' }
+                        [pscustomobject]@{ servicePlanName='MCOEV'; provisioningStatus='PendingProvisioning' }
+                    ) }
+                    [pscustomobject]@{ id='l2'; skuId='sku-x'; skuPartNumber='SOME_UNMAPPED_SKU'; servicePlans=@(
+                        [pscustomobject]@{ servicePlanName='FOO'; provisioningStatus='Success' }
+                    ) }
+                )
+            }
+            $r = @(Get-IntuneUserLicense -User 'alice@contoso.com')
+            $r.Count           | Should -Be 2
+            $r[0].License      | Should -Be 'Microsoft 365 E5'      # SPE_E5 → friendly
+            $r[0].Services     | Should -Be '2/3 enabled'
+            $r[0].DisabledPlans| Should -Be 'MCOEV'                 # the non-Success plan surfaced
+            $r[1].License      | Should -Be 'SOME_UNMAPPED_SKU'     # unmapped → raw part number
+        }
+    }
+
+    It 'queries the beta /users licenseDetails endpoint' {
+        InModuleScope IntuneTide {
+            $script:capturedPath = $null
+            Mock Get-IaCollection { $script:capturedPath = $Path; @() }
+            Get-IntuneUserLicense -User 'alice@contoso.com' | Out-Null
+            $script:capturedPath | Should -Match 'users/alice%40contoso.com/licenseDetails'
+        }
+    }
+}
+
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {
