@@ -2,8 +2,12 @@
 # so the whole module is unit-testable: Pester mocks Invoke-IaRequest and the
 # higher-level helpers (paging, count, assign) come along for free.
 
+# The module standardizes on the BETA endpoint everywhere — it exposes the richer
+# data set (extra properties, newer resource types) the TUI relies on. The -V1
+# switch on Resolve-IaUri / Get-IaCollection is kept for call-site compatibility but
+# now also resolves to beta; flip $script:IaGraphV1 back to /v1.0 if you ever need it.
 $script:IaGraphBase = 'https://graph.microsoft.com/beta'
-$script:IaGraphV1   = 'https://graph.microsoft.com/v1.0'
+$script:IaGraphV1   = 'https://graph.microsoft.com/beta'
 
 # ---- live call log: every Graph call is recorded here (a ring buffer) so the
 # TUI can show a "graph calls" pane and Get-IntuneCallLog can replay it.

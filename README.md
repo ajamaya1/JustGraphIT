@@ -2,7 +2,7 @@
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
-[![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-v1.0%20%2B%20beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
+[![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
 [![Tests](https://img.shields.io/badge/Pester-149%20passing-3FB950)](IntuneTide.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -280,8 +280,9 @@ IntuneTide/
 ## Graph API design
 
 Every Graph call flows through one seam — `Invoke-IaRequest` in `Private/Graph.ps1` — a
-thin wrapper over `Invoke-MgGraphRequest` that handles paging, the `beta` vs `v1.0` base,
-and logs each call (method, URL, status, duration, item count) to an in-memory ring
+thin wrapper over `Invoke-MgGraphRequest`. The module standardizes on the **`beta`
+endpoint** everywhere (richer data — extra properties and newer resource types). It
+handles paging and logs each call (method, URL, status, duration, item count) to an in-memory ring
 buffer. That call log powers both the **"Graph calls" screen** and the **live footer** on
 the main menu, and it makes the whole suite testable: tests mock `Invoke-IaRequest` and
 run fully offline. Resources are described once in `Resources.ps1` (list path, name field,

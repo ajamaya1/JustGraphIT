@@ -116,10 +116,19 @@ Describe 'Graph URI construction' {
         }
     }
 
-    It 'builds v1.0 URI when -V1 is set' {
+    It 'resolves -V1 to the beta endpoint too (module standardizes on beta)' {
         InModuleScope IntuneTide {
             Resolve-IaUri -Path 'me' -V1 |
-                Should -Be 'https://graph.microsoft.com/v1.0/me'
+                Should -Be 'https://graph.microsoft.com/beta/me'
+        }
+    }
+
+    It 'uses the beta base for every Graph call (no v1.0 anywhere)' {
+        InModuleScope IntuneTide {
+            (Resolve-IaUri -Path 'groups')       | Should -Match '/beta/'
+            (Resolve-IaUri -Path 'groups' -V1)   | Should -Match '/beta/'
+            (Resolve-IaUri -Path 'groups')       | Should -Not -Match '/v1\.0/'
+            (Resolve-IaUri -Path 'groups' -V1)   | Should -Not -Match '/v1\.0/'
         }
     }
 

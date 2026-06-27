@@ -10,7 +10,8 @@ function Get-IntuneLapsCredential {
         password is stored base64-encoded and is decoded here; the most recent
         backup is returned first.
 
-        Graph:  GET /v1.0/directory/deviceLocalCredentials/{azureADDeviceId}?$select=credentials
+        Graph:  GET /beta/directory/deviceLocalCredentials/{azureADDeviceId}?$select=credentials
+        (the module standardizes on the beta endpoint; this resource also exists on v1.0.)
         The $select=credentials is REQUIRED — without it Graph returns metadata only
         and omits the password.
 
