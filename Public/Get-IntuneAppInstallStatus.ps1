@@ -7,8 +7,14 @@ function Get-IntuneAppInstallStatus {
     .DESCRIPTION
         Reads the app's deviceStatuses or userStatuses from Graph and returns a
         normalized row per device/user, with the install state and error detail.
-        Add -Summary for the roll-up counts. For tenant-scale extracts use
-        Export-IntuneReport -Name DeviceInstallStatusByApp.
+        Add -Summary for the roll-up counts.
+
+        NOTE: the per-app installSummary / deviceStatuses / userStatuses navigation
+        properties are legacy — they are no longer present in the published Intune
+        beta $metadata (verified against the beta CSDL) and may return an error on
+        some tenants. When that happens this falls back with a pointer to the
+        supported reporting path: Export-IntuneReport -Name DeviceInstallStatusByApp
+        (or UserInstallStatusAggregateByApp).
 
     .PARAMETER App
         App display name or id (mobileApps).
@@ -45,11 +51,19 @@ function Get-IntuneAppInstallStatus {
     )
     $id = Resolve-IaResourceId -ListPath 'deviceAppManagement/mobileApps' -Value $App
     if ($Summary) {
-        $o = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$id/installSummary")
-        Write-Information (ConvertTo-IaDeploymentCounts -Overview $o -Kind app) -InformationAction Continue
+        try {
+            $o = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$id/installSummary")
+            Write-Information (ConvertTo-IaDeploymentCounts -Overview $o -Kind app) -InformationAction Continue
+        } catch { Write-Verbose "installSummary unavailable: $($_.Exception.Message)" }
     }
     $nav = if ($By -eq 'User') { 'userStatuses' } else { 'deviceStatuses' }
-    $rows = Get-IaCollection "deviceAppManagement/mobileApps/$id/$nav"
+    try {
+        $rows = Get-IaCollection "deviceAppManagement/mobileApps/$id/$nav"
+    } catch {
+        Write-Warning ("Per-app '$nav' is unavailable for this tenant (this navigation property is no longer in the Intune beta API). " +
+            "Use the supported reporting path instead:  Export-IntuneReport -Name $(if ($By -eq 'User') { 'UserInstallStatusAggregateByApp' } else { 'DeviceInstallStatusByApp' })")
+        return
+    }
     foreach ($r in $rows) {
         $out = if ($By -eq 'User') {
             [pscustomobject]@{
