@@ -11,11 +11,11 @@ function Get-IntuneDeviceComplianceDetail {
 
         Graph (beta):
             GET /beta/deviceManagement/managedDevices/{id}/deviceCompliancePolicyStates
-            GET /beta/deviceManagement/managedDevices/{id}/deviceCompliancePolicyStates/{stateId}/settingStates
+        Each deviceCompliancePolicyState carries its per-setting results inline in the
+        `settingStates` structural property (a Collection(deviceCompliancePolicySettingState),
+        not a navigable sub-resource). It is read inline from the collection; if a tenant
+        omits it there, the single-entity representation is read as a fallback.
         Permission: DeviceManagementManagedDevices.Read.All.
-
-        NOTE: settingStates is a per-policy-state sub-collection; verify the values
-        against your tenant on first use.
 
     .PARAMETER Device
         Device name or managed-device GUID.
@@ -39,11 +39,16 @@ function Get-IntuneDeviceComplianceDetail {
     $states = Get-IaCollection "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates"
 
     foreach ($s in $states) {
-        $settings = @()
-        try {
-            $settings = Get-IaCollection "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates/$($s.id)/settingStates"
-        } catch {
-            Write-Verbose "No settingStates for policy '$($s.displayName)': $($_.Exception.Message)"
+        # settingStates is an inline structural property — read it straight off the state.
+        # If a tenant omits it from the collection, re-read the single policy-state entity.
+        $settings = @($s.settingStates)
+        if (-not $settings -and $s.id) {
+            try {
+                $full = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates/$($s.id)")
+                $settings = @($full.settingStates)
+            } catch {
+                Write-Verbose "Could not read settingStates for policy '$($s.displayName)': $($_.Exception.Message)"
+            }
         }
         foreach ($ss in $settings) {
             $state = "$($ss.state)"
