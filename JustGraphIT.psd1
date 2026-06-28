@@ -187,6 +187,8 @@
         'Get-EntraAppCredential',
         'Get-EntraEnterpriseApp',
         'Get-EntraManagedIdentity',
+        'Get-EntraAppPermission',
+        'Get-EntraRiskyAppPermission',
         # --- app governance / hygiene reports ---
         'Get-EntraExpiringSecret',
         'Get-EntraAppWithoutOwner',

@@ -41,7 +41,7 @@ function Get-EntraUser {
     }
 
     $id  = Resolve-EntraUserId -User $User
-    $obj = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "users/$id?`$select=$select")
+    $obj = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "users/${id}?`$select=$select")
     if ($Raw) { return $obj }
     if (-not $Detailed) { return (ConvertTo-IaEntraUser $obj) }
 

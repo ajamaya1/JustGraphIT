@@ -2379,6 +2379,18 @@ Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
 
 Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
 
+    It 'Get-EntraUser fetches by id with a well-formed ?$select (id not dropped)' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            $script:u = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; [pscustomobject]@{ id = 'uid-1'; userPrincipalName = 'a@x.com' } }
+            Get-EntraUser -User 'a@x.com' | Out-Null
+            # Regression: "users/$id?`$select" mis-parses to "users/$select"; require id + ?$select
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/uid-1\?\$select='
+            $script:u | Should -Not -Match 'users/\$select'
+        }
+    }
+
     It 'Set-EntraUser disables an account via PATCH /beta/users/{id}' {
         InModuleScope JustGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
@@ -2478,6 +2490,17 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
 }
 
 Describe 'Entra group cmdlets — beta endpoints and create bodies' {
+
+    It 'Get-EntraGroup fetches by id with a well-formed ?$select (id not dropped)' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'gid-1' }
+            $script:u = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; [pscustomobject]@{ id = 'gid-1'; displayName = 'Eng' } }
+            Get-EntraGroup -Group 'Eng' | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups/gid-1\?\$select='
+            $script:u | Should -Not -Match 'groups/\$select'
+        }
+    }
 
     It 'New-EntraGroup (Security) POSTs securityEnabled with no groupTypes (beta)' {
         InModuleScope JustGraphIT {
@@ -2621,6 +2644,88 @@ Describe 'Entra create-user + app governance (beta)' {
             $script:p | Should -Match 'expand=owners'
             $rows.Count | Should -Be 1
             $rows[0].Name | Should -Be 'Orphan'
+        }
+    }
+}
+
+Describe 'Entra app permissions & consent (beta)' {
+    It 'Test-EntraHighRiskPermission flags broad-power roles only' {
+        InModuleScope JustGraphIT {
+            Test-EntraHighRiskPermission 'Directory.ReadWrite.All' | Should -BeTrue
+            Test-EntraHighRiskPermission 'RoleManagement.ReadWrite.Directory' | Should -BeTrue
+            Test-EntraHighRiskPermission 'User.Read' | Should -BeFalse
+            Test-EntraHighRiskPermission '' | Should -BeFalse
+        }
+    }
+
+    It 'Get-EntraAppPermission reads beta oauth2PermissionGrants + appRoleAssignments and resolves names' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                if ($Uri -match '/servicePrincipals/11111111-1111-1111-1111-111111111111\?') { return [pscustomobject]@{ id = '11111111-1111-1111-1111-111111111111' } }
+                if ($Uri -match '/servicePrincipals/graphsp') {
+                    return [pscustomobject]@{ id = 'graphsp'; displayName = 'Microsoft Graph'; appRoles = @([pscustomobject]@{ id = 'role1'; value = 'Directory.ReadWrite.All' }) }
+                }
+                return $null
+            }
+            $script:capPaths = @()
+            Mock Get-IaCollection {
+                $script:capPaths += $Path
+                if ($Path -match 'oauth2PermissionGrants') { return @([pscustomobject]@{ resourceId = 'graphsp'; scope = 'User.Read Directory.AccessAsUser.All'; consentType = 'AllPrincipals' }) }
+                if ($Path -match 'appRoleAssignments')      { return @([pscustomobject]@{ resourceId = 'graphsp'; appRoleId = 'role1'; resourceDisplayName = 'Microsoft Graph' }) }
+                return @()
+            }
+            $rows = @(Get-EntraAppPermission -App '11111111-1111-1111-1111-111111111111')
+            ($script:capPaths -join ' ') | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals/.+/oauth2PermissionGrants'
+            ($script:capPaths -join ' ') | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals/.+/appRoleAssignments'
+            # Application row: appRoleId resolved to the friendly name and flagged High
+            $appRow = $rows | Where-Object { $_.Type -eq 'Application' }
+            $appRow.Permission | Should -Be 'Directory.ReadWrite.All'
+            $appRow.Risk       | Should -Be 'High'
+            $appRow.Resource   | Should -Be 'Microsoft Graph'
+            # Delegated scopes split out; the high-risk one flagged
+            ($rows | Where-Object { $_.Permission -eq 'Directory.AccessAsUser.All' }).Risk | Should -Be 'High'
+            ($rows | Where-Object { $_.Permission -eq 'User.Read' }).Risk | Should -Be ''
+        }
+    }
+
+    It 'Get-EntraRiskyAppPermission audits Graph appRoleAssignedTo and keeps only High by default' {
+        InModuleScope JustGraphIT {
+            $script:cap = $null
+            Mock Get-IaCollection {
+                $script:cap = "$script:cap $Path"
+                if ($Path -match "appId eq '00000003-0000-0000-c000-000000000000'") {
+                    return @([pscustomobject]@{ id = 'graphsp'; displayName = 'Microsoft Graph'; appRoles = @(
+                        [pscustomobject]@{ id = 'r1'; value = 'Directory.ReadWrite.All' }
+                        [pscustomobject]@{ id = 'r2'; value = 'User.Read.All' }
+                    ) })
+                }
+                if ($Path -match 'appRoleAssignedTo') {
+                    return @(
+                        [pscustomobject]@{ id = 'a1'; principalDisplayName = 'Backup App'; principalId = 'p1'; principalType = 'ServicePrincipal'; appRoleId = 'r1' }
+                        [pscustomobject]@{ id = 'a2'; principalDisplayName = 'Reader App'; principalId = 'p2'; principalType = 'ServicePrincipal'; appRoleId = 'r2' }
+                    )
+                }
+                return @()
+            }
+            $risky = @(Get-EntraRiskyAppPermission)
+            $script:cap | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals/graphsp/appRoleAssignedTo'
+            $risky.Count       | Should -Be 1
+            $risky[0].App      | Should -Be 'Backup App'
+            $risky[0].Permission | Should -Be 'Directory.ReadWrite.All'
+            $risky[0].Risk     | Should -Be 'High'
+            # -All keeps the benign grant too
+            @(Get-EntraRiskyAppPermission -All).Count | Should -Be 2
+        }
+    }
+
+    It 'Resolve-EntraServicePrincipalId resolves a display name via beta /servicePrincipals filter' {
+        InModuleScope JustGraphIT {
+            $script:u = $null
+            Mock Get-IaCollection { $script:u = $Path; , @([pscustomobject]@{ id = 'sp9'; displayName = "Tim's App" }) }
+            Resolve-EntraServicePrincipalId -App "Tim's App" | Should -Be 'sp9'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals'
+            # whole filter is EscapeDataString'd, so the doubled apostrophe encodes to %27%27
+            $script:u | Should -Match 'Tim%27%27s%20App'
         }
     }
 }
