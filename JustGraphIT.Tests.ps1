@@ -3042,6 +3042,69 @@ Describe 'Entra app-registration lifecycle (beta)' {
     }
 }
 
+Describe 'Entra role & PIM writes (beta)' {
+    It 'New-EntraRoleAssignment POSTs principalId/roleDefinitionId/scope to roleAssignments' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'u-1' }
+            Mock Resolve-EntraRoleDefinitionId { 'role-1' }
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'ra-1' } }
+            New-EntraRoleAssignment -User 'a@x.com' -Role 'Helpdesk Administrator' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/roleManagement/directory/roleAssignments$'
+            $script:b.principalId      | Should -Be 'u-1'
+            $script:b.roleDefinitionId | Should -Be 'role-1'
+            $script:b.directoryScopeId | Should -Be '/'
+        }
+    }
+
+    It 'Remove-EntraRoleAssignment (ByName) looks up then DELETEs the assignment' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'u-1' }
+            Mock Resolve-EntraRoleDefinitionId { 'role-1' }
+            Mock Get-IaCollection { @([pscustomobject]@{ id = 'ra-9' }) }
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraRoleAssignment -User 'a@x.com' -Role 'Helpdesk Administrator' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'roleManagement/directory/roleAssignments/ra-9$'
+        }
+    }
+
+    It 'New-EntraPimEligibility POSTs an adminAssign request with a duration schedule' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'u-1' }
+            Mock Resolve-EntraRoleDefinitionId { 'role-1' }
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'req'; status = 'Granted' } }
+            New-EntraPimEligibility -User 'a@x.com' -Role 'Helpdesk Administrator' -Duration 90d -Confirm:$false | Out-Null
+            $script:u | Should -Match 'roleManagement/directory/roleEligibilityScheduleRequests$'
+            $script:b.action | Should -Be 'adminAssign'
+            $script:b.scheduleInfo.expiration.duration | Should -Be 'P90D'
+        }
+    }
+
+    It 'Enable-EntraPimRole self-activates an eligible role via Invoke-IaActivateRole' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaMyPrincipalId { [pscustomobject]@{ Id = 'me-1'; Upn = 'me@x.com' } }
+            Mock Get-IaEligibleRoles { @([pscustomobject]@{ roleDefinitionId = 'role-9'; directoryScopeId = '/'; roleDefinition = [pscustomobject]@{ displayName = 'Global Reader' } }) }
+            $script:rid = $null; $script:dur = $null
+            Mock Invoke-IaActivateRole { $script:rid = $RoleDefinitionId; $script:dur = $Duration; [pscustomobject]@{ id = 'req-1'; status = 'Provisioned' } }
+            $r = Enable-EntraPimRole -Role 'Global Reader' -Justification 'audit window' -Duration 2h -Confirm:$false
+            $script:rid | Should -Be 'role-9'
+            $script:dur | Should -Be 'PT2H'
+            $r.Activated | Should -BeTrue
+        }
+    }
+
+    It 'Enable-EntraPimRole throws when the user is not eligible for the role' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaMyPrincipalId { [pscustomobject]@{ Id = 'me-1'; Upn = 'me@x.com' } }
+            Mock Get-IaEligibleRoles { @() }
+            { Enable-EntraPimRole -Role 'Global Administrator' -Justification 'x' -Confirm:$false } | Should -Throw
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {

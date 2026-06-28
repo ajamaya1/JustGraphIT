@@ -91,6 +91,18 @@ function ConvertTo-IaRequiredResourceAccess {
     , $out
 }
 
+function Resolve-EntraRoleDefinitionId {
+    # Directory-role display name / templateId / object id → roleDefinition id (which,
+    # for built-in roles, equals the well-known template GUID).
+    param([Parameter(Mandatory)][string]$Role)
+    if (Test-IaGuid $Role) { return $Role }
+    $f   = "displayName eq '$($Role.Replace("'", "''"))'"
+    $res = @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleDefinitions?`$filter=$([uri]::EscapeDataString($f))&`$select=id,displayName&`$top=5"))
+    if ($res.Count -eq 1) { return $res[0].id }
+    if ($res.Count -gt 1) { throw "Multiple directory roles named '$Role'." }
+    throw "No directory role found matching '$Role'."
+}
+
 function Get-EntraClientServicePrincipal {
     # The enterprise app (service principal) for an app registration's appId,
     # creating it if absent. Admin consent is recorded against the SP, so it must

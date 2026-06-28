@@ -1846,12 +1846,8 @@ function Invoke-IaTuiEntra {
                         'Invite a guest*'      { Invoke-IaTuiEntraInviteGuest -Accent $Accent }
                     }
                 }
-                'Directory roles*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
-                'PIM*' {
-                    $m = Read-IaMenu -Title 'PIM' -Color $Accent -Choices @('Eligible', 'Active', 'Back')
-                    if ($m -eq 'Eligible')    { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM eligible' -Stem 'pim-elig' -Loader { Get-EntraPimEligibility } }
-                    elseif ($m -eq 'Active')  { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM active' -Stem 'pim-active' -Loader { Get-EntraPimActive } }
-                }
+                'Directory roles*'    { Invoke-IaTuiEntraRoles -Accent $Accent }
+                'PIM*'                { Invoke-IaTuiEntraPim -Accent $Accent }
                 'Security*' {
                     $m = Read-IaMenu -Title 'Security / XDR' -Color $Accent -Choices @('Secure score', 'Alerts', 'Incidents', 'Back')
                     switch ($m) {
@@ -2115,6 +2111,92 @@ function Invoke-IaTuiEntraCreateApp {
         Write-IaHost "[grey]Add a secret + API permissions via 'Manage an app registration'.[/]"
     } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
     Read-IaPause | Out-Null
+}
+
+function Select-IaDirectoryRole {
+    # Searchable, selectable list of directory role definitions. Returns the role name.
+    param([string]$Accent)
+    $roles = @(Invoke-IaStatus -Spinner Dots -Title 'Loading directory roles…' -ScriptBlock { Get-EntraDirectoryRole })
+    if (-not $roles) { Write-IaHost '[yellow]No directory roles.[/]'; Read-IaPause | Out-Null; return $null }
+    $disp = @($roles | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.Role; Description = $_.Description; BuiltIn = $_.BuiltIn } })
+    $pick = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Directory roles ($($disp.Count)) · / search · Enter = pick" -Stem 'dirrole-pick'
+    if ($pick) { $pick.Role } else { $null }
+}
+
+function Invoke-IaTuiEntraRoles {
+    # Directory role assignments — view / assign (permanent) / remove.
+    param([string]$Accent)
+    while ($true) {
+        $m = Read-IaMenu -Title 'Directory roles' -Color $Accent -Choices @('View role assignments', 'Assign a role to a user', 'Remove a role assignment', 'Back')
+        if (-not $m -or $m -eq 'Back') { return }
+        try {
+            switch -Wildcard ($m) {
+                'View*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
+                'Assign*' {
+                    $u = Select-IaUser -Accent $Accent -Title 'Assign a role to which user?'
+                    if (-not $u) { continue }
+                    $role = Select-IaDirectoryRole -Accent $Accent
+                    if ($role -and (Read-IaConfirm "[red]Assign '$role' to $u (permanent / active)?[/]")) {
+                        New-EntraRoleAssignment -User $u -Role $role -Confirm:$false | Out-Null
+                        Write-IaHost "[$Accent]✓ Assigned.[/]"; Read-IaPause | Out-Null
+                    }
+                }
+                'Remove*' {
+                    $as = @(Invoke-IaStatus -Spinner Dots -Title 'Loading role assignments…' -ScriptBlock { Get-EntraRoleAssignment })
+                    if (-not $as) { Write-IaHost '[yellow]No role assignments.[/]'; Read-IaPause | Out-Null; continue }
+                    $ad = @($as | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.Role; Principal = $_.Principal; Type = $_.PrincipalType; Id = $_.Id } })
+                    $p  = Read-IaTableInteractive -Data $ad -Color $Accent -Selectable -Title "Role assignments ($($ad.Count)) · Enter = remove" -Stem 'entra-role-rm'
+                    if ($p -and (Read-IaConfirm "[red]Remove '$($p.Role)' from $($p.Principal)?[/]")) {
+                        Remove-EntraRoleAssignment -AssignmentId $p.Id -Confirm:$false | Out-Null
+                        Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
+function Invoke-IaTuiEntraPim {
+    # PIM — view eligible/active, activate one of YOUR eligible roles, or make a user eligible.
+    param([string]$Accent)
+    while ($true) {
+        $m = Read-IaMenu -Title 'PIM (Privileged Identity Management)' -Color $Accent -PageSize 7 -Choices @(
+            'Eligible roles (tenant)', 'Active roles (tenant)', 'Activate one of MY eligible roles',
+            'Make a user eligible for a role', 'Back')
+        if (-not $m -or $m -eq 'Back') { return }
+        try {
+            switch -Wildcard ($m) {
+                'Eligible roles*' { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM eligible' -Stem 'pim-elig' -Loader { Get-EntraPimEligibility } }
+                'Active roles*'   { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM active' -Stem 'pim-active' -Loader { Get-EntraPimActive } }
+                'Activate one*' {
+                    $mine = @(Invoke-IaStatus -Spinner Dots -Title 'Loading your eligible roles…' -ScriptBlock { Get-IaEligibleRoles })
+                    if (-not $mine) { Write-IaHost '[yellow]You have no eligible roles (or this is an app-only sign-in).[/]'; Read-IaPause | Out-Null; continue }
+                    $rd = @($mine | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.roleDefinition.displayName; Scope = $_.directoryScopeId } })
+                    $pk = Read-IaTableInteractive -Data $rd -Color $Accent -Selectable -Title "Your eligible roles ($($rd.Count)) · Enter = activate" -Stem 'pim-my-elig'
+                    if (-not $pk) { continue }
+                    $just = Read-IaText -Question 'Justification (required)'
+                    if ([string]::IsNullOrWhiteSpace($just)) { Write-IaHost '[yellow]A justification is required.[/]'; Read-IaPause | Out-Null; continue }
+                    $durC = Read-IaMenu -Title 'Activate for' -Color $Accent -Choices @('1 hour', '4 hours', '8 hours', '1 day')
+                    $dur  = switch -Wildcard ($durC) { '1 hour*' { 'PT1H' } '4 hours*' { 'PT4H' } '1 day*' { 'P1D' } default { 'PT8H' } }
+                    Enable-EntraPimRole -Role $pk.Role -Duration $dur -Justification $just -Confirm:$false | Out-Null
+                    Write-IaHost "[$Accent]✓ Activation requested for '$($pk.Role)'.[/]"; Read-IaPause | Out-Null
+                }
+                'Make a user*' {
+                    $u = Select-IaUser -Accent $Accent -Title 'Make which user eligible?'
+                    if (-not $u) { continue }
+                    $role = Select-IaDirectoryRole -Accent $Accent
+                    if (-not $role) { continue }
+                    $durC = Read-IaMenu -Title 'Eligibility window' -Color $Accent -Choices @('Permanent', '30 days', '90 days', '180 days')
+                    $p = @{ User = $u; Role = $role; Confirm = $false }
+                    switch -Wildcard ($durC) { '30 days*' { $p.Duration = '30d' } '90 days*' { $p.Duration = '90d' } '180 days*' { $p.Duration = '180d' } }
+                    if (Read-IaConfirm "[red]Make $u eligible for '$role' ($durC)?[/]") {
+                        New-EntraPimEligibility @p | Out-Null
+                        Write-IaHost "[$Accent]✓ Eligibility granted.[/]"; Read-IaPause | Out-Null
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
 }
 
 function Invoke-IaTuiEntraInviteGuest {
