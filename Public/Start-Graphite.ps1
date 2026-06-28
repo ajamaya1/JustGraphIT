@@ -100,6 +100,7 @@ function Start-Graphite {
             'Graph calls (live activity log)',
             'Group lookup (what is a group assigned to)',
             'Help desk (user · device lookup · hardware · actions)',
+            'Identity · Entra (users · groups · access · apps · roles · security)',
             'Mirror assignments (copy A -> B, pick which)',
             'Policies (configuration · compliance · scripts · remediations)',
             'Reports (status · audit · approvals)',
@@ -117,6 +118,7 @@ function Start-Graphite {
                 'View all*'       { Invoke-IaTuiViewAll     -Accent $accent }
                 'Dashboard*'      { Invoke-IaTuiDashboard   -Accent $accent }
                 'Help desk*'      { Invoke-IaTuiHelpDesk    -Accent $accent }
+                'Identity*'       { Invoke-IaTuiEntra       -Accent $accent }
                 'Group lookup*'   { Invoke-IaTuiGroupLookup -Accent $accent }
                 'Compare*'        { Invoke-IaTuiCompare     -Accent $accent }
                 'What-if*'        { Invoke-IaTuiWhatIf      -Accent $accent }
@@ -1766,6 +1768,160 @@ function Invoke-IaTuiDashboard {
             -Title "Devices · OS · version · user · last sync ($total)  ·  Enter = open device" -Stem 'dashboard-devices'
         if (-not $picked) { break }   # q / Esc leaves the dashboard
         Invoke-IaTuiDeviceCard -Accent $Accent -Device "$($picked.Device)"
+    }
+}
+
+function Invoke-IaTuiReportView {
+    # Run a loader (with spinner) and show the result in a scrollable/exportable table.
+    param([string]$Accent, [string]$Title, [scriptblock]$Loader, [string]$Stem = 'entra')
+    $rows = @(Invoke-IaStatus -Spinner Dots -Title "Loading $Title…" -ScriptBlock $Loader)
+    Write-IaTuiHeader -Screen $Title -Accent $Accent
+    if (-not $rows) { Write-IaHost '[yellow]No data (or the scope/license for this report is missing).[/]'; Read-IaPause | Out-Null; return }
+    Read-IaTablePause -Data $rows -Stem $Stem -Color $Accent -Title "$Title ($($rows.Count))"
+}
+
+function Invoke-IaTuiEntra {
+    # Identity (Entra) hub — first-page category that fans out to every Entra surface.
+    param([string]$Accent)
+    while ($true) {
+        $pick = Read-IaMenu -Title 'Identity · Entra' -Color $Accent -PageSize 14 -Choices @(
+            'Users — lookup & manage',
+            'Groups — list / create / manage',
+            'Licenses — tenant SKUs',
+            'Sign-ins',
+            'Conditional Access — policies & state',
+            'Risky users (Identity Protection)',
+            'Applications — registrations (secret/cert expiry)',
+            'Enterprise apps (service principals)',
+            'Managed identities',
+            'Directory roles & assignments',
+            'PIM — eligible & active',
+            'Security / XDR — score · alerts · incidents',
+            'Back'
+        )
+        if (-not $pick -or $pick -eq 'Back') { return }
+        try {
+            switch -Wildcard ($pick) {
+                'Users*'              { Invoke-IaTuiUserLookup -Accent $Accent }
+                'Groups*'             { Invoke-IaTuiEntraGroups -Accent $Accent }
+                'Licenses*'           { Invoke-IaTuiReportView -Accent $Accent -Title 'Licenses' -Stem 'entra-licenses' -Loader { Get-EntraLicense } }
+                'Sign-ins*'           { Invoke-IaTuiReportView -Accent $Accent -Title 'Sign-ins (recent)' -Stem 'entra-signins' -Loader { Get-EntraSignIn -Top 200 } }
+                'Conditional Access*' { Invoke-IaTuiEntraCA -Accent $Accent }
+                'Risky users*'        { Invoke-IaTuiEntraRisky -Accent $Accent }
+                'Applications*'       { Invoke-IaTuiReportView -Accent $Accent -Title 'App registrations' -Stem 'entra-appregs' -Loader { Get-EntraAppRegistration } }
+                'Enterprise apps*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps' -Stem 'entra-entapps' -Loader { Get-EntraEnterpriseApp } }
+                'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
+                'Directory roles*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
+                'PIM*' {
+                    $m = Read-IaMenu -Title 'PIM' -Color $Accent -Choices @('Eligible', 'Active', 'Back')
+                    if ($m -eq 'Eligible')    { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM eligible' -Stem 'pim-elig' -Loader { Get-EntraPimEligibility } }
+                    elseif ($m -eq 'Active')  { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM active' -Stem 'pim-active' -Loader { Get-EntraPimActive } }
+                }
+                'Security*' {
+                    $m = Read-IaMenu -Title 'Security / XDR' -Color $Accent -Choices @('Secure score', 'Alerts', 'Incidents', 'Back')
+                    switch ($m) {
+                        'Secure score' { Invoke-IaTuiReportView -Accent $Accent -Title 'Secure score' -Stem 'secscore' -Loader { Get-EntraSecureScore } }
+                        'Alerts'       { Invoke-IaTuiReportView -Accent $Accent -Title 'Security alerts' -Stem 'secalerts' -Loader { Get-EntraSecurityAlert } }
+                        'Incidents'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Security incidents' -Stem 'secinc' -Loader { Get-EntraSecurityIncident } }
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
+function Invoke-IaTuiEntraGroups {
+    param([string]$Accent)
+    while ($true) {
+        $action = Read-IaMenu -Title 'Groups' -Color $Accent -Choices @('Browse / manage groups', 'Create a group', 'Back')
+        if (-not $action -or $action -eq 'Back') { return }
+        if ($action -like 'Create*') { Invoke-IaTuiEntraCreateGroup -Accent $Accent; continue }
+        $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock { Get-EntraGroup -Top 500 })
+        if (-not $groups) { Write-IaHost '[yellow]No groups.[/]'; Read-IaPause | Out-Null; continue }
+        $disp = @($groups | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Type = $_.Type; Membership = $_.Membership; Mail = $_.Mail; Id = $_.Id } })
+        while ($true) {
+            $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Groups ($($disp.Count)) · Enter = manage" -Stem 'entra-groups'
+            if (-not $picked) { break }
+            Invoke-IaTuiEntraGroupCard -Accent $Accent -Group $picked.Id -Name $picked.DisplayName
+        }
+    }
+}
+
+function Invoke-IaTuiEntraGroupCard {
+    param([string]$Accent, [string]$Group, [string]$Name)
+    while ($true) {
+        $a = Read-IaMenu -Title "Group · $Name" -Color $Accent -PageSize 10 -Choices @(
+            'Members', 'Owners', 'Add member', 'Remove member', 'Add owner', 'Update (name/description/rule)', 'Delete group', 'Back')
+        if (-not $a -or $a -eq 'Back') { return }
+        try {
+            switch -Wildcard ($a) {
+                'Members'  { Invoke-IaTuiReportView -Accent $Accent -Title "Members · $Name" -Stem 'grp-members' -Loader { Get-EntraGroupMember -Group $Group } }
+                'Owners'   { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $Name" -Stem 'grp-owners' -Loader { Get-EntraGroupOwner -Group $Group } }
+                'Add member'    { $u = Select-IaUser -Accent $Accent -Title 'Add which user?'; if ($u -and (Read-IaConfirm "Add $u to $Name?")) { Add-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                'Remove member' { $u = Select-IaUser -Accent $Accent -Title 'Remove which user?'; if ($u -and (Read-IaConfirm "[red]Remove $u from $Name?[/]")) { Remove-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null } }
+                'Add owner'     { $u = Select-IaUser -Accent $Accent -Title 'Add which owner?'; if ($u -and (Read-IaConfirm "Make $u an owner of $Name?")) { Add-EntraGroupOwner -Group $Group -Owner $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                'Update*' {
+                    $nn = Read-IaText -Question 'New display name (blank = keep)'
+                    $dd = Read-IaText -Question 'New description (blank = keep)'
+                    $p = @{ Group = $Group; Confirm = $false }
+                    if ($nn) { $p.DisplayName = $nn }; if ($dd) { $p.Description = $dd }
+                    if ($p.Count -gt 2) { Set-EntraGroup @p | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null }
+                }
+                'Delete group' { if (Read-IaConfirm "[red]Delete group '$Name'? This cannot be undone.[/]") { Remove-EntraGroup -Group $Group -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null; return } }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
+function Invoke-IaTuiEntraCreateGroup {
+    param([string]$Accent)
+    $name = Read-IaText -Question 'Group name'
+    if ([string]::IsNullOrWhiteSpace($name)) { return }
+    $type = Read-IaMenu -Title 'Group type' -Color $Accent -Choices @('Security', 'Microsoft365')
+    $desc = Read-IaText -Question 'Description (blank = none)'
+    $dyn  = Read-IaMenu -Title 'Membership' -Color $Accent -Choices @('Assigned (manual)', 'Dynamic (rule)')
+    $rule = if ($dyn -like 'Dynamic*') { Read-IaText -Question 'Membership rule (e.g. user.department -eq "Sales")' } else { $null }
+    if (-not (Read-IaConfirm "Create $type group '$name'?")) { return }
+    $p = @{ Name = $name; Type = $type; Confirm = $false }
+    if ($desc) { $p.Description = $desc }
+    if ($rule) { $p.MembershipRule = $rule }
+    try { $g = New-EntraGroup @p; Write-IaHost "[$Accent]✓ Created:[/] $($g.DisplayName) ($($g.Id))" }
+    catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+    Read-IaPause | Out-Null
+}
+
+function Invoke-IaTuiEntraCA {
+    param([string]$Accent)
+    $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Loading CA policies…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+    if (-not $pols) { Write-IaHost '[yellow]No Conditional Access policies (or Policy.Read.All not consented).[/]'; Read-IaPause | Out-Null; return }
+    while ($true) {
+        $disp = @($pols | ForEach-Object { $sc = switch ($_.State) { 'enabled' { $Accent } 'disabled' { 'grey' } default { 'yellow' } }; [pscustomobject][ordered]@{ Name = $_.Name; State = "[$sc]$($_.State)[/]"; Controls = $_.Controls; Id = $_.Id } })
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Conditional Access ($($disp.Count)) · Enter = change state" -Stem 'entra-ca'
+        if (-not $picked) { return }
+        $st = Read-IaMenu -Title "Set '$($picked.Name)' to" -Color $Accent -Choices @('enabled', 'disabled', 'reportOnly', 'Cancel')
+        if ($st -in 'enabled', 'disabled', 'reportOnly' -and (Read-IaConfirm "Set '$($picked.Name)' → $st?")) {
+            try { Set-EntraConditionalAccessState -Id $picked.Id -State $st -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Done.[/]" }
+            catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+            Read-IaPause | Out-Null
+            $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+        }
+    }
+}
+
+function Invoke-IaTuiEntraRisky {
+    param([string]$Accent)
+    $users = @(Invoke-IaStatus -Spinner Dots -Title 'Loading risky users…' -ScriptBlock { Get-EntraRiskyUser })
+    if (-not $users) { Write-IaHost '[yellow]No risky users (needs IdentityRiskyUser scope + Entra ID P2).[/]'; Read-IaPause | Out-Null; return }
+    while ($true) {
+        $disp = @($users | ForEach-Object { $sc = switch ($_.RiskState) { 'atRisk' { 'coral' } 'confirmedCompromised' { 'red' } default { 'grey' } }; [pscustomobject][ordered]@{ User = $_.User; RiskLevel = $_.RiskLevel; RiskState = "[$sc]$($_.RiskState)[/]"; Updated = $_.Updated; Id = $_.Id } })
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Risky users ($($disp.Count)) · Enter = act" -Stem 'entra-risky'
+        if (-not $picked) { return }
+        $act = Read-IaMenu -Title "$($picked.User)" -Color $Accent -Choices @('Dismiss risk', 'Confirm compromised', 'Cancel')
+        try {
+            if ($act -eq 'Dismiss risk' -and (Read-IaConfirm "Dismiss risk for $($picked.User)?")) { Set-EntraRiskyUser -UserId $picked.Id -Action Dismiss -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Dismissed.[/]"; Read-IaPause | Out-Null }
+            elseif ($act -eq 'Confirm compromised' -and (Read-IaConfirm "[red]Confirm $($picked.User) as compromised?[/]")) { Set-EntraRiskyUser -UserId $picked.Id -Action Compromise -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Confirmed.[/]"; Read-IaPause | Out-Null }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        $users = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraRiskyUser })
     }
 }
 
