@@ -27,7 +27,7 @@ function Get-EntraGroup {
     }
 
     $id  = Resolve-EntraGroupId -Group $Group
-    $obj = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "groups/$id?`$select=$select")
+    $obj = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "groups/${id}?`$select=$select")
     if ($Raw) { return $obj }
     $g = ConvertTo-IaEntraGroup $obj
     if ($Detailed) {

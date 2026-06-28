@@ -83,6 +83,96 @@ function Get-EntraEnterpriseApp {
     } | Sort-Object DisplayName)
 }
 
+function Get-EntraAppPermission {
+    <#
+    .SYNOPSIS
+        Every API permission an enterprise app (service principal) actually holds —
+        delegated (OAuth2 consent) and application (app-role) — with friendly names
+        and a High-risk flag. Beta GET /beta/servicePrincipals/{id}/oauth2PermissionGrants
+        and /appRoleAssignments.
+    .DESCRIPTION
+        This is the "what can this app do" report. Delegated rows come from consent
+        grants (each scope split out, with admin-vs-user consent); application rows
+        come from granted app roles, resolved from the resource SP's appRoles. -Raw
+        returns the untouched grant/assignment objects.
+    .PARAMETER App
+        Enterprise-app display name, appId (client id) or SP object id.
+    .OUTPUTS
+        PSCustomObject: Type, Resource, Permission, Consent, Risk.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory, Position = 0)][string]$App, [switch]$Raw)
+    $spId = Resolve-EntraServicePrincipalId -App $App
+    $grants      = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals/$spId/oauth2PermissionGrants"))
+    $assignments = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals/$spId/appRoleAssignments"))
+    if ($Raw) { return [pscustomobject]@{ Delegated = $grants; Application = $assignments } }
+
+    $cache = @{}
+    $rows  = @()
+    foreach ($g in $grants) {
+        $res     = Get-EntraResourceSp -Id $g.resourceId -Cache $cache
+        $resName = if ($res) { $res.displayName } else { $g.resourceId }
+        foreach ($s in (($g.scope -split '\s+') | Where-Object { $_ })) {
+            $rows += [pscustomobject][ordered]@{
+                Type       = 'Delegated'
+                Resource   = $resName
+                Permission = $s
+                Consent    = if ($g.consentType -eq 'AllPrincipals') { 'Admin (all users)' } else { 'User' }
+                Risk       = if (Test-EntraHighRiskPermission $s) { 'High' } else { '' }
+            }
+        }
+    }
+    foreach ($a in $assignments) {
+        $res  = Get-EntraResourceSp -Id $a.resourceId -Cache $cache
+        $map  = Get-EntraAppRoleMap -ResourceSp $res
+        $name = if ($map.ContainsKey([string]$a.appRoleId)) { $map[[string]$a.appRoleId] } else { [string]$a.appRoleId }
+        $rows += [pscustomobject][ordered]@{
+            Type       = 'Application'
+            Resource   = if ($res) { $res.displayName } else { $a.resourceDisplayName }
+            Permission = $name
+            Consent    = 'Admin'
+            Risk       = if (Test-EntraHighRiskPermission $name) { 'High' } else { '' }
+        }
+    }
+    @($rows | Sort-Object @{ Expression = { if ($_.Risk -eq 'High') { 0 } else { 1 } } }, Type, Resource, Permission)
+}
+
+function Get-EntraRiskyAppPermission {
+    <#
+    .SYNOPSIS
+        Tenant-wide consent audit: every app/service principal granted a high-risk
+        Microsoft Graph application permission (Directory.ReadWrite.All, RoleManagement
+        .ReadWrite.Directory, full app access, etc.). Beta GET
+        /beta/servicePrincipals/{graphSpId}/appRoleAssignedTo.
+    .DESCRIPTION
+        Reads the app-role grants made ON the Microsoft Graph service principal — one
+        efficient paged call surfaces every consenting app. -All lists every Graph
+        app-role grant; by default only the high-risk ones are returned.
+    .OUTPUTS
+        PSCustomObject: App, Permission, Risk, PrincipalType, AppPrincipalId, GrantId.
+    #>
+    [CmdletBinding()]
+    param([switch]$All, [switch]$Raw)
+    $graph = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=appId eq '$($script:IaGraphAppId)'&`$select=id,displayName,appRoles"))
+    if (-not $graph) { throw 'Could not resolve the Microsoft Graph service principal.' }
+    $map        = Get-EntraAppRoleMap -ResourceSp $graph[0]
+    $assignedTo = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals/$($graph[0].id)/appRoleAssignedTo"))
+    if ($Raw) { return $assignedTo }
+    $rows = @($assignedTo | ForEach-Object {
+        $name = if ($map.ContainsKey([string]$_.appRoleId)) { $map[[string]$_.appRoleId] } else { [string]$_.appRoleId }
+        [pscustomobject][ordered]@{
+            App            = $_.principalDisplayName
+            Permission     = $name
+            Risk           = if (Test-EntraHighRiskPermission $name) { 'High' } else { '' }
+            PrincipalType  = $_.principalType
+            AppPrincipalId = $_.principalId
+            GrantId        = $_.id
+        }
+    })
+    if (-not $All) { $rows = @($rows | Where-Object { $_.Risk -eq 'High' }) }
+    @($rows | Sort-Object @{ Expression = { if ($_.Risk -eq 'High') { 0 } else { 1 } } }, App, Permission)
+}
+
 function Get-EntraManagedIdentity {
     <#
     .SYNOPSIS

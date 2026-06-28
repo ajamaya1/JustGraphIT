@@ -1869,13 +1869,15 @@ function Invoke-IaTuiEntraApps {
     # App registration / enterprise-app governance reports.
     param([string]$Accent)
     while ($true) {
-        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 9 -Choices @(
+        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 11 -Choices @(
             'All app registrations (secret/cert expiry)',
             'Expiring secrets & certs (next 30 days)',
             'Expiring incl. enterprise apps (90 days, incl. expired)',
             'App registrations WITHOUT an owner',
             'Enterprise apps WITHOUT an owner',
             'Credential hygiene summary (status per app)',
+            'App permissions & consent (pick an app)',
+            'Tenant consent audit (risky Graph app permissions)',
             'Back'
         )
         if (-not $m -or $m -eq 'Back') { return }
@@ -1886,7 +1888,24 @@ function Invoke-IaTuiEntraApps {
             'App registrations WITHOUT*' { Invoke-IaTuiReportView -Accent $Accent -Title 'App regs without owner' -Stem 'entra-noowner' -Loader { Get-EntraAppWithoutOwner } }
             'Enterprise apps WITHOUT*'   { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps without owner' -Stem 'entra-spnoowner' -Loader { Get-EntraAppWithoutOwner -EnterpriseApps } }
             'Credential hygiene*'        { Invoke-IaTuiReportView -Accent $Accent -Title 'App credential hygiene' -Stem 'entra-credhygiene' -Loader { Get-EntraAppCredentialSummary } }
+            'App permissions*'           { Invoke-IaTuiEntraAppPerms -Accent $Accent }
+            'Tenant consent audit*'      { Invoke-IaTuiReportView -Accent $Accent -Title 'Risky Graph consents' -Stem 'entra-consent' -Loader { Get-EntraRiskyAppPermission } }
         }
+    }
+}
+
+function Invoke-IaTuiEntraAppPerms {
+    # Pick an enterprise app (service principal), then drill into every API permission
+    # it actually holds — delegated consent grants plus granted application roles.
+    param([string]$Accent)
+    $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading enterprise apps…' -ScriptBlock { Get-EntraEnterpriseApp -Top 500 })
+    if (-not $apps) { Write-IaHost '[yellow]No enterprise apps.[/]'; Read-IaPause | Out-Null; return }
+    $disp = @($apps | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Type = $_.Type; Enabled = $_.Enabled; AppId = $_.AppId; Id = $_.Id } })
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Enterprise apps ($($disp.Count)) · Enter = permissions" -Stem 'entra-sp-pick'
+        if (-not $picked) { return }
+        $spId = $picked.Id
+        Invoke-IaTuiReportView -Accent $Accent -Title "Permissions · $($picked.DisplayName)" -Stem 'entra-sp-perms' -Loader { Get-EntraAppPermission -App $spId }
     }
 }
 

@@ -87,3 +87,65 @@ function Get-IaGraphReportCsv {
 }
 
 function ConvertTo-IaGB { param($Bytes) if ($Bytes) { [math]::Round([double]$Bytes / 1GB, 2) } else { 0 } }
+
+# Well-known appId of the Microsoft Graph service principal — used to enumerate
+# every app that holds a Graph application permission (tenant-wide consent audit).
+$script:IaGraphAppId = '00000003-0000-0000-c000-000000000000'
+
+# Application (and a couple delegated) permissions that grant broad tenant power.
+# Holding one of these app-only roles effectively makes a service principal an admin,
+# so the consent reports flag them as High risk.
+$script:IaHighRiskPerms = @(
+    'Directory.ReadWrite.All', 'RoleManagement.ReadWrite.Directory', 'Application.ReadWrite.All',
+    'Application.ReadWrite.OwnedBy', 'AppRoleAssignment.ReadWrite.All', 'Group.ReadWrite.All',
+    'GroupMember.ReadWrite.All', 'User.ReadWrite.All', 'Device.ReadWrite.All',
+    'Mail.ReadWrite', 'Mail.Send', 'MailboxSettings.ReadWrite', 'Files.ReadWrite.All',
+    'Sites.FullControl.All', 'Sites.ReadWrite.All', 'full_access_as_app',
+    'PrivilegedAccess.ReadWrite.AzureAD', 'PrivilegedAccess.ReadWrite.AzureADGroup',
+    'Policy.ReadWrite.ConditionalAccess', 'DeviceManagementConfiguration.ReadWrite.All',
+    'DeviceManagementManagedDevices.ReadWrite.All', 'DeviceManagementRBAC.ReadWrite.All',
+    'UserAuthenticationMethod.ReadWrite.All', 'IdentityRiskyUser.ReadWrite.All',
+    'Directory.AccessAsUser.All'
+)
+
+function Test-EntraHighRiskPermission {
+    # True if a permission (by name) is in the broad-power set above.
+    param([string]$Name)
+    [bool]($Name -and ($script:IaHighRiskPerms -contains $Name))
+}
+
+function Resolve-EntraServicePrincipalId {
+    # Enterprise-app display name, appId (client id) or SP object id → SP object id.
+    param([Parameter(Mandatory)][string]$App)
+    if (Test-IaGuid $App) {
+        # A GUID is ambiguous: try it as the SP object id, then as an appId.
+        try { $sp = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "servicePrincipals/${App}?`$select=id"); if ($sp.id) { return $sp.id } } catch { }
+        $byApp = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=appId eq '$App'&`$select=id"))
+        if ($byApp.Count -ge 1) { return $byApp[0].id }
+        return $App
+    }
+    $f   = "displayName eq '$($App.Replace("'", "''"))'"
+    $res = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=$([uri]::EscapeDataString($f))&`$select=id,displayName&`$top=5"))
+    if ($res.Count -eq 1) { return $res[0].id }
+    if ($res.Count -gt 1) { throw "Multiple service principals named '$App'. Use the appId or object id." }
+    throw "No enterprise app / service principal found matching '$App'."
+}
+
+function Get-EntraResourceSp {
+    # Fetch (and cache) a resource service principal so its appRoles can map an
+    # appRoleId GUID back to a friendly permission name. Cache is per report run.
+    param([string]$Id, [hashtable]$Cache)
+    if (-not $Id) { return $null }
+    if ($Cache.ContainsKey($Id)) { return $Cache[$Id] }
+    $sp = try { Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "servicePrincipals/${Id}?`$select=id,displayName,appId,appRoles,oauth2PermissionScopes") } catch { $null }
+    $Cache[$Id] = $sp
+    $sp
+}
+
+function Get-EntraAppRoleMap {
+    # appRoleId (GUID) → permission name, for one resource service principal.
+    param($ResourceSp)
+    $map = @{}
+    if ($ResourceSp) { foreach ($r in @($ResourceSp.appRoles)) { if ($r.id) { $map[[string]$r.id] = $r.value } } }
+    $map
+}
