@@ -3105,6 +3105,71 @@ Describe 'Entra role & PIM writes (beta)' {
     }
 }
 
+Describe 'Entra Conditional Access authoring (beta)' {
+    It 'New-EntraConditionalAccessPolicy builds conditions + grantControls and POSTs' {
+        InModuleScope JustGraphIT {
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'ca-1'; displayName = 'MFA'; state = 'enabled' } }
+            New-EntraConditionalAccessPolicy -Name 'MFA' -IncludeGroups 'g1' -ExcludeUsers 'u-break-glass' -RequireMfa -State enabled -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/identity/conditionalAccess/policies$'
+            $script:b.displayName | Should -Be 'MFA'
+            $script:b.state       | Should -Be 'enabled'
+            @($script:b.conditions.users.includeGroups) | Should -Contain 'g1'
+            @($script:b.conditions.users.excludeUsers)  | Should -Contain 'u-break-glass'
+            @($script:b.grantControls.builtInControls)  | Should -Contain 'mfa'
+            $script:b.grantControls.operator | Should -Be 'OR'
+        }
+    }
+
+    It 'New-EntraConditionalAccessPolicy -BlockAccess overrides other grant controls' {
+        InModuleScope JustGraphIT {
+            $script:b = $null
+            Mock Invoke-IaRequest { $script:b = $Body; [pscustomobject]@{ id = 'ca-2'; displayName = 'Block legacy'; state = 'enabled' } }
+            New-EntraConditionalAccessPolicy -Name 'Block legacy' -ClientAppTypes exchangeActiveSync, other -RequireMfa -BlockAccess -State enabled -Confirm:$false | Out-Null
+            @($script:b.grantControls.builtInControls) | Should -Be @('block')
+            @($script:b.conditions.clientAppTypes)     | Should -Contain 'exchangeActiveSync'
+        }
+    }
+
+    It 'Remove-EntraConditionalAccessPolicy resolves the name then DELETEs' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection { @([pscustomobject]@{ id = 'ca-9'; displayName = 'Old policy' }) }
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraConditionalAccessPolicy -Policy 'Old policy' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'identity/conditionalAccess/policies/ca-9$'
+        }
+    }
+
+    It 'New-EntraNamedLocation (IP) POSTs an ipNamedLocation with CIDR ranges' {
+        InModuleScope JustGraphIT {
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'nl-1'; displayName = 'Corp HQ' } }
+            New-EntraNamedLocation -Name 'Corp HQ' -IpRange '203.0.113.0/24' -Trusted -Confirm:$false | Out-Null
+            $script:u | Should -Match 'identity/conditionalAccess/namedLocations$'
+            $script:b.'@odata.type' | Should -Be '#microsoft.graph.ipNamedLocation'
+            $script:b.isTrusted     | Should -Be $true
+            @($script:b.ipRanges)[0].cidrAddress | Should -Be '203.0.113.0/24'
+        }
+    }
+
+    It 'Get-EntraNamedLocation projects IP ranges and country lists by kind' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection {
+                @(
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.ipNamedLocation'; displayName = 'Corp'; isTrusted = $true; ipRanges = @([pscustomobject]@{ cidrAddress = '10.0.0.0/8' }) }
+                    [pscustomobject]@{ '@odata.type' = '#microsoft.graph.countryNamedLocation'; displayName = 'Allowed'; countriesAndRegions = @('US', 'CA') }
+                )
+            }
+            $rows = @(Get-EntraNamedLocation)
+            ($rows | Where-Object Name -eq 'Corp').Detail    | Should -Be '10.0.0.0/8'
+            ($rows | Where-Object Name -eq 'Allowed').Detail | Should -Be 'US, CA'
+            ($rows | Where-Object Name -eq 'Corp').Kind      | Should -Be 'ipNamedLocation'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {
