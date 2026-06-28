@@ -3311,7 +3311,7 @@ Describe 'TUI write-menu smoke (new wiring)' {
             Mock Read-IaTableInteractive {
                 $script:ti++
                 if ($script:ti -eq 1) { [pscustomobject]@{ Id = 'sp-1'; DisplayName = 'Backup SP' } }       # pick the SP
-                elseif ($script:ti -eq 2) { [pscustomobject]@{ Consent = 'Admin (all users)'; Scopes = 'Mail.Read'; GrantId = 'grant-xyz' } }  # pick the grant
+                elseif ($script:ti -eq 2) { [pscustomobject]@{ Consent = 'Admin (all users)'; Scopes = 'Mail.Read'; GrantId = '•••'; _GrantId = 'grant-xyz' } }  # pick the grant (real id hidden)
                 else { $null }                                      # exit the outer loop
             }
             Mock Read-IaMenu { $script:mc++; if ($script:mc -eq 1) { 'Revoke a delegated grant' } else { 'Back' } }
@@ -3334,7 +3334,7 @@ Describe 'TUI write-menu smoke (new wiring)' {
             Mock Read-IaTableInteractive {
                 $script:ti++
                 if ($script:ti -eq 1) { [pscustomobject]@{ Id = 'sp-1'; DisplayName = 'Backup SP' } }
-                elseif ($script:ti -eq 2) { [pscustomobject]@{ Resource = 'Microsoft Graph'; AppRoleId = 'role-1'; AssignmentId = 'assign-1' } }
+                elseif ($script:ti -eq 2) { [pscustomobject]@{ Resource = 'Microsoft Graph'; AppRoleId = 'role-1'; AssignmentId = '•••'; _AssignmentId = 'assign-1' } }
                 else { $null }
             }
             Mock Read-IaMenu { $script:mc++; if ($script:mc -eq 1) { 'Revoke an application permission' } else { 'Back' } }
@@ -3444,6 +3444,21 @@ Describe 'Security hardening (review fixes)' {
             Mock New-EntraUserTempAccessPass { [pscustomobject]@{ TemporaryAccessPass = 'SECRET'; LifetimeMinutes = 60 } }
             Invoke-IaTuiUserActions -Accent 'cyan' -Upn 'u@x.com'
             Should -Invoke New-EntraUserTempAccessPass -Times 1 -Exactly
+        }
+    }
+
+    It 'mask: Read-IaTableInteractive -HideColumns drops the column from render/export, not the row' {
+        InModuleScope JustGraphIT {
+            $script:shown = $null
+            Mock Test-IaArrowSupport { $false }                  # force the non-interactive projection path
+            Mock Show-IaTableObjects { $script:shown = $Rows }   # capture what would render / export
+            Mock Read-IaPause {}
+            $data = @([pscustomobject]@{ Name = 'A'; GrantId = '•••'; _GrantId = 'real-grant-1' })
+            Read-IaTableInteractive -Data $data -HideColumns '_GrantId' | Out-Null
+            $cols = @($script:shown[0].PSObject.Properties.Name)
+            $cols | Should -Contain 'GrantId'                    # masked placeholder still shown
+            $cols | Should -Not -Contain '_GrantId'              # real id never leaves to render/export
+            $script:shown[0].GrantId | Should -Be '•••'
         }
     }
 }
