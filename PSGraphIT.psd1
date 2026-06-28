@@ -1,19 +1,19 @@
 @{
-    RootModule        = 'Graphite.psm1'
+    RootModule        = 'PSGraphIT.psm1'
     ModuleVersion     = '0.1.0'
     GUID              = 'b7e4a2c1-9f3d-4e6a-8c2b-1a5d7e9f0c34'
     Author            = 'Aaron'
-    Description       = 'GRAPHITE (Microsoft Intune & Entra management) — inspect, manage and report on Microsoft Intune assignments across every assignable area: list/reverse-lookup/compare/what-if, copy & selectively mirror, bulk-assign, templates, audit, deployment/install/compliance reporting, HTML report, and an interactive Deep Sea terminal UI rendered by a self-contained ANSI engine (no external TUI dependency). Cross-platform (macOS/Windows/Linux) via the Microsoft Graph PowerShell SDK.'
+    Description       = 'PSGRAPHIT (Microsoft Intune & Entra management) — inspect, manage and report on Microsoft Intune assignments across every assignable area: list/reverse-lookup/compare/what-if, copy & selectively mirror, bulk-assign, templates, audit, deployment/install/compliance reporting, HTML report, and an interactive Deep Sea terminal UI rendered by a self-contained ANSI engine (no external TUI dependency). Cross-platform (macOS/Windows/Linux) via the Microsoft Graph PowerShell SDK.'
     PowerShellVersion = '7.2'
 
     # Not hard-required so the module imports cleanly; cmdlets check at runtime
     # and give actionable install hints:
     #   Microsoft.Graph.Authentication  (all cmdlets)
-    # The interactive TUI (Start-Graphite) renders via the built-in ANSI engine
+    # The interactive TUI (Start-PSGraphIT) renders via the built-in ANSI engine
     # in Private/Tui.ps1 — there is NO external terminal-UI dependency.
 
     FunctionsToExport = @(
-        'Connect-Graphite',
+        'Connect-PSGraphIT',
         'Get-IntuneAssignment',
         'Get-IntuneGroupAssignment',
         'Compare-IntuneAssignment',
@@ -206,11 +206,11 @@
         'Get-EntraSharePointUsage',
         'Get-EntraTeamsUsage',
         'Get-EntraM365AppUsage',
-        'Start-Graphite'
+        'Start-PSGraphIT'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
-    AliasesToExport   = @('graphite', 'tide')
+    AliasesToExport   = @('psg', 'graph')
 
     PrivateData = @{
         PSData = @{

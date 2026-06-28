@@ -10,9 +10,9 @@ foreach ($file in @($Private + $Public)) {
     catch { throw "Failed to load $($file.FullName): $_" }
 }
 
-# Short launch aliases: `graphite` (or the legacy `tide`) opens the TUI.
-Set-Alias -Name graphite -Value Start-Graphite
-Set-Alias -Name tide     -Value Start-Graphite
+# Short launch aliases: `psg` or `graph` open the TUI.
+Set-Alias -Name psg   -Value Start-PSGraphIT
+Set-Alias -Name graph -Value Start-PSGraphIT
 # Export every loaded Public function; the manifest's FunctionsToExport is the
 # authoritative gate (lets us group several cmdlets per domain file).
-Export-ModuleMember -Function * -Alias graphite, tide
+Export-ModuleMember -Function * -Alias psg, graph

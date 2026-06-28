@@ -3,21 +3,21 @@
 # Run from the module folder:  Invoke-Pester -Output Detailed
 
 BeforeAll {
-    Import-Module (Join-Path $PSScriptRoot 'Graphite.psd1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'PSGraphIT.psd1') -Force
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 Describe 'Resource registry' {
 
     It 'has unique keys' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $reg = Get-IaResourceRegistry
             ($reg.Key | Select-Object -Unique).Count | Should -Be $reg.Count
         }
     }
 
     It 'covers all expected areas' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $areas = (Get-IaResourceRegistry).Area | Select-Object -Unique
             $areas | Should -Contain 'Configuration'
             $areas | Should -Contain 'Compliance'
@@ -34,7 +34,7 @@ Describe 'Resource registry' {
     }
 
     It 'contains key landmarks by key name' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $keys = (Get-IaResourceRegistry).Key
             $keys | Should -Contain 'cloudPcProvisioningPolicies'
             $keys | Should -Contain 'roleScopeTags'
@@ -47,7 +47,7 @@ Describe 'Resource registry' {
     }
 
     It 'resolves types by area' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $apps = Resolve-IaResourceType -Area 'Apps'
             $apps.Key | Should -Contain 'mobileApps'
             $apps.Key | Should -Contain 'mobileAppConfigurations'
@@ -56,7 +56,7 @@ Describe 'Resource registry' {
     }
 
     It 'resolves types by key' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $r = Resolve-IaResourceType -Type 'intents'
             $r.Count | Should -Be 1
             $r[0].Area | Should -Be 'Endpoint security'
@@ -64,7 +64,7 @@ Describe 'Resource registry' {
     }
 
     It 'resolves multiple areas at once' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $r = Resolve-IaResourceType -Area 'Scripts', 'Remediations'
             $r.Key | Should -Contain 'deviceManagementScripts'
             $r.Key | Should -Contain 'deviceShellScripts'
@@ -73,7 +73,7 @@ Describe 'Resource registry' {
     }
 
     It 'returns all entries when no filter given' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $all  = Get-IaResourceRegistry
             $none = Resolve-IaResourceType
             $none.Count | Should -Be $all.Count
@@ -81,7 +81,7 @@ Describe 'Resource registry' {
     }
 
     It 'all entries have non-empty ListPath' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $reg = Get-IaResourceRegistry
             foreach ($r in $reg) {
                 $r.ListPath | Should -Not -BeNullOrEmpty -Because "key=$($r.Key)"
@@ -90,7 +90,7 @@ Describe 'Resource registry' {
     }
 
     It 'app area paths use deviceAppManagement prefix' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $appKeys = 'mobileApps', 'mobileAppConfigurations',
                        'targetedManagedAppConfigurations',
                        'iosManagedAppProtections', 'androidManagedAppProtections',
@@ -110,21 +110,21 @@ Describe 'Resource registry' {
 Describe 'Graph URI construction' {
 
     It 'builds beta URI for plain path' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaUri -Path 'deviceManagement/managedDevices' |
                 Should -Be 'https://graph.microsoft.com/beta/deviceManagement/managedDevices'
         }
     }
 
     It 'resolves -V1 to the beta endpoint too (module standardizes on beta)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaUri -Path 'me' -V1 |
                 Should -Be 'https://graph.microsoft.com/beta/me'
         }
     }
 
     It 'uses the beta base for every Graph call (no v1.0 anywhere)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Resolve-IaUri -Path 'groups')       | Should -Match '/beta/'
             (Resolve-IaUri -Path 'groups' -V1)   | Should -Match '/beta/'
             (Resolve-IaUri -Path 'groups')       | Should -Not -Match '/v1\.0/'
@@ -133,14 +133,14 @@ Describe 'Graph URI construction' {
     }
 
     It 'returns absolute URLs unchanged' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $abs = 'https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$skiptoken=xyz'
             Resolve-IaUri -Path $abs | Should -Be $abs
         }
     }
 
     It 'strips leading slash from path' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaUri -Path '/deviceManagement/intents' |
                 Should -Be 'https://graph.microsoft.com/beta/deviceManagement/intents'
         }
@@ -151,19 +151,19 @@ Describe 'Graph URI construction' {
 Describe 'GUID detection' {
 
     It 'accepts a valid GUID' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Test-IaGuid '12345678-1234-1234-1234-123456789012' | Should -BeTrue
         }
     }
 
     It 'rejects a plain string' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Test-IaGuid 'My Policy Name' | Should -BeFalse
         }
     }
 
     It 'rejects an empty string' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Test-IaGuid '' | Should -BeFalse
         }
     }
@@ -173,7 +173,7 @@ Describe 'GUID detection' {
 Describe 'Error code resolution' {
 
     It 'resolves known Win32 hex code' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $r = Resolve-IaErrorCode '0x87D1041C'
             $r | Should -Not -BeNullOrEmpty
             $r.Short | Should -Be 'App not detected post-install'
@@ -182,7 +182,7 @@ Describe 'Error code resolution' {
     }
 
     It 'resolves signed-negative decimal (same code)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $r = Resolve-IaErrorCode (-2016345060)   # 0x87D1041C as Int32
             $r | Should -Not -BeNullOrEmpty
             $r.Short | Should -Be 'App not detected post-install'
@@ -190,44 +190,44 @@ Describe 'Error code resolution' {
     }
 
     It 'resolves 0x87D1041A installation-failed code' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Resolve-IaErrorCode '0x87D1041A').Short | Should -Be 'Installation failed'
         }
     }
 
     It 'resolves 0x80070005 access-denied code' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Resolve-IaErrorCode '0x80070005').Short | Should -Be 'Access denied'
         }
     }
 
     It 'returns null for zero' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaErrorCode 0 | Should -BeNullOrEmpty
         }
     }
 
     It 'returns null for unknown code' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaErrorCode '0xDEADBEEF' | Should -BeNullOrEmpty
         }
     }
 
     It 'resolves friendly installStateDetail label' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaInstallDetail 'installFailed'  | Should -Be 'Installation failed'
             Resolve-IaInstallDetail 'rebootRequired' | Should -Be 'Reboot required'
         }
     }
 
     It 'falls through to raw string for unknown detail' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaInstallDetail 'somethingnew' | Should -Be 'somethingnew'
         }
     }
 
     It 'returns null for empty detail' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Resolve-IaInstallDetail '' | Should -BeNullOrEmpty
         }
     }
@@ -237,33 +237,33 @@ Describe 'Error code resolution' {
 Describe 'PIM duration parser' {
 
     It 'passes through ISO8601 duration unchanged' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             ConvertTo-IaIsoDuration 'PT2H' | Should -Be 'PT2H'
             ConvertTo-IaIsoDuration 'P1D'  | Should -Be 'P1D'
         }
     }
 
     It 'converts hours shorthand' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             ConvertTo-IaIsoDuration '8h' | Should -Be 'PT8H'
             ConvertTo-IaIsoDuration '1h' | Should -Be 'PT1H'
         }
     }
 
     It 'converts minutes shorthand' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             ConvertTo-IaIsoDuration '30m' | Should -Be 'PT30M'
         }
     }
 
     It 'converts days shorthand' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             ConvertTo-IaIsoDuration '1d' | Should -Be 'P1D'
         }
     }
 
     It 'throws on invalid format' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { ConvertTo-IaIsoDuration 'garbage' } | Should -Throw
         }
     }
@@ -273,7 +273,7 @@ Describe 'PIM duration parser' {
 Describe 'Assignment model — target conversion' {
 
     It 'parses allDevices target' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' })
             $t.Kind      | Should -Be 'allDevices'
@@ -283,7 +283,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'parses allLicensedUsers target' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.allLicensedUsersAssignmentTarget' })
             $t.Kind | Should -Be 'allUsers'
@@ -291,7 +291,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'parses exclusionGroup target' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.exclusionGroupAssignmentTarget'; groupId = 'g99' })
             $t.Kind      | Should -Be 'exclusion'
@@ -301,7 +301,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'parses a group target with a filter' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = 'g1'
                 deviceAndAppManagementAssignmentFilterId   = 'f1'
@@ -314,7 +314,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'preserves Cloud PC @odata.type on roundtrip' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.cloudPcManagementGroupAssignmentTarget'; groupId = 'g1' })
             $t.Kind | Should -Be 'group'
@@ -324,7 +324,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'synthesises correct @odata.type for exclusion when no original' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = New-IaGroupTarget -GroupId 'gx' -Exclude
             $body = ConvertTo-IaTargetBody -Target $t
             $body['@odata.type'] | Should -Be '#microsoft.graph.exclusionGroupAssignmentTarget'
@@ -333,7 +333,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'adds filter fields to body when FilterId is set' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = New-IaGroupTarget -GroupId 'gf' -FilterId 'fid1' -FilterType 'exclude'
             $body = ConvertTo-IaTargetBody -Target $t
             $body.deviceAndAppManagementAssignmentFilterId   | Should -Be 'fid1'
@@ -342,7 +342,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'omits filter fields when no FilterId' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = New-IaGroupTarget -GroupId 'gnofilter'
             $body = ConvertTo-IaTargetBody -Target $t
             $body.ContainsKey('deviceAndAppManagementAssignmentFilterId') | Should -BeFalse
@@ -350,7 +350,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'handles unknown @odata.type gracefully' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.someFutureTarget'; groupId = 'gunk' })
             $t.Kind | Should -Be 'unknown'
@@ -358,7 +358,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'Get-IaTargetDisplay shows All Devices label' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = ConvertFrom-IaTarget -Target ([pscustomobject]@{
                 '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' })
             Get-IaTargetDisplay -Target $t | Should -Be 'All Devices'
@@ -366,7 +366,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'Get-IaTargetDisplay prefixes EXCLUDE for exclusion' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = [pscustomobject]@{ Kind = 'exclusion'; IsExclude = $true; GroupId = 'gid';
                 GroupName = 'Test Group'; FilterId = $null; FilterType = 'none'; FilterName = $null }
             Get-IaTargetDisplay -Target $t | Should -Match '^EXCLUDE Test Group'
@@ -374,7 +374,7 @@ Describe 'Assignment model — target conversion' {
     }
 
     It 'Get-IaTargetDisplay appends filter label' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $t = [pscustomobject]@{ Kind = 'group'; IsExclude = $false; GroupId = 'gid';
                 GroupName = 'MyGroup'; FilterId = 'fid'; FilterType = 'include'; FilterName = 'Windows Filter' }
             Get-IaTargetDisplay -Target $t | Should -Match 'filter include: Windows Filter'
@@ -386,7 +386,7 @@ Describe 'Assignment model — target conversion' {
 Describe 'Assignment model — assignment conversion' {
 
     It 'preserves type-specific fields (remediation runSchedule)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $a = ConvertFrom-IaAssignment -Item ([pscustomobject]@{
                 id = 'x'; source = 'direct'
                 target = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = 'g1' }
@@ -400,7 +400,7 @@ Describe 'Assignment model — assignment conversion' {
     }
 
     It 'strips source and sourceId from body' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $a = ConvertFrom-IaAssignment -Item ([pscustomobject]@{
                 id = 'y'; source = 'policySets'; sourceId = 'ps1'
                 target = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' } })
@@ -411,7 +411,7 @@ Describe 'Assignment model — assignment conversion' {
     }
 
     It 'injects @odata.type when AssignmentODataType is provided' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $a = ConvertFrom-IaAssignment -Item ([pscustomobject]@{
                 id = 'z'
                 target = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' } })
@@ -425,11 +425,11 @@ Describe 'Assignment model — assignment conversion' {
 Describe 'Directory cache — group resolution' {
 
     BeforeEach {
-        InModuleScope Graphite { Reset-IaDirectoryCache }
+        InModuleScope PSGraphIT { Reset-IaDirectoryCache }
     }
 
     It 'returns display name from cache after first fetch' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 return [pscustomobject]@{ id = 'gid1'; displayName = 'Engineering' }
             }
@@ -444,7 +444,7 @@ Describe 'Directory cache — group resolution' {
     }
 
     It 'stubs unresolvable group with truncated id' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { throw 'Not Found' }
             $name = Resolve-IaGroupName -Id 'abcdef12-0000-0000-0000-000000000000'
             $name | Should -Match 'unresolved'
@@ -452,7 +452,7 @@ Describe 'Directory cache — group resolution' {
     }
 
     It 'blocks further fetches after 403' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { throw 'Forbidden 403' }
             $null = Resolve-IaGroupName -Id 'gid-forbidden'
             $script:IaDirectoryBlocked | Should -BeTrue
@@ -464,7 +464,7 @@ Describe 'Directory cache — group resolution' {
 Describe 'Call log' {
 
     It 'Add-IaCall records method, shortened URI, status and count' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             $fullUri = 'https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$select=id,name'
             Add-IaCall -Method 'GET' -Uri $fullUri -Status 200 -Ms 55 -Count 7
@@ -480,7 +480,7 @@ Describe 'Call log' {
     }
 
     It 'Add-IaCall replaces query string with ellipsis' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             Add-IaCall -Method 'GET' `
                 -Uri 'https://graph.microsoft.com/beta/deviceManagement/managedDevices?$filter=x' `
@@ -490,7 +490,7 @@ Describe 'Call log' {
     }
 
     It 'Clear-IaCallLog empties the log' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Add-IaCall -Method 'GET' -Uri 'https://graph.microsoft.com/beta/foo' -Status 200 -Ms 1 -Count 0
             Clear-IaCallLog
             (Get-IaCallLogEntries).Count | Should -Be 0
@@ -498,7 +498,7 @@ Describe 'Call log' {
     }
 
     It 'reports the correct count for many entries (entries have a colliding .Count property)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             1..5 | ForEach-Object { Add-IaCall -Method 'GET' -Uri "https://graph.microsoft.com/beta/x$_" -Status 200 -Ms 1 -Count 9 }
             $entries = Get-IaCallLogEntries
@@ -508,7 +508,7 @@ Describe 'Call log' {
     }
 
     It 'Get-IntuneCallLog (public) returns one object per recorded call' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             1..4 | ForEach-Object { Add-IaCall -Method 'GET' -Uri "https://graph.microsoft.com/beta/y$_" -Status 200 -Ms 1 -Count 3 }
             @(Get-IntuneCallLog).Count       | Should -Be 4
@@ -517,7 +517,7 @@ Describe 'Call log' {
     }
 
     It 'Get-IntuneCallLog returns a single entry as one object, not its Count property' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             Add-IaCall -Method 'GET' -Uri 'https://graph.microsoft.com/beta/solo' -Status 200 -Ms 1 -Count 9
             @(Get-IntuneCallLog).Count | Should -Be 1 -Because 'one call logged → one row, despite the entry.Count=9 field'
@@ -529,7 +529,7 @@ Describe 'Call log' {
 Describe 'Inventory, compare and copy (mocked Graph)' {
 
     BeforeEach {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Reset-IaDirectoryCache
             $script:Posts = [System.Collections.Generic.List[object]]::new()
             $script:Groups = @{
@@ -574,7 +574,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
     }
 
     It 'enumerates and resolves group names + exclude intent' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $items = Get-IaInventory -Type 'configurationPolicies' -AssignedOnly
             $cp = $items | Where-Object Name -eq 'Win Baseline'
             ($cp.Assignments | Where-Object { -not $_.Target.IsExclude }).Target.GroupName |
@@ -585,7 +585,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
     }
 
     It 'compares two groups into buckets' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $items = Get-IaInventory -Type 'configurationPolicies' -AssignedOnly
             (Get-IaItemGroupMode -Item ($items | Where-Object Name -eq 'Win Baseline') -GroupId 'bbbb') |
                 Should -Be 'exclude'
@@ -595,7 +595,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
     }
 
     It 'detects mixed include+exclude on same group' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 if ($Method -eq 'POST') { $script:Posts.Add([pscustomobject]@{ Uri = $Uri; Body = $Body }); return $null }
                 if ($Uri -match 'assignmentFilters') { return [pscustomobject]@{ value = @() } }
@@ -614,7 +614,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
     }
 
     It 'copies selected resources and posts merged assignments' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $items = Get-IaInventory -Type 'configurationPolicies' -AssignedOnly
             $plans = Invoke-IaCopy -Items $items -SrcId 'aaaa' -DstId 'cccc' -DstName 'New Devices' -IncludeIds @('cp2') -Commit
             @($plans | Where-Object Added).Count | Should -Be 1
@@ -624,7 +624,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
     }
 
     It 'preview (no -Commit) writes nothing' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $items = Get-IaInventory -Type 'configurationPolicies' -AssignedOnly
             $null = Invoke-IaCopy -Items $items -SrcId 'aaaa' -DstId 'cccc'
             $script:Posts.Count | Should -Be 0
@@ -632,7 +632,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
     }
 
     It 'AssignedOnly filters out unassigned items' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 if ($Uri -match 'assignmentFilters') { return [pscustomobject]@{ value = @() } }
                 return [pscustomobject]@{ value = @(
@@ -653,7 +653,7 @@ Describe 'Inventory, compare and copy (mocked Graph)' {
 Describe 'Public cmdlets — Get-IntuneAssignmentFilter' {
 
     It 'returns all filters when no platform specified' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Reset-IaDirectoryCache
             Mock Invoke-IaRequest {
                 return [pscustomobject]@{ value = @(
@@ -667,7 +667,7 @@ Describe 'Public cmdlets — Get-IntuneAssignmentFilter' {
     }
 
     It 'passes platform filter to Graph URI' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Reset-IaDirectoryCache
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
@@ -684,7 +684,7 @@ Describe 'Public cmdlets — Get-IntuneAssignmentFilter' {
 Describe 'Public cmdlets — Get-IntuneApp' {
 
     It 'queries deviceAppManagement (not deviceManagement)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -697,7 +697,7 @@ Describe 'Public cmdlets — Get-IntuneApp' {
     }
 
     It 'returns app objects with expected properties' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 return [pscustomobject]@{ value = @(
                     [pscustomobject]@{ id = 'app1'; displayName = 'Contoso App';
@@ -717,7 +717,7 @@ Describe 'Public cmdlets — Get-IntuneApp' {
 Describe 'Public cmdlets — Get-IntuneScript' {
 
     It 'lists all scripts across both platforms' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -735,7 +735,7 @@ Describe 'Public cmdlets — Get-IntuneScript' {
 Describe 'Public cmdlets — Get-IntuneRemediation' {
 
     It 'queries deviceHealthScripts' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -751,7 +751,7 @@ Describe 'Public cmdlets — Get-IntuneRemediation' {
 Describe 'Public cmdlets — Get-IntuneCompliancePolicy' {
 
     It 'queries deviceCompliancePolicies' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -767,7 +767,7 @@ Describe 'Public cmdlets — Get-IntuneCompliancePolicy' {
 Describe 'Public cmdlets — Get-IntuneConfigurationPolicy' {
 
     It 'queries configurationPolicies (settings catalog)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -783,7 +783,7 @@ Describe 'Public cmdlets — Get-IntuneConfigurationPolicy' {
 Describe 'Public cmdlets — Get-IntuneUpdateRing' {
 
     It 'queries deviceConfigurations' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -799,7 +799,7 @@ Describe 'Public cmdlets — Get-IntuneUpdateRing' {
 Describe 'Public cmdlets — Get-IntuneAppProtectionPolicy' {
 
     It 'queries both Windows protection policy endpoints' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -813,7 +813,7 @@ Describe 'Public cmdlets — Get-IntuneAppProtectionPolicy' {
     }
 
     It 'queries only iOS endpoint for iOS platform' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -827,7 +827,7 @@ Describe 'Public cmdlets — Get-IntuneAppProtectionPolicy' {
     }
 
     It 'queries Android endpoint for Android platform' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -844,7 +844,7 @@ Describe 'Public cmdlets — Get-IntuneAppProtectionPolicy' {
 Describe 'Public cmdlets — Get-IntuneDeviceDetail' {
 
     It 'uses managedDeviceOwnerType (not ownerType)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 # Resolve-IaManagedDeviceId by GUID skips the filter call; return full device record
                 return [pscustomobject]@{
@@ -862,7 +862,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceDetail' {
     }
 
     It 'reads ipAddressV4 from hardwareInformation and drops the nonexistent activationLockEnabled' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 if ($Uri -match 'select=hardwareInformation') {
                     return [pscustomobject]@{ hardwareInformation = [pscustomobject]@{ ipAddressV4 = '10.1.2.3' } }
@@ -880,7 +880,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceDetail' {
 Describe 'Public cmdlets — Get-IntuneLapsCredential' {
 
     It 'resolves the AAD device id and decodes the base64 password (newest backup first)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 if ($Uri -match 'deviceLocalCredentials') {
                     return [pscustomobject]@{ credentials = @(
@@ -901,7 +901,7 @@ Describe 'Public cmdlets — Get-IntuneLapsCredential' {
     }
 
     It 'throws when the device has no Azure AD device id' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { [pscustomobject]@{ id='dev-1'; deviceName='WORKGROUP-PC'; azureADDeviceId=$null } }
             { Get-IntuneLapsCredential -Device '12345678-0000-0000-0000-000000000002' } | Should -Throw '*Azure AD device ID*'
         }
@@ -911,7 +911,7 @@ Describe 'Public cmdlets — Get-IntuneLapsCredential' {
 Describe 'Public cmdlets — Get-IntuneDeviceGroupMembership' {
 
     It 'returns transitive groups with names and flags dynamic membership rules' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaDevice { [pscustomobject]@{ Id='dev-obj-1'; DisplayName='LAPTOP-01' } }
             Mock Get-IaCollection {
                 @(
@@ -928,7 +928,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceGroupMembership' {
     }
 
     It 'throws when the device cannot be resolved to an Entra object' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaDevice { [pscustomobject]@{ Id=$null; DisplayName=$null } }
             { Get-IntuneDeviceGroupMembership -Device 'nope' } | Should -Throw '*resolve*'
         }
@@ -938,7 +938,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceGroupMembership' {
 Describe 'Public cmdlets — Get-IntuneUserDevice' {
 
     It 'filters managedDevices by userPrincipalName and projects device fields' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:capturedPath = $null
             Mock Get-IaCollection {
                 $script:capturedPath = $Path
@@ -962,7 +962,7 @@ Describe 'Public cmdlets — Get-IntuneUserDevice' {
     }
 
     It 'escapes apostrophes in the UPN to keep the OData filter valid' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:capturedPath = $null
             Mock Get-IaCollection { $script:capturedPath = $Path; @() }
             Get-IntuneUserDevice -User "o'brien@contoso.com" | Out-Null
@@ -974,7 +974,7 @@ Describe 'Public cmdlets — Get-IntuneUserDevice' {
 Describe 'Public cmdlets — Get-IntuneDeviceManagedApp' {
 
     It 'projects intent + install state for the device primary user' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaManagedDeviceId { 'mdm-1' }
             Mock Invoke-IaRequest {
                 if ($Uri -match 'mobileAppIntentAndStates') {
@@ -995,7 +995,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceManagedApp' {
     }
 
     It 'warns and returns nothing for a device with no primary user (shared/kiosk)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaManagedDeviceId { 'mdm-2' }
             Mock Invoke-IaRequest { [pscustomobject]@{ id='mdm-2'; deviceName='KIOSK-01'; userId=$null; userPrincipalName=$null } }
             $r = @(Get-IntuneDeviceManagedApp -Device 'KIOSK-01' -WarningAction SilentlyContinue)
@@ -1007,7 +1007,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceManagedApp' {
 Describe 'Public cmdlets — Get-IntuneUserGroupMembership' {
 
     It 'classifies group Kind + Membership from the beta /users transitiveMemberOf set' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { [pscustomobject]@{ id='u-1'; displayName='Alice'; userPrincipalName='alice@contoso.com' } }
             Mock Get-IaCollection {
                 @(
@@ -1027,7 +1027,7 @@ Describe 'Public cmdlets — Get-IntuneUserGroupMembership' {
     }
 
     It 'queries the user transitiveMemberOf group path' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:capturedPath = $null
             Mock Invoke-IaRequest { [pscustomobject]@{ id='u-7'; userPrincipalName='x@contoso.com' } }
             Mock Get-IaCollection { $script:capturedPath = $Path; @() }
@@ -1037,7 +1037,7 @@ Describe 'Public cmdlets — Get-IntuneUserGroupMembership' {
     }
 
     It 'throws when the user cannot be resolved' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { [pscustomobject]@{ id=$null } }
             { Get-IntuneUserGroupMembership -User 'ghost@contoso.com' } | Should -Throw '*resolve*'
         }
@@ -1047,7 +1047,7 @@ Describe 'Public cmdlets — Get-IntuneUserGroupMembership' {
 Describe 'Public cmdlets — Get-IntuneUserLicense' {
 
     It 'maps SKU part numbers to friendly names and counts enabled service plans' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Get-IaCollection {
                 @(
                     [pscustomobject]@{ id='l1'; skuId='sku-e5'; skuPartNumber='SPE_E5'; servicePlans=@(
@@ -1070,7 +1070,7 @@ Describe 'Public cmdlets — Get-IntuneUserLicense' {
     }
 
     It 'queries the beta /users licenseDetails endpoint' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:capturedPath = $null
             Mock Get-IaCollection { $script:capturedPath = $Path; @() }
             Get-IntuneUserLicense -User 'alice@contoso.com' | Out-Null
@@ -1082,7 +1082,7 @@ Describe 'Public cmdlets — Get-IntuneUserLicense' {
 Describe 'Public cmdlets — Get-IntuneDeviceComplianceDetail' {
 
     It 'reads inline settingStates; -FailingOnly drops compliant/notApplicable' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaManagedDeviceId { 'dev-1' }
             Mock Invoke-IaRequest { throw 'should not be called — settingStates is inline' }
             Mock Get-IaCollection {
@@ -1102,7 +1102,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceComplianceDetail' {
     }
 
     It 'falls back to the single-entity read when the collection omits settingStates' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaManagedDeviceId { 'dev-1' }
             Mock Get-IaCollection { @([pscustomobject]@{ id='ps1'; displayName='Win Compliance'; state='nonCompliant' }) }   # no inline settingStates
             Mock Invoke-IaRequest { [pscustomobject]@{ id='ps1'; displayName='Win Compliance'; settingStates=@(
@@ -1119,7 +1119,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceComplianceDetail' {
 Describe 'Public cmdlets — Get-IntuneDeviceConfigConflict' {
 
     It 'surfaces conflict settings (inline) and names the conflicting profiles (sources)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaManagedDeviceId { 'dev-1' }
             Mock Invoke-IaRequest { throw 'should not be called — settingStates is inline' }
             Mock Get-IaCollection {
@@ -1144,7 +1144,7 @@ Describe 'Public cmdlets — Get-IntuneDeviceConfigConflict' {
 Describe 'Public cmdlets — Get-IntuneUserSignIn' {
 
     It 'maps status, surfaces the blocking CA policy, and builds the signIns query' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:capturedUri = $null
             Mock Invoke-IaRequest {
                 $script:capturedUri = $Uri
@@ -1170,7 +1170,7 @@ Describe 'Public cmdlets — Get-IntuneUserSignIn' {
 Describe 'Public cmdlets — Get-IntuneUserAuthMethod' {
 
     It 'maps @odata.type to friendly names and coalesces the detail' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Get-IaCollection {
                 @(
                     [pscustomobject]@{ '@odata.type'='#microsoft.graph.microsoftAuthenticatorAuthenticationMethod'; id='m1'; displayName='Pixel 8' }
@@ -1193,7 +1193,7 @@ Describe 'Public cmdlets — Get-IntuneUserAuthMethod' {
 Describe 'Public cmdlets — Invoke-IntuneDeviceAction (CSDL-verified action verbs)' {
 
     It 'maps friendly actions to the correct managedDevice action names + bodies' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-IaManagedDeviceId { 'md-1' }
             $script:capUri = $null; $script:capBody = $null
             Mock Invoke-IaRequest { $script:capUri = $Uri; $script:capBody = $Body }
@@ -1215,14 +1215,14 @@ Describe 'Public cmdlets — Invoke-IntuneDeviceAction (CSDL-verified action ver
 Describe 'Public cmdlets — null @odata.type robustness (no hashtable null-index crash)' {
 
     It 'Get-IntuneCompliancePolicy tolerates a policy with no @odata.type' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { [pscustomobject]@{ value = @([pscustomobject]@{ id = 'p1'; displayName = 'No-Type Policy' }) } }
             { Get-IntuneCompliancePolicy } | Should -Not -Throw
         }
     }
 
     It 'Get-IntuneApp tolerates an app with no @odata.type' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest { [pscustomobject]@{ value = @([pscustomobject]@{ id = 'a1'; displayName = 'No-Type App' }) } }
             { Get-IntuneApp } | Should -Not -Throw
         }
@@ -1251,7 +1251,7 @@ Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
         $table.rows.Count        | Should -Be 3      # header + 2 data
     }
 
-    It 'strips GRAPHITE markup from cell values' {
+    It 'strips PSGRAPHIT markup from cell values' {
         $json = $script:tRows | Send-IntuneReportToTeams -Title 'X' -PassThru
         $json | Should -Not -Match '\[coral\]'
         $json | Should -Match 'noncompliant'
@@ -1272,7 +1272,7 @@ Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
     }
 
     It 'POSTs the JSON to the webhook when a URL is supplied' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:posted = $null
             Mock Invoke-IaWebhookPost { $script:posted = [pscustomobject]@{ Uri = $Uri; Json = $Json } }
             [pscustomobject]@{ X = 1 } | Send-IntuneReportToTeams -Title 'Push' -WebhookUrl 'https://hook.example/abc' -Confirm:$false
@@ -1283,10 +1283,10 @@ Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
     }
 
     It 'throws when no webhook URL is available and not -PassThru' {
-        InModuleScope Graphite {
-            $saved = $env:GRAPHITE_TEAMS_WEBHOOK; $env:GRAPHITE_TEAMS_WEBHOOK = ''
+        InModuleScope PSGraphIT {
+            $saved = $env:PSGRAPHIT_TEAMS_WEBHOOK; $env:PSGRAPHIT_TEAMS_WEBHOOK = ''
             try { { [pscustomobject]@{ X = 1 } | Send-IntuneReportToTeams -Title 'NoUrl' -Confirm:$false } | Should -Throw '*webhook*' }
-            finally { $env:GRAPHITE_TEAMS_WEBHOOK = $saved }
+            finally { $env:PSGRAPHIT_TEAMS_WEBHOOK = $saved }
         }
     }
 }
@@ -1294,21 +1294,21 @@ Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (ConvertTo-IaDateTime '7d')  | Should -BeOfType [datetime]
             ((Get-Date).ToUniversalTime() - (ConvertTo-IaDateTime '7d')).TotalDays | Should -BeGreaterThan 6.5
         }
     }
 
     It 'parses an ISO 8601 absolute date regardless of host culture' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (ConvertTo-IaDateTime '2026-01-15').Year  | Should -Be 2026
             (ConvertTo-IaDateTime '2026-01-15').Month | Should -Be 1
         }
     }
 
     It 'throws a helpful error on an unparseable value (not a silent bad date)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { ConvertTo-IaDateTime 'not-a-date' } | Should -Throw '*Could not parse date*'
         }
     }
@@ -1345,7 +1345,7 @@ Describe 'New-IntuneAssignmentFilter parameter validation' {
 Describe 'Public cmdlets — Cloud PC' {
 
     It 'Get-IntuneCloudPC queries virtualEndpoint/cloudPCs' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -1357,7 +1357,7 @@ Describe 'Public cmdlets — Cloud PC' {
     }
 
     It 'maps Region from deviceRegionName and LastLogin from lastLoginResult.time' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 return [pscustomobject]@{ value = @(
                     [pscustomobject]@{ id = 'cpc1'; displayName = 'CPC-1'; status = 'provisioned'
@@ -1371,7 +1371,7 @@ Describe 'Public cmdlets — Cloud PC' {
     }
 
     It 'Get-IntuneCloudPCReport posts the CSDL-verified report action + reportName' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:capUri = $null; $script:capBody = $null
             Mock Invoke-IaRequest { $script:capUri = $Uri; $script:capBody = $Body; return [pscustomobject]@{ schema = @(); values = @() } }
 
@@ -1392,7 +1392,7 @@ Describe 'Public cmdlets — Cloud PC' {
     }
 
     It 'Get-IntuneCloudPCProvisioningPolicy queries provisioningPolicies' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $uris = [System.Collections.Generic.List[string]]::new()
             Mock Invoke-IaRequest {
                 $uris.Add($Uri)
@@ -1408,7 +1408,7 @@ Describe 'Public cmdlets — Cloud PC' {
 Describe 'Public cmdlets — PIM wrappers' {
 
     It 'Get-IntuneEligibleRole returns structured output' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 if ($Uri -match 'me\?') {
                     return [pscustomobject]@{ id = 'user1'; userPrincipalName = 'admin@contoso.com' }
@@ -1427,7 +1427,7 @@ Describe 'Public cmdlets — PIM wrappers' {
     }
 
     It 'Get-IntuneActiveRole returns structured output' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaRequest {
                 if ($Uri -match 'me\?') {
                     return [pscustomobject]@{ id = 'user1'; userPrincipalName = 'admin@contoso.com' }
@@ -1450,7 +1450,7 @@ Describe 'Public cmdlets — PIM wrappers' {
 Describe 'Backup and restore' {
 
     It 'Backup-IntuneAssignment serialises to JSON and round-trips' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Reset-IaDirectoryCache
             $tmp = [System.IO.Path]::GetTempFileName()
             try {
@@ -1477,17 +1477,17 @@ Describe 'Backup and restore' {
 # ─────────────────────────────────────────────────────────────────────────────
 Describe 'Module export completeness' {
 
-    It 'exports Connect-Graphite' {
-        Get-Command Connect-Graphite -Module Graphite | Should -Not -BeNullOrEmpty
+    It 'exports Connect-PSGraphIT' {
+        Get-Command Connect-PSGraphIT -Module PSGraphIT | Should -Not -BeNullOrEmpty
     }
 
     It 'exports Get-IntuneApp' {
-        Get-Command Get-IntuneApp -Module Graphite | Should -Not -BeNullOrEmpty
+        Get-Command Get-IntuneApp -Module PSGraphIT | Should -Not -BeNullOrEmpty
     }
 
     It 'exports all expected public cmdlets' {
         $expected = @(
-            'Connect-Graphite', 'Get-IntuneApp', 'Get-IntuneScript',
+            'Connect-PSGraphIT', 'Get-IntuneApp', 'Get-IntuneScript',
             'Get-IntuneRemediation', 'Get-IntuneCompliancePolicy',
             'Get-IntuneConfigurationPolicy', 'Get-IntuneUpdateRing',
             'Get-IntuneAssignmentFilter', 'New-IntuneAssignmentFilter',
@@ -1500,14 +1500,14 @@ Describe 'Module export completeness' {
             'Get-IntuneEffectiveAssignment', 'Get-IntuneDeploymentSummary',
             'Export-IntuneAssignmentReport', 'Add-IntuneBulkAssignment'
         )
-        $exported = (Get-Module Graphite).ExportedCommands.Keys
+        $exported = (Get-Module PSGraphIT).ExportedCommands.Keys
         foreach ($cmd in $expected) {
             $exported | Should -Contain $cmd -Because "$cmd must be a public export"
         }
     }
 
     It 'does not export private helpers' {
-        $exported = (Get-Module Graphite).ExportedCommands.Keys
+        $exported = (Get-Module PSGraphIT).ExportedCommands.Keys
         $exported | Should -Not -Contain 'Invoke-IaRequest'
         $exported | Should -Not -Contain 'Get-IaCollection'
         $exported | Should -Not -Contain 'Resolve-IaUri'
@@ -1516,7 +1516,7 @@ Describe 'Module export completeness' {
     }
 
     It 'does not export the internal TUI engine functions' {
-        $exported = (Get-Module Graphite).ExportedCommands.Keys
+        $exported = (Get-Module PSGraphIT).ExportedCommands.Keys
         $exported | Should -Not -Contain 'ConvertFrom-IaMarkup'
         $exported | Should -Not -Contain 'Read-IaMenu'
         $exported | Should -Not -Contain 'Write-IaHost'
@@ -1530,7 +1530,7 @@ Describe 'Module export completeness' {
 Describe 'TUI engine · markup parser' {
 
     It 'never throws on an unknown colour tag and renders it literally' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             # This is the exact input that produced "Could not find color 'Apps'".
             { ConvertFrom-IaMarkup -Text 'area [Apps] x' } | Should -Not -Throw
             (Strip-IaMarkup -Text 'area [Apps] x') | Should -Be 'area [Apps] x'
@@ -1538,14 +1538,14 @@ Describe 'TUI engine · markup parser' {
     }
 
     It 'renders a group literally named with brackets without throwing' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { ConvertFrom-IaMarkup -Text 'Group [Test] assigned' } | Should -Not -Throw
             (Strip-IaMarkup -Text 'Group [Test] assigned') | Should -Be 'Group [Test] assigned'
         }
     }
 
     It 'converts a known colour tag to an ANSI escape' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $esc = [char]0x1B
             (ConvertFrom-IaMarkup -Text '[grey]hello[/]') | Should -Match ([regex]::Escape($esc))
             (Strip-IaMarkup -Text '[grey]hello[/]') | Should -Be 'hello'
@@ -1553,7 +1553,7 @@ Describe 'TUI engine · markup parser' {
     }
 
     It 'handles compound and nested tags without throwing' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { ConvertFrom-IaMarkup -Text '[bold white]x[/]' } | Should -Not -Throw
             { ConvertFrom-IaMarkup -Text '[grey]a[red]b[/]c[/]' } | Should -Not -Throw
             (Strip-IaMarkup -Text '[grey]a[red]b[/]c[/]') | Should -Be 'abc'
@@ -1561,13 +1561,13 @@ Describe 'TUI engine · markup parser' {
     }
 
     It 'tolerates a stray closing tag' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { ConvertFrom-IaMarkup -Text 'no open[/] here' } | Should -Not -Throw
         }
     }
 
     It 'Strip and Convert agree on the visible text for a mixed string' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $s = 'pre [grey]mid[/] [Apps] [coral]end[/] post'
             # ConvertFrom keeps the visible glyphs (plus ANSI); stripping the ANSI
             # from the converted form must equal Strip-IaMarkup's output.
@@ -1579,7 +1579,7 @@ Describe 'TUI engine · markup parser' {
     }
 
     It 'Protect-IaMarkup escapes brackets and round-trips to literal text' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Protect-IaMarkup -Text '[Test]') | Should -Be '[[Test]]'
             (ConvertFrom-IaMarkup -Text (Protect-IaMarkup -Text '[red]')) | Should -Be '[red]'
             (Strip-IaMarkup -Text (Protect-IaMarkup -Text '[red]')) | Should -Be '[red]'
@@ -1587,7 +1587,7 @@ Describe 'TUI engine · markup parser' {
     }
 
     It 'treats empty / null input safely' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (ConvertFrom-IaMarkup -Text '') | Should -Be ''
             (Strip-IaMarkup -Text '') | Should -Be ''
             (Measure-IaWidth -Text '') | Should -Be 0
@@ -1598,7 +1598,7 @@ Describe 'TUI engine · markup parser' {
 Describe 'TUI engine · colour & width' {
 
     It 'maps every accent / colour name the TUI uses' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             # Includes every theme accent: green/amber(orange1)/lego(yellow)/deepsea
             # (turquoise2)/sunset(coral)/ocean(deepskyblue1)/forest(lime)/mono(silver).
             foreach ($c in 'green','orange1','yellow','turquoise2','coral','red',
@@ -1609,14 +1609,14 @@ Describe 'TUI engine · colour & width' {
     }
 
     It 'returns empty (no throw) for an unknown colour name' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Get-IaAnsi 'Apps') | Should -Be ''
             (Get-IaAnsi '') | Should -Be ''
         }
     }
 
     It 'measures ascii and wide characters' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Measure-IaWidth -Text 'hello') | Should -Be 5
             (Measure-IaWidth -Text '世界')   | Should -Be 4   # 2 wide CJK glyphs
         }
@@ -1628,7 +1628,7 @@ Describe 'TUI engine · mouse event classification' {
     # turn a parsed event into the gesture the menus/tables act on.
 
     It 'recognises a left-button press as a click (and ignores its release)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $press   = @{ Type='mouse'; Button=0; X=5; Y=3; Press=$true }
             $release = @{ Type='mouse'; Button=0; X=5; Y=3; Press=$false }
             (Test-IaMouseLeftClick $press)   | Should -BeTrue
@@ -1637,7 +1637,7 @@ Describe 'TUI engine · mouse event classification' {
     }
 
     It 'distinguishes wheel-up (64) from wheel-down (65)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $up   = @{ Type='mouse'; Button=64; X=1; Y=1; Press=$true }
             $down = @{ Type='mouse'; Button=65; X=1; Y=1; Press=$true }
             [bool](Test-IaMouseWheelUp   $up)   | Should -BeTrue
@@ -1648,14 +1648,14 @@ Describe 'TUI engine · mouse event classification' {
     }
 
     It 'does not classify a wheel event as a click' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $wheel = @{ Type='mouse'; Button=64; X=1; Y=1; Press=$true }
             (Test-IaMouseLeftClick $wheel) | Should -BeFalse
         }
     }
 
     It 'treats a modified left click (e.g. Ctrl held) as a click but a right click as not' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $ctrlLeft = @{ Type='mouse'; Button=16; X=2; Y=2; Press=$true }  # +Ctrl modifier bit
             $right    = @{ Type='mouse'; Button=2;  X=2; Y=2; Press=$true }
             (Test-IaMouseLeftClick $ctrlLeft) | Should -BeTrue
@@ -1667,7 +1667,7 @@ Describe 'TUI engine · mouse event classification' {
 Describe 'TUI engine · id masking (Format-IaMaskedId)' {
 
     It 'reveals only the last 4 characters of a tenant GUID by default' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $masked = Format-IaMaskedId '11111111-2222-3333-4444-555555555555'
             $masked | Should -BeLike '*5555'
             $masked | Should -Not -Match '1111|2222|3333|4444'   # nothing identifiable leaks
@@ -1676,7 +1676,7 @@ Describe 'TUI engine · id masking (Format-IaMaskedId)' {
     }
 
     It 'hides everything when -Reveal 0' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $masked = Format-IaMaskedId '11111111-2222-3333-4444-555555555555' -Reveal 0
             $masked | Should -Not -Match '[0-9a-fA-F]'           # no hex at all
             $masked | Should -Match '^•+$'
@@ -1684,7 +1684,7 @@ Describe 'TUI engine · id masking (Format-IaMaskedId)' {
     }
 
     It 'passes through empty / null without throwing' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Format-IaMaskedId '')    | Should -Be ''
             (Format-IaMaskedId $null) | Should -BeNullOrEmpty
         }
@@ -1694,14 +1694,14 @@ Describe 'TUI engine · id masking (Format-IaMaskedId)' {
 Describe 'TUI engine · Graph-calls footer (Get-IaCallFooter)' {
 
     It 'is empty when no calls have been logged' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             (Get-IaCallFooter) | Should -Be ''
         }
     }
 
     It 'reports the true call count and recent calls (no double-wrap)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             Add-IaCall -Method GET  -Uri 'https://graph.microsoft.com/beta/groups?x=1' -Status 200 -Ms 3 -Count 5
             Add-IaCall -Method GET  -Uri 'https://graph.microsoft.com/beta/deviceManagement/configurationPolicies' -Status 200 -Ms 2 -Count 6
@@ -1715,7 +1715,7 @@ Describe 'TUI engine · Graph-calls footer (Get-IaCallFooter)' {
     }
 
     It 'renders a multi-line, copy-pasteable panel with full path + query, one call per line' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Clear-IaCallLog
             Add-IaCall -Method GET  -Uri 'https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$select=id,name' -Status 200 -Ms 12 -Count 6
             Add-IaCall -Method POST -Uri 'https://graph.microsoft.com/beta/x/assign' -Status 204 -Ms 9 -Count 0
@@ -1731,7 +1731,7 @@ Describe 'TUI engine · Graph-calls footer (Get-IaCallFooter)' {
 Describe 'TUI engine · save-path picker (Read-IaSavePath)' {
 
     It 'falls back to a typed path prompt when no native dialog is available' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Get-Command { $null } -ParameterFilter { $Name -in 'osascript', 'zenity' }
             Mock Read-IaText { 'typed-fallback.html' }
             (Read-IaSavePath -Prompt 'x' -DefaultName 'typed-fallback.html') | Should -Be 'typed-fallback.html'
@@ -1747,7 +1747,7 @@ Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
 
     BeforeAll {
         $script:srcFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -Filter *.ps1 |
-            Where-Object { $_.Name -ne 'Graphite.Tests.ps1' }
+            Where-Object { $_.Name -ne 'PSGraphIT.Tests.ps1' }
     }
 
     It 'never calls Out-GridView (Windows-only; throws on macOS/Linux)' {
@@ -1778,7 +1778,7 @@ Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
     }
 
     It 'manifest requires PowerShell 7+ and is not locked to a Windows edition' {
-        $psd = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'Graphite.psd1')
+        $psd = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'PSGraphIT.psd1')
         [version]$psd.PowerShellVersion | Should -BeGreaterOrEqual ([version]'7.0')
         # No CompatiblePSEditions = 'Desktop'-only lock (Desktop edition is Windows-only)
         if ($psd.ContainsKey('CompatiblePSEditions')) {
@@ -1790,7 +1790,7 @@ Describe 'Cross-platform safety (runs on macOS / Linux, not just Windows)' {
 Describe 'TUI engine · table rendering' {
 
     It 'renders objects with markup cells without throwing' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $rows = @(
                 [pscustomobject]@{ Area = '[green]Apps[/]'; Resource = 'Chrome [stable]'; Assigned = '[coral]EXCLUDE grp[/]' }
                 [pscustomobject]@{ Area = '[green]Compliance[/]'; Resource = 'Win10'; Assigned = 'grpA; grpB' }
@@ -1800,14 +1800,14 @@ Describe 'TUI engine · table rendering' {
     }
 
     It 'produces no output for empty input' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $out = Show-IaTableObjects -Rows @() -Color grey -Title 'x' 6>&1
             $out | Should -BeNullOrEmpty
         }
     }
 
     It 'Format-IaTable accepts the exact -Data / -Accent / -Title form that crashed Spectre' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $rows = 1..3 | ForEach-Object { [pscustomobject]@{ Name = "App $_"; Type = 'Win32'; Publisher = 'Acme' } }
             { Format-IaTable -Data $rows -Accent turquoise2 -Title 'Apps' 6>&1 } | Should -Not -Throw
             { Format-IaTable -Data $rows -Accent turquoise2 -Title '[Apps]' 6>&1 } | Should -Not -Throw
@@ -1815,7 +1815,7 @@ Describe 'TUI engine · table rendering' {
     }
 
     It 'Format-IaTable accepts pipeline input with markup cells' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $rows = 1..2 | ForEach-Object { [pscustomobject]@{ A = "[coral]x$_[/]"; B = '[Test]' } }
             { $rows | Format-IaTable -Color turquoise2 6>&1 } | Should -Not -Throw
         }
@@ -1825,7 +1825,7 @@ Describe 'TUI engine · table rendering' {
 Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
 
     It 'Read-IaMultiMenu never throws on bracketed / area-style labels' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { '1 2' }
             $labels = @('1. (Apps) Chrome', '2. [Apps] Edge', '3. [Test] policy')
@@ -1834,7 +1834,7 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
     }
 
     It 'Read-IaMenu returns the chosen string' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { '3' }
             (Read-IaMenu -Title 'pick' -Choices @('a', 'b', 'c') -Color grey) | Should -Be 'c'
@@ -1842,7 +1842,7 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
     }
 
     It 'Read-IaMenu treats blank input as the first choice' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { '' }
             (Read-IaMenu -Title 'pick' -Choices @('a', 'b', 'c')) | Should -Be 'a'
@@ -1850,13 +1850,13 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
     }
 
     It 'Read-IaMenu returns $null for an empty choice list' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Read-IaMenu -Title 'pick' -Choices @()) | Should -BeNullOrEmpty
         }
     }
 
     It 'Read-IaMultiMenu returns the chosen strings' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { '1 3' }
             $r = @(Read-IaMultiMenu -Title 'm' -Choices @('a', 'b', 'c'))
@@ -1865,7 +1865,7 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
     }
 
     It 'Read-IaMultiMenu supports "all"' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { 'all' }
             $r = @(Read-IaMultiMenu -Title 'm' -Choices @('a', 'b', 'c'))
@@ -1874,7 +1874,7 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
     }
 
     It 'Read-IaMultiMenu returns empty for blank input' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { '' }
             @(Read-IaMultiMenu -Title 'm' -Choices @('a', 'b', 'c')).Count | Should -Be 0
@@ -1882,26 +1882,26 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
     }
 
     It 'Read-IaText returns the default on blank, typed value otherwise' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Read-Host { '' }
             (Read-IaText -Question 'name' -DefaultAnswer 'baseline') | Should -Be 'baseline'
         }
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Read-Host { 'custom' }
             (Read-IaText -Question 'name' -DefaultAnswer 'baseline') | Should -Be 'custom'
         }
     }
 
     It 'Read-IaConfirm honours y / n / default' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Read-Host { 'y' }
             (Read-IaConfirm -Message 'ok?') | Should -BeTrue
         }
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Read-Host { 'n' }
             (Read-IaConfirm -Message 'ok?' -DefaultAnswer $true) | Should -BeFalse
         }
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Read-Host { '' }
             (Read-IaConfirm -Message 'ok?' -DefaultAnswer $true) | Should -BeTrue
         }
@@ -1911,20 +1911,20 @@ Describe 'TUI engine · menus & prompts (non-interactive fallback)' {
 Describe 'TUI engine · status wrapper' {
 
     It 'returns the script block output' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             (Invoke-IaStatus -Title 'load' -ScriptBlock { 42 }) | Should -Be 42
         }
     }
 
     It 'runs the block in its defining scope (no $using needed)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $thing = 'Win32'
             (Invoke-IaStatus -Title 'load' -ScriptBlock { "saw $thing" }) | Should -Be 'saw Win32'
         }
     }
 
     It 'lets the block write a script-scoped variable' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:_iaTestOut = $null
             Invoke-IaStatus -Title 'load' -ScriptBlock { $script:_iaTestOut = 'done' } | Out-Null
             $script:_iaTestOut | Should -Be 'done'
@@ -1932,7 +1932,7 @@ Describe 'TUI engine · status wrapper' {
     }
 
     It 're-throws errors from the block' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { Invoke-IaStatus -Title 'load' -ScriptBlock { throw 'boom' } } | Should -Throw 'boom'
         }
     }
@@ -1941,25 +1941,25 @@ Describe 'TUI engine · status wrapper' {
 Describe 'TUI engine · output primitives do not throw' {
 
     It 'Write-IaHost / Write-IaRule / Write-IaFiglet render without throwing' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { Write-IaHost '[turquoise2]hi[/] [Apps] plain' 6>&1 } | Should -Not -Throw
             { Write-IaRule -Title 'sect' -Color darkslategray1 6>&1 } | Should -Not -Throw
             { Write-IaRule -Color grey 6>&1 } | Should -Not -Throw
-            { Write-IaFiglet -Text 'GRAPHITE' -Color turquoise2 6>&1 } | Should -Not -Throw
+            { Write-IaFiglet -Text 'PSGRAPHIT' -Color turquoise2 6>&1 } | Should -Not -Throw
             { Write-IaFiglet -Text 'Other Words' -Color green 6>&1 } | Should -Not -Throw
         }
     }
 
-    It 'Get-IaFigletString returns a multi-line banner for GRAPHITE' {
-        InModuleScope Graphite {
-            $banner = Get-IaFigletString -Text 'GRAPHITE' -Color turquoise2
+    It 'Get-IaFigletString returns a multi-line banner for PSGRAPHIT' {
+        InModuleScope PSGraphIT {
+            $banner = Get-IaFigletString -Text 'PSGRAPHIT' -Color turquoise2
             $banner | Should -Not -BeNullOrEmpty
             @($banner -split "`n").Count | Should -Be 5 -Because 'the block font is five rows tall'
         }
     }
 
     It 'Read-IaMenu accepts a -Header without throwing (non-interactive fallback)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Test-IaArrowSupport { $false }
             Mock Read-Host { '1' }
             { Read-IaMenu -Title 'pick' -Header "BANNER`nLINE2" -Choices @('a', 'b') 6>&1 } | Should -Not -Throw
@@ -1970,7 +1970,7 @@ Describe 'TUI engine · output primitives do not throw' {
 Describe 'TUI engine · report predicate' {
 
     It 'evaluates string operators' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Test-IaReportPredicate -Value 'Windows'    -Operator eq          -Operand 'Windows' | Should -BeTrue
             Test-IaReportPredicate -Value 'Windows'    -Operator ne          -Operand 'macOS'   | Should -BeTrue
             Test-IaReportPredicate -Value 'Windows 11' -Operator contains    -Operand 'dows'    | Should -BeTrue
@@ -1982,7 +1982,7 @@ Describe 'TUI engine · report predicate' {
     }
 
     It 'evaluates numeric comparisons numerically (not lexically)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             # Lexically "9" > "10"; numerically 9 < 10. Must use numeric.
             Test-IaReportPredicate -Value 9  -Operator lt -Operand 10 | Should -BeTrue
             Test-IaReportPredicate -Value 45 -Operator gt -Operand 30 | Should -BeTrue
@@ -1992,7 +1992,7 @@ Describe 'TUI engine · report predicate' {
     }
 
     It 'evaluates empty / boolean operators' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Test-IaReportPredicate -Value ''       -Operator isempty  -Operand '' | Should -BeTrue
             Test-IaReportPredicate -Value $null    -Operator isempty  -Operand '' | Should -BeTrue
             Test-IaReportPredicate -Value 'x'      -Operator notempty -Operand '' | Should -BeTrue
@@ -2002,14 +2002,14 @@ Describe 'TUI engine · report predicate' {
     }
 
     It 'never throws on a bad regex' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             { Test-IaReportPredicate -Value 'x' -Operator match -Operand '[unterminated' } | Should -Not -Throw
             Test-IaReportPredicate -Value 'x' -Operator match -Operand '[unterminated' | Should -BeFalse
         }
     }
 
     It 'compares dates chronologically' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Test-IaReportPredicate -Value '2026-06-01' -Operator gt -Operand '2026-01-01' | Should -BeTrue
             Test-IaReportPredicate -Value '2026-01-01' -Operator lt -Operand '2026-06-01' | Should -BeTrue
         }
@@ -2028,7 +2028,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'filters with WHERE (AND-combined)' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(@{ Prop = 'OS'; Op = 'eq'; Val = 'Windows' }, @{ Prop = 'Compliance'; Op = 'eq'; Val = 'noncompliant' })
@@ -2041,7 +2041,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'sorts numerically descending' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(); Sort = @(@{ Prop = 'Days'; Desc = $true }); Select = @(); Top = 0; GroupBy = $null; Agg = $null
@@ -2052,7 +2052,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'projects with SELECT' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(); Sort = @(); Select = @('Device', 'OS'); Top = 0; GroupBy = $null; Agg = $null
@@ -2062,7 +2062,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'limits with TOP' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(); Sort = @(); Select = @(); Top = 2; GroupBy = $null; Agg = $null
@@ -2072,7 +2072,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'groups with COUNT' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(); Sort = @(); Select = @(); Top = 0; GroupBy = 'OS'; Agg = @{ Func = 'Count'; Prop = $null }
@@ -2084,7 +2084,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'groups with SUM aggregate' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(); Sort = @(); Select = @(); Top = 0; GroupBy = 'OS'; Agg = @{ Func = 'Sum'; Prop = 'GB' }
@@ -2095,7 +2095,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'groups with AVG aggregate' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(); Sort = @(); Select = @(); Top = 0; GroupBy = 'Compliance'; Agg = @{ Func = 'Avg'; Prop = 'Days' }
@@ -2106,7 +2106,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'yields exactly one element for a single-row match (wrapped by caller)' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = @(Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(@{ Prop = 'Device'; Op = 'eq'; Val = 'MAC-1' })
@@ -2118,7 +2118,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'returns a genuinely empty set for a no-match filter (not a phantom row)' {
-        InModuleScope Graphite -Parameters @{ data = $script:rptData } {
+        InModuleScope PSGraphIT -Parameters @{ data = $script:rptData } {
             param($data)
             $r = @(Invoke-IaReportPipeline -Data $data -Recipe @{
                 Where = @(@{ Prop = 'OS'; Op = 'eq'; Val = 'Solaris' })
@@ -2130,7 +2130,7 @@ Describe 'TUI engine · report pipeline' {
     }
 
     It 'discovers the union of properties across rows' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $ragged = @(
                 [pscustomobject]@{ A = 1; B = 2 }
                 [pscustomobject]@{ A = 1; C = 3 }
@@ -2146,7 +2146,7 @@ Describe 'TUI engine · report pipeline' {
 Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
 
     It 'normalizes quality + feature rows to one common shape (tagged by UpdateType)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaReportExport {
                 @(
                     [pscustomobject]@{ DeviceName='PC-1'; UPN='a@x.com'; PolicyName='QU-Ring'; AggregateState='Success'; CurrentDeviceUpdateStatus='UpToDate'; CurrentDeviceUpdateSubstatus=''; LatestAlertMessage=''; EventDateTimeUTC='2026-06-01' }
@@ -2171,7 +2171,7 @@ Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
     }
 
     It '-Summary returns per-(type,state) device counts' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaReportExport {
                 @(
                     [pscustomobject]@{ DeviceName='PC-1'; AggregateState='Success' }
@@ -2188,7 +2188,7 @@ Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
     }
 
     It '-State filters and -Type Quality only runs the quality report' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaReportExport {
                 @(
                     [pscustomobject]@{ DeviceName='PC-1'; AggregateState='Success' }
@@ -2204,7 +2204,7 @@ Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
     }
 
     It '-Raw preserves original columns and tags UpdateType' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Invoke-IaReportExport {
                 @( [pscustomobject]@{ DeviceName='PC-2'; AggregateState='Error'; LatestAlertMessage='0x80070002' } )
             } -ParameterFilter { $ReportName -eq 'QualityUpdateDeviceStatusByPolicy' }
@@ -2219,7 +2219,7 @@ Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
 Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
 
     It 'Set-EntraUser disables an account via PATCH /beta/users/{id}' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
             $script:m=$null;$script:u=$null;$script:b=$null
             Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri;$script:b=$Body }
@@ -2232,7 +2232,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'Reset-EntraUserPassword PATCHes a passwordProfile and returns the temp password' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
             $script:b=$null;$script:u=$null
             Mock Invoke-IaRequest { $script:b=$Body;$script:u=$Uri }
@@ -2244,7 +2244,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'Revoke-EntraUserSession POSTs revokeSignInSessions (beta)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
             $script:m=$null;$script:u=$null
             Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri }
@@ -2255,7 +2255,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'Add-EntraUserToGroup POSTs a beta directoryObjects @odata.id to members/$ref' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }; Mock Resolve-EntraGroupId { 'gid-1' }
             $script:u=$null;$script:b=$null
             Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
@@ -2266,7 +2266,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'Remove-EntraUserFromGroup DELETEs the member ref (beta)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }; Mock Resolve-EntraGroupId { 'gid-1' }
             $script:m=$null;$script:u=$null
             Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri }
@@ -2277,7 +2277,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'Set-EntraUserLicense resolves SKU part numbers and POSTs assignLicense (beta)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
             Mock Get-IaCollection { @([pscustomobject]@{ skuId='sku-guid-1'; skuPartNumber='ENTERPRISEPACK' }) }
             $script:u=$null;$script:b=$null
@@ -2289,7 +2289,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'New-EntraUserTempAccessPass POSTs temporaryAccessPassMethods (beta) and returns the pass' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
             $script:u=$null
             Mock Invoke-IaRequest { $script:u=$Uri; @{ temporaryAccessPass='TAP123'; lifetimeInMinutes=60; isUsableOnce=$true; startDateTime='2026' } }
@@ -2300,7 +2300,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
     }
 
     It 'Reset-EntraUserMfa deletes each removable method by its beta method-type segment' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraUserId { 'uid-1' }
             Mock Get-IaCollection { @(
                 [pscustomobject]@{ '@odata.type'='#microsoft.graph.fido2AuthenticationMethod'; id='f1' }
@@ -2319,7 +2319,7 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
 Describe 'Entra group cmdlets — beta endpoints and create bodies' {
 
     It 'New-EntraGroup (Security) POSTs securityEnabled with no groupTypes (beta)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null;$script:b=$null
             Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body; @{ id='g1'; displayName='Sec'; securityEnabled=$true; mailEnabled=$false; groupTypes=@() } }
             New-EntraGroup -Name 'Sec' -Confirm:$false | Out-Null
@@ -2331,7 +2331,7 @@ Describe 'Entra group cmdlets — beta endpoints and create bodies' {
     }
 
     It 'New-EntraGroup (Microsoft365) sets Unified + mailEnabled' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:b=$null
             Mock Invoke-IaRequest { $script:b=$Body; @{ id='g2'; groupTypes=@('Unified') } }
             New-EntraGroup -Name 'Team' -Type Microsoft365 -Confirm:$false | Out-Null
@@ -2341,7 +2341,7 @@ Describe 'Entra group cmdlets — beta endpoints and create bodies' {
     }
 
     It 'New-EntraGroup -MembershipRule makes it dynamic' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:b=$null
             Mock Invoke-IaRequest { $script:b=$Body; @{ id='g3' } }
             New-EntraGroup -Name 'Dyn' -MembershipRule 'user.department -eq "Sales"' -Confirm:$false | Out-Null
@@ -2352,7 +2352,7 @@ Describe 'Entra group cmdlets — beta endpoints and create bodies' {
     }
 
     It 'Add-EntraGroupOwner POSTs a beta directoryObjects ref to owners/$ref' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraGroupId { 'gid-1' }; Mock Resolve-EntraUserId { 'uid-1' }
             $script:u=$null;$script:b=$null
             Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
@@ -2363,7 +2363,7 @@ Describe 'Entra group cmdlets — beta endpoints and create bodies' {
     }
 
     It 'Remove-EntraGroup DELETEs /beta/groups/{id}' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Resolve-EntraGroupId { 'gid-1' }
             $script:m=$null;$script:u=$null
             Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri }
@@ -2376,14 +2376,14 @@ Describe 'Entra group cmdlets — beta endpoints and create bodies' {
 
 Describe 'Entra access / apps / roles / security — beta endpoint paths' {
     It 'Get-EntraSignIn → beta /auditLogs/signIns with a failures filter' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
             Get-EntraSignIn -FailuresOnly -Top 5 | Out-Null
             $script:u | Should -Match 'graph\.microsoft\.com/beta/auditLogs/signIns'
         }
     }
     It 'Set-EntraConditionalAccessState maps reportOnly and PATCHes the beta policy' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null;$script:b=$null;$script:m=$null
             Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body;$script:m=$Method }
             Set-EntraConditionalAccessState -Id 'p1' -State reportOnly -Confirm:$false | Out-Null
@@ -2393,7 +2393,7 @@ Describe 'Entra access / apps / roles / security — beta endpoint paths' {
         }
     }
     It 'Set-EntraRiskyUser POSTs confirmCompromised with userIds (beta)' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null;$script:b=$null
             Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
             Set-EntraRiskyUser -UserId 'u1','u2' -Action Compromise -Confirm:$false | Out-Null
@@ -2402,7 +2402,7 @@ Describe 'Entra access / apps / roles / security — beta endpoint paths' {
         }
     }
     It 'Get-EntraManagedIdentity filters servicePrincipalType on beta /servicePrincipals' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
             Get-EntraManagedIdentity | Out-Null
             $script:u | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals'
@@ -2410,7 +2410,7 @@ Describe 'Entra access / apps / roles / security — beta endpoint paths' {
         }
     }
     It 'Get-EntraRoleAssignment expands principal on the beta roleManagement path' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
             Get-EntraRoleAssignment | Out-Null
             $script:u | Should -Match 'graph\.microsoft\.com/beta/roleManagement/directory/roleAssignments'
@@ -2418,7 +2418,7 @@ Describe 'Entra access / apps / roles / security — beta endpoint paths' {
         }
     }
     It 'Get-EntraSecurityAlert reads beta /security/alerts_v2' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
             Get-EntraSecurityAlert -Severity high | Out-Null
             $script:u | Should -Match 'graph\.microsoft\.com/beta/security/alerts_v2'
@@ -2428,7 +2428,7 @@ Describe 'Entra access / apps / roles / security — beta endpoint paths' {
 
 Describe 'Entra create-user + app governance (beta)' {
     It 'New-EntraUser POSTs an enabled user with a passwordProfile and returns the temp password' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:u=$null;$script:b=$null
             Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body; @{ id='u1'; userPrincipalName='new@x.com'; displayName='New User' } }
             $r = New-EntraUser -UserPrincipalName 'new@x.com' -DisplayName 'New User' -Confirm:$false
@@ -2439,7 +2439,7 @@ Describe 'Entra create-user + app governance (beta)' {
         }
     }
     It 'Get-EntraExpiringSecret returns credentials inside the window from beta /applications' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:p=$null
             Mock Get-IaCollection { $script:p=$Path; @([pscustomobject]@{ displayName='App1'; appId='a1'; passwordCredentials=@(@{ displayName='s1'; endDateTime=(Get-Date).AddDays(10).ToUniversalTime().ToString('o') }); keyCredentials=@() }) }
             $rows = @(Get-EntraExpiringSecret -Days 30)
@@ -2450,7 +2450,7 @@ Describe 'Entra create-user + app governance (beta)' {
         }
     }
     It 'Get-EntraAppWithoutOwner expands owners and keeps only zero-owner apps' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:p=$null
             Mock Get-IaCollection { $script:p=$Path; @(
                 [pscustomobject]@{ displayName='Owned'; appId='a1'; owners=@(@{id='o1'}) }
@@ -2466,7 +2466,7 @@ Describe 'Entra create-user + app governance (beta)' {
 
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             Mock Get-IaGraphReportCsv {
                 @([pscustomobject]@{
                     'User Principal Name'='a@x.com'; 'Display Name'='Aaron'; 'Item Count'='1200'
@@ -2482,7 +2482,7 @@ Describe 'Entra usage reports (CSV → objects)' {
         }
     }
     It 'Get-EntraMailboxUsage -Period builds the beta getMailboxUsageDetail path' {
-        InModuleScope Graphite {
+        InModuleScope PSGraphIT {
             $script:p=$null
             Mock Get-IaGraphReportCsv { $script:p=$Path; @() }
             Get-EntraMailboxUsage -Period D7 | Out-Null
