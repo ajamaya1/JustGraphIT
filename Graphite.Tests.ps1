@@ -2215,3 +2215,103 @@ Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
         }
     }
 }
+
+Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
+
+    It 'Set-EntraUser disables an account via PATCH /beta/users/{id}' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            $script:m=$null;$script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri;$script:b=$Body }
+            Set-EntraUser -User 'a@x.com' -AccountEnabled $false -JobTitle 'Tech' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/uid-1$'
+            $script:b.accountEnabled | Should -Be $false
+            $script:b.jobTitle       | Should -Be 'Tech'
+        }
+    }
+
+    It 'Reset-EntraUserPassword PATCHes a passwordProfile and returns the temp password' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            $script:b=$null;$script:u=$null
+            Mock Invoke-IaRequest { $script:b=$Body;$script:u=$Uri }
+            $r = Reset-EntraUserPassword -User 'a@x.com' -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/uid-1$'
+            $script:b.passwordProfile.forceChangePasswordNextSignIn | Should -Be $true
+            $r.TempPassword | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'Revoke-EntraUserSession POSTs revokeSignInSessions (beta)' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            $script:m=$null;$script:u=$null
+            Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri }
+            Revoke-EntraUserSession -User 'a@x.com' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'POST'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/uid-1/revokeSignInSessions$'
+        }
+    }
+
+    It 'Add-EntraUserToGroup POSTs a beta directoryObjects @odata.id to members/$ref' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }; Mock Resolve-EntraGroupId { 'gid-1' }
+            $script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
+            Add-EntraUserToGroup -User 'a@x.com' -Group 'Sales' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups/gid-1/members/\$ref$'
+            $script:b.'@odata.id' | Should -Match 'graph\.microsoft\.com/beta/directoryObjects/uid-1$'
+        }
+    }
+
+    It 'Remove-EntraUserFromGroup DELETEs the member ref (beta)' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }; Mock Resolve-EntraGroupId { 'gid-1' }
+            $script:m=$null;$script:u=$null
+            Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri }
+            Remove-EntraUserFromGroup -User 'a@x.com' -Group 'Sales' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups/gid-1/members/uid-1/\$ref$'
+        }
+    }
+
+    It 'Set-EntraUserLicense resolves SKU part numbers and POSTs assignLicense (beta)' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            Mock Get-IaCollection { @([pscustomobject]@{ skuId='sku-guid-1'; skuPartNumber='ENTERPRISEPACK' }) }
+            $script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
+            Set-EntraUserLicense -User 'a@x.com' -AddSku 'ENTERPRISEPACK' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/uid-1/assignLicense$'
+            $script:b.addLicenses[0].skuId | Should -Be 'sku-guid-1'
+        }
+    }
+
+    It 'New-EntraUserTempAccessPass POSTs temporaryAccessPassMethods (beta) and returns the pass' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            $script:u=$null
+            Mock Invoke-IaRequest { $script:u=$Uri; @{ temporaryAccessPass='TAP123'; lifetimeInMinutes=60; isUsableOnce=$true; startDateTime='2026' } }
+            $r = New-EntraUserTempAccessPass -User 'a@x.com' -OneTime -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/uid-1/authentication/temporaryAccessPassMethods$'
+            $r.TemporaryAccessPass | Should -Be 'TAP123'
+        }
+    }
+
+    It 'Reset-EntraUserMfa deletes each removable method by its beta method-type segment' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraUserId { 'uid-1' }
+            Mock Get-IaCollection { @(
+                [pscustomobject]@{ '@odata.type'='#microsoft.graph.fido2AuthenticationMethod'; id='f1' }
+                [pscustomobject]@{ '@odata.type'='#microsoft.graph.passwordAuthenticationMethod'; id='p1' }
+            ) }
+            $script:deletes = New-Object System.Collections.Generic.List[string]
+            Mock Invoke-IaRequest { if ($Method -eq 'DELETE') { $script:deletes.Add($Uri) } }
+            $r = Reset-EntraUserMfa -User 'a@x.com' -Confirm:$false
+            $r.MethodsRemoved | Should -Be 1   # password method is left alone
+            ($script:deletes -join ' ') | Should -Match 'graph\.microsoft\.com/beta/users/uid-1/authentication/fido2Methods/f1$'
+            ($script:deletes -join ' ') | Should -Not -Match 'passwordMethods'
+        }
+    }
+}

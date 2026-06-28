@@ -35,7 +35,13 @@ function Connect-Graphite {
             'Directory.Read.All',
             'RoleManagementPolicy.Read.Directory',
             'RoleEligibilitySchedule.Read.Directory',
-            'RoleAssignmentSchedule.ReadWrite.Directory'
+            'RoleAssignmentSchedule.ReadWrite.Directory',
+            # --- Entra identity management (Phase 2+) ---
+            'User.ReadWrite.All',
+            'Group.ReadWrite.All',
+            'GroupMember.ReadWrite.All',
+            'UserAuthenticationMethod.ReadWrite.All',
+            'Organization.Read.All'
         )
     )
 

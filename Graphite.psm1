@@ -13,4 +13,6 @@ foreach ($file in @($Private + $Public)) {
 # Short launch aliases: `graphite` (or the legacy `tide`) opens the TUI.
 Set-Alias -Name graphite -Value Start-Graphite
 Set-Alias -Name tide     -Value Start-Graphite
-Export-ModuleMember -Function $Public.BaseName -Alias graphite, tide
+# Export every loaded Public function; the manifest's FunctionsToExport is the
+# authoritative gate (lets us group several cmdlets per domain file).
+Export-ModuleMember -Function * -Alias graphite, tide
