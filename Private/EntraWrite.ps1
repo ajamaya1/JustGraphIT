@@ -103,6 +103,18 @@ function Resolve-EntraRoleDefinitionId {
     throw "No directory role found matching '$Role'."
 }
 
+function Resolve-EntraCaPolicyId {
+    # Conditional Access policy display name or id → policy id. CA policies don't
+    # support a server-side displayName filter, so non-GUID input matches client-side.
+    param([Parameter(Mandatory)][string]$Policy)
+    if (Test-IaGuid $Policy) { return $Policy }
+    $all = @(Get-IaCollection (Resolve-IaUri -Path "identity/conditionalAccess/policies?`$select=id,displayName"))
+    $hit = @($all | Where-Object { $_.displayName -eq $Policy })
+    if ($hit.Count -eq 1) { return $hit[0].id }
+    if ($hit.Count -gt 1) { throw "Multiple Conditional Access policies named '$Policy'. Use the id." }
+    throw "No Conditional Access policy found matching '$Policy'."
+}
+
 function Get-EntraClientServicePrincipal {
     # The enterprise app (service principal) for an app registration's appId,
     # creating it if absent. Admin consent is recorded against the SP, so it must
