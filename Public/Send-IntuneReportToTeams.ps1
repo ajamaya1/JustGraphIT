@@ -9,7 +9,7 @@ function Send-IntuneReportToTeams {
         a Teams incoming-webhook URL. This is the supported successor to the retired
         Office 365 connector webhooks — the webhook needs no auth beyond its secret
         URL, so the same call works interactively or unattended from a runbook /
-        scheduled task (pair it with Connect-Graphite app-only auth).
+        scheduled task (pair it with Connect-PSGraphIT app-only auth).
 
         Create the webhook in Teams: channel ··· → Workflows → "Post to a channel when
         a webhook request is received" → copy the HTTP POST URL.
@@ -21,7 +21,7 @@ function Send-IntuneReportToTeams {
         Card heading, e.g. "Non-compliant devices".
 
     .PARAMETER WebhookUrl
-        The Workflows incoming-webhook URL. Defaults to $env:GRAPHITE_TEAMS_WEBHOOK so it
+        The Workflows incoming-webhook URL. Defaults to $env:PSGRAPHIT_TEAMS_WEBHOOK so it
         can be supplied from a runbook variable / Key Vault without hard-coding.
 
     .PARAMETER Summary
@@ -52,7 +52,7 @@ function Send-IntuneReportToTeams {
     param(
         [Parameter(Mandatory, ValueFromPipeline)]$InputObject,
         [Parameter(Mandatory)][string]$Title,
-        [string]$WebhookUrl = $env:GRAPHITE_TEAMS_WEBHOOK,
+        [string]$WebhookUrl = $env:PSGRAPHIT_TEAMS_WEBHOOK,
         [string]$Summary,
         [string[]]$Column,
         [ValidateRange(1, 60)][int]$MaxRows = 15,
@@ -67,7 +67,7 @@ function Send-IntuneReportToTeams {
 
         if ($PassThru) { return $json }
         if ([string]::IsNullOrWhiteSpace($WebhookUrl)) {
-            throw "No Teams webhook URL. Pass -WebhookUrl or set `$env:GRAPHITE_TEAMS_WEBHOOK to a Power Automate 'Workflows' incoming-webhook URL."
+            throw "No Teams webhook URL. Pass -WebhookUrl or set `$env:PSGRAPHIT_TEAMS_WEBHOOK to a Power Automate 'Workflows' incoming-webhook URL."
         }
         if ($PSCmdlet.ShouldProcess($WebhookUrl, "POST Adaptive Card '$Title' ($($rows.Count) row(s))")) {
             Invoke-IaWebhookPost -Uri $WebhookUrl -Json $json

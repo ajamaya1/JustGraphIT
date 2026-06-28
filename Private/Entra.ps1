@@ -32,7 +32,7 @@ function Resolve-EntraGroupId {
 }
 
 function ConvertTo-IaEntraUser {
-    # Normalize a Graph user object to GRAPHITE's user shape.
+    # Normalize a Graph user object to PSGRAPHIT's user shape.
     param($u)
     [pscustomobject][ordered]@{
         DisplayName   = $u.displayName
