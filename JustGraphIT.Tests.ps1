@@ -3368,6 +3368,160 @@ Describe 'TUI write-menu smoke (new wiring)' {
     }
 }
 
+Describe 'Consolidation review fixes' {
+    Context 'Secret-bearing views disable export (NoExport)' {
+        It 'Read-IaTableInteractive / Read-IaTablePause / Show-IaAllFields / Invoke-IaTuiReportView all expose -NoExport' {
+            InModuleScope JustGraphIT {
+                foreach ($fn in 'Read-IaTableInteractive', 'Read-IaTablePause', 'Show-IaAllFields', 'Invoke-IaTuiReportView') {
+                    (Get-Command $fn).Parameters.ContainsKey('NoExport') | Should -BeTrue -Because "$fn must be able to suppress export for secret views"
+                }
+            }
+        }
+
+        It 'Invoke-IaTuiReportView -NoExport forwards the flag to BOTH the table and the all-fields drill-in' {
+            InModuleScope JustGraphIT {
+                $script:tblNoExport = 'unset'; $script:fldNoExport = 'unset'; $script:tcalls = 0
+                Mock Invoke-IaStatus { & $ScriptBlock }
+                Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Read-IaPause {}
+                Mock Read-IaTableInteractive {
+                    param($Data, $Color, $Title, $Stem, [switch]$Selectable, [string[]]$HideColumns, [switch]$NoExport)
+                    $script:tblNoExport = [bool]$NoExport; $script:tcalls++
+                    if ($script:tcalls -eq 1) { [pscustomobject]@{ RecoveryKey = 'secret' } } else { $null }
+                }
+                Mock Show-IaAllFields { param($Accent, $Object, $Title, $Stem, [switch]$NoExport) $script:fldNoExport = [bool]$NoExport }
+                Invoke-IaTuiReportView -Accent 'cyan' -Title 'BitLocker keys' -NoExport -Loader { @([pscustomobject]@{ RecoveryKey = 'secret' }) }
+                $script:tblNoExport | Should -BeTrue
+                $script:fldNoExport | Should -BeTrue
+            }
+        }
+
+        It 'Invoke-IaTuiReportView without -NoExport leaves export enabled' {
+            InModuleScope JustGraphIT {
+                $script:tblNoExport = 'unset'
+                Mock Invoke-IaStatus { & $ScriptBlock }
+                Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Read-IaPause {}
+                Mock Read-IaTableInteractive {
+                    param($Data, $Color, $Title, $Stem, [switch]$Selectable, [string[]]$HideColumns, [switch]$NoExport)
+                    $script:tblNoExport = [bool]$NoExport; $null
+                }
+                Mock Show-IaAllFields {}
+                Invoke-IaTuiReportView -Accent 'cyan' -Title 'Owners' -Loader { @([pscustomobject]@{ Name = 'x' }) }
+                $script:tblNoExport | Should -BeFalse
+            }
+        }
+
+        It 'a -NoExport table never exports or pushes to Teams even when e / p are pressed' {
+            InModuleScope JustGraphIT {
+                $script:q = [System.Collections.Queue]::new()
+                $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::E; KeyChar = [char]'e' })
+                $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::P; KeyChar = [char]'p' })
+                $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::Q; KeyChar = [char]'q' })
+                Mock Test-IaArrowSupport { $true }   # force the interactive key loop (redirected I/O would skip it)
+                Mock Read-IaInputEvent { if ($script:q.Count) { $script:q.Dequeue() } else { @{ Type = 'key'; Key = [ConsoleKey]::Q; KeyChar = [char]'q' } } }
+                Mock Write-IaRaw {}; Mock Start-IaMouse {}; Mock Stop-IaMouse {}
+                Mock Invoke-IaExport { $script:exported = $true }
+                Mock Invoke-IaPushToTeams { $script:pushed = $true }
+                $script:exported = $false; $script:pushed = $false
+                Read-IaTableInteractive -Data @([pscustomobject]@{ Secret = 'abc' }) -NoExport | Out-Null
+                $script:exported | Should -BeFalse -Because 'a revealed recovery key must never reach a temp file'
+                $script:pushed   | Should -BeFalse -Because 'a revealed recovery key must never reach a webhook'
+            }
+        }
+
+        It 'a normal table DOES export when e is pressed (positive control)' {
+            InModuleScope JustGraphIT {
+                $script:q = [System.Collections.Queue]::new()
+                $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::E; KeyChar = [char]'e' })
+                $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::Q; KeyChar = [char]'q' })
+                Mock Test-IaArrowSupport { $true }
+                Mock Read-IaInputEvent { if ($script:q.Count) { $script:q.Dequeue() } else { @{ Type = 'key'; Key = [ConsoleKey]::Q; KeyChar = [char]'q' } } }
+                Mock Write-IaRaw {}; Mock Start-IaMouse {}; Mock Stop-IaMouse {}
+                Mock Invoke-IaExport { $script:exported = $true }
+                $script:exported = $false
+                Read-IaTableInteractive -Data @([pscustomobject]@{ Public = 'abc' }) | Out-Null
+                $script:exported | Should -BeTrue
+            }
+        }
+    }
+
+    Context 'Tenant-settings boolean toggle (splat fix)' {
+        It 'toggling a boolean setting calls Set-EntraAuthorizationPolicy by NAMED parameter (was a positional hashtable that threw)' {
+            InModuleScope JustGraphIT {
+                $script:setApps = 'unset'; $script:tcalls = 0
+                Mock Invoke-IaStatus { & $ScriptBlock }
+                Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Read-IaPause {}
+                Mock Get-EntraAuthorizationPolicy { [pscustomobject]@{ UsersCanCreateApps = $true; UsersCanCreateSecurityGroups = $true; UsersCanCreateTenants = $true; UsersCanReadOtherUsers = $true; AllowedToUseSSPR = $true; AllowInvitesFrom = 'everyone' } }
+                Mock Get-EntraSecurityDefault { [pscustomobject]@{ Enabled = $true } }
+                Mock Read-IaTableInteractive {
+                    $script:tcalls++
+                    if ($script:tcalls -eq 1) { [pscustomobject]@{ Setting = 'Users can register applications'; Value = 'x'; _Key = 'apps'; _Raw = $true } } else { $null }
+                }
+                Mock Read-IaConfirm { $true }
+                Mock Set-EntraAuthorizationPolicy { param($UsersCanCreateApps) $script:setApps = $UsersCanCreateApps }
+                Invoke-IaTuiEntraTenantSettings -Accent 'cyan'
+                $script:setApps | Should -Be $false
+            }
+        }
+    }
+
+    Context 'New-EntraRoleDefinition description is conditional (L4)' {
+        It 'omits description from the POST body when not supplied' {
+            InModuleScope JustGraphIT {
+                $script:b = $null
+                Mock Invoke-IaRequest { $script:b = $Body; [pscustomobject]@{ id = 'rc'; displayName = 'X' } }
+                New-EntraRoleDefinition -Name 'X' -AllowedResourceAction 'microsoft.directory/applications/basic/read' -Confirm:$false | Out-Null
+                $script:b.Contains('description') | Should -BeFalse
+            }
+        }
+        It 'includes description when supplied' {
+            InModuleScope JustGraphIT {
+                $script:b = $null
+                Mock Invoke-IaRequest { $script:b = $Body; [pscustomobject]@{ id = 'rc'; displayName = 'X' } }
+                New-EntraRoleDefinition -Name 'X' -AllowedResourceAction 'a' -Description 'helpdesk' -Confirm:$false | Out-Null
+                $script:b.description | Should -Be 'helpdesk'
+            }
+        }
+    }
+
+    Context 'Dashboard risky tile separates unknown from zero (M2)' {
+        BeforeEach {
+            InModuleScope JustGraphIT {
+                $script:lines = [System.Collections.Generic.List[string]]::new()
+                Mock Write-IaTuiHeader {}; Mock Read-IaPause {}; Mock Write-IaRule {}
+                Mock Write-IaHost { param([string]$Message, [switch]$NoNewline) $script:lines.Add([string]$Message) }
+                Mock Invoke-IaStatus { & $ScriptBlock }
+                Mock Get-IaCount { param($Path) if ($Path -match 'accountEnabled') { 7 } elseif ($Path -eq 'devices/$count') { 8 } else { 5 } }
+                Mock Get-EntraExpiringSecret { @() }
+                Mock Get-EntraSecureScore { throw 'no score' }
+                Mock Get-EntraConditionalAccessPolicy { @() }
+            }
+        }
+        It 'a FAILED risky read renders the tile as — (regression: the old @(try..catch{$null}) showed a false 1)' {
+            InModuleScope JustGraphIT {
+                Mock Get-EntraRiskyUser { throw 'no P2' }
+                { Invoke-IaTuiEntraDashboard -Accent 'cyan' } | Should -Not -Throw
+                $idx = -1
+                for ($i = 0; $i -lt $script:lines.Count; $i++) { if ($script:lines[$i] -match 'RISKY') { $idx = $i; break } }
+                $idx | Should -BeGreaterThan -1
+                $valueRow = $script:lines[$idx + 1]
+                $valueRow | Should -Match '—'
+                $valueRow | Should -Not -Match '1'   # 7,8,—,0,0 — a literal 1 here would be the old false positive
+            }
+        }
+        It 'a successful EMPTY risky read renders the tile as 0' {
+            InModuleScope JustGraphIT {
+                Mock Get-EntraRiskyUser { @() }
+                { Invoke-IaTuiEntraDashboard -Accent 'cyan' } | Should -Not -Throw
+                $idx = -1
+                for ($i = 0; $i -lt $script:lines.Count; $i++) { if ($script:lines[$i] -match 'RISKY') { $idx = $i; break } }
+                $valueRow = $script:lines[$idx + 1]
+                $valueRow | Should -Not -Match '—'
+                $valueRow | Should -Not -Match '1'
+            }
+        }
+    }
+}
+
 Describe 'Security hardening (review fixes)' {
     It 'inj-1: Resolve-EntraGroupId percent-encodes the $filter so "&" cannot split the query' {
         InModuleScope JustGraphIT {

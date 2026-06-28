@@ -67,11 +67,11 @@ function New-EntraRoleDefinition {
     )
     $body = [ordered]@{
         displayName     = $Name
-        description     = $Description
         isEnabled       = $Enabled
         resourceScopes  = @('/')
         rolePermissions = @(@{ allowedResourceActions = @($AllowedResourceAction) })
     }
+    if ($PSBoundParameters.ContainsKey('Description')) { $body.description = $Description }
     if ($PSCmdlet.ShouldProcess($Name, "Create custom directory role ($(@($AllowedResourceAction).Count) action(s))")) {
         $r = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "roleManagement/directory/roleDefinitions") -Body $body
         [pscustomobject]@{ Name = $r.displayName; Id = $r.id; Custom = $true }
