@@ -189,6 +189,25 @@ Describe 'OData value quoting' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+Describe 'Source hygiene — string-interpolation traps' {
+    It 'no bare $var? in any source string (it silently drops the variable; use ${var}?)' {
+        # "Disable $Upn?" expands to "Disable " — PowerShell drops $Upn before the ?.
+        # The fix everywhere is ${Upn}?. This scan guards the whole class (URLs, filters,
+        # and the destructive-action confirm prompts) and ignores null-conditional ?./?[idx].
+        $rx    = '\$[A-Za-z_]\w*\?(\s|"|''|\)|\[/|$)'
+        $files = Get-ChildItem -Path (Join-Path $PSScriptRoot 'Public'), (Join-Path $PSScriptRoot 'Private') -Filter *.ps1 -Recurse
+        $hits  = foreach ($f in $files) {
+            $n = 0
+            foreach ($line in [System.IO.File]::ReadAllLines($f.FullName)) {
+                $n++
+                if ($line -match $rx) { '{0}:{1}' -f $f.Name, $n }
+            }
+        }
+        $hits | Should -BeNullOrEmpty -Because 'a bare $var before ? is dropped in string expansion — brace it as ${var}?'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 Describe 'GUID detection' {
 
     It 'accepts a valid GUID' {
