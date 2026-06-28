@@ -1838,11 +1838,12 @@ function Invoke-IaTuiEntra {
                 'Enterprise apps*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps' -Stem 'entra-entapps' -Loader { Get-EntraEnterpriseApp } }
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
                 'Lifecycle*' {
-                    $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Back')
+                    $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Invite a guest user', 'Back')
                     switch -Wildcard ($m) {
                         'Inactive users (90*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Inactive users (90+ days)' -Stem 'entra-inactive90' -Loader { Get-EntraInactiveUser -Days 90 } }
                         'Inactive users (30*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Inactive users (30+ days)' -Stem 'entra-inactive30' -Loader { Get-EntraInactiveUser -Days 30 } }
                         'Guest accounts*'      { Invoke-IaTuiReportView -Accent $Accent -Title 'Guest accounts' -Stem 'entra-guests' -Loader { Get-EntraGuestUser } }
+                        'Invite a guest*'      { Invoke-IaTuiEntraInviteGuest -Accent $Accent }
                     }
                 }
                 'Directory roles*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
@@ -1878,7 +1879,8 @@ function Invoke-IaTuiEntraApps {
     # App registration / enterprise-app governance reports.
     param([string]$Accent)
     while ($true) {
-        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 11 -Choices @(
+        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 12 -Choices @(
+            'Manage an app registration (permissions · consent)',
             'All app registrations (secret/cert expiry)',
             'Expiring secrets & certs (next 30 days)',
             'Expiring incl. enterprise apps (90 days, incl. expired)',
@@ -1891,6 +1893,7 @@ function Invoke-IaTuiEntraApps {
         )
         if (-not $m -or $m -eq 'Back') { return }
         switch -Wildcard ($m) {
+            'Manage an app*'             { Invoke-IaTuiEntraAppManage -Accent $Accent }
             'All app*'                   { Invoke-IaTuiReportView -Accent $Accent -Title 'App registrations' -Stem 'entra-appregs' -Loader { Get-EntraAppRegistration } }
             'Expiring secrets*'          { Invoke-IaTuiReportView -Accent $Accent -Title 'Expiring secrets/certs (30d)' -Stem 'entra-expiring' -Loader { Get-EntraExpiringSecret -Days 30 } }
             'Expiring incl*'             { Invoke-IaTuiReportView -Accent $Accent -Title 'Expiring incl. enterprise apps (90d)' -Stem 'entra-expiring90' -Loader { Get-EntraExpiringSecret -Days 90 -IncludeExpired -IncludeServicePrincipals } }
@@ -1939,12 +1942,132 @@ function Invoke-IaTuiEntraConsentAudit {
     }
 }
 
+function Select-IaApiPermission {
+    # Searchable, selectable list of a resource API's published permissions. Returns
+    # the chosen permission value (e.g. User.Read.All) or $null.
+    param([string]$Accent, [string]$Resource, [ValidateSet('Application', 'Delegated')][string]$Type)
+    $sp = Invoke-IaStatus -Spinner Dots -Title "Loading $Resource permissions…" -ScriptBlock { Resolve-EntraResourceApi -Resource $Resource }
+    if (-not $sp) { Write-IaHost "[yellow]Couldn't resolve '$Resource'.[/]"; Read-IaPause | Out-Null; return $null }
+    $perms = if ($Type -eq 'Application') {
+        @($sp.appRoles | Where-Object { $_.isEnabled } | ForEach-Object { [pscustomobject][ordered]@{ Permission = $_.value; Description = $_.displayName } })
+    } else {
+        @($sp.oauth2PermissionScopes | ForEach-Object { [pscustomobject][ordered]@{ Permission = $_.value; Description = $_.adminConsentDisplayName } })
+    }
+    $perms = @($perms | Where-Object { $_.Permission } | Sort-Object Permission)
+    if (-not $perms) { Write-IaHost "[yellow]No $Type permissions published by $Resource.[/]"; Read-IaPause | Out-Null; return $null }
+    $picked = Read-IaTableInteractive -Data $perms -Color $Accent -Selectable -Title "$Resource · $Type ($($perms.Count)) · / search · Enter = pick" -Stem 'api-perm-pick'
+    if ($picked) { $picked.Permission } else { $null }
+}
+
+function Invoke-IaTuiEntraAppManage {
+    # Pick an app registration, then add/remove API permissions, grant admin consent
+    # or create its enterprise app — the portal's "API permissions" blade, from the CLI.
+    param([string]$Accent)
+    $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading app registrations…' -ScriptBlock { Get-EntraAppRegistration -Top 500 })
+    if (-not $apps) { Write-IaHost '[yellow]No app registrations.[/]'; Read-IaPause | Out-Null; return }
+    $disp = @($apps | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; AppId = $_.AppId; Audience = $_.SignInAudience; Id = $_.Id } })
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "App registrations ($($disp.Count)) · Enter = manage" -Stem 'appreg-pick'
+        if (-not $picked) { return }
+        $appId = $picked.Id; $appName = $picked.DisplayName
+        while ($true) {
+            $act = Read-IaMenu -Title "App registration · $appName" -Color $Accent -PageSize 8 -Choices @(
+                'View current API permissions', 'Add an API permission', 'Remove an API permission',
+                'Grant admin consent (tenant-wide)', 'Create enterprise app (service principal)', 'Back')
+            if (-not $act -or $act -eq 'Back') { break }
+            try {
+                switch -Wildcard ($act) {
+                    'View current*' {
+                        Invoke-IaTuiReportView -Accent $Accent -Title "Requested permissions · $appName" -Stem 'appreg-perms' -Loader { Get-EntraAppRequestedPermission -App $appId }
+                    }
+                    'Add an API*' {
+                        $rc = Read-IaMenu -Title 'Which API?' -Color $Accent -Choices @('Microsoft Graph', 'SharePoint', 'Exchange', 'Intune', 'Other (type a name / appId)')
+                        if (-not $rc) { continue }
+                        $resource = if ($rc -like 'Other*') { Read-IaText -Question 'Resource API name or appId' } else { $rc }
+                        if ([string]::IsNullOrWhiteSpace($resource)) { continue }
+                        $tc = Read-IaMenu -Title 'Permission type' -Color $Accent -Choices @('Application (app-only)', 'Delegated (on behalf of a user)')
+                        $t  = if ($tc -like 'Delegated*') { 'Delegated' } else { 'Application' }
+                        $perm = Select-IaApiPermission -Accent $Accent -Resource $resource -Type $t
+                        if ($perm -and (Read-IaConfirm "Add $t permission '$perm' ($resource) to ${appName}?")) {
+                            Add-EntraAppPermission -App $appId -Resource $resource -Permission $perm -Type $t -Confirm:$false | Out-Null
+                            Write-IaHost "[$Accent]✓ Added.[/] Run 'Grant admin consent' to activate it."; Read-IaPause | Out-Null
+                        }
+                    }
+                    'Remove an API*' {
+                        $cur = @(Invoke-IaStatus -Spinner Dots -Title 'Loading requested permissions…' -ScriptBlock { Get-EntraAppRequestedPermission -App $appId })
+                        if (-not $cur) { Write-IaHost '[yellow]This app requests no permissions.[/]'; Read-IaPause | Out-Null; continue }
+                        $rdisp = @($cur | ForEach-Object { [pscustomobject][ordered]@{ Resource = $_.Resource; Permission = $_.Permission; Type = $_.Type } })
+                        $pick2 = Read-IaTableInteractive -Data $rdisp -Color $Accent -Selectable -Title "Requested permissions ($($rdisp.Count)) · Enter = remove" -Stem 'appreg-perm-rm'
+                        if ($pick2 -and (Read-IaConfirm "[red]Remove $($pick2.Type) permission '$($pick2.Permission)' ($($pick2.Resource)) from ${appName}?[/]")) {
+                            Remove-EntraAppPermission -App $appId -Resource $pick2.Resource -Permission $pick2.Permission -Type $pick2.Type -Confirm:$false | Out-Null
+                            Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null
+                        }
+                    }
+                    'Grant admin*' {
+                        if (Read-IaConfirm "[red]Grant tenant-wide admin consent for everything '$appName' requests?[/]") {
+                            $res = @(Invoke-IaStatus -Spinner Dots -Title 'Granting admin consent…' -ScriptBlock { Grant-EntraAdminConsent -App $appId -Confirm:$false })
+                            if ($res) { Read-IaTablePause -Data $res -Color $Accent -Title "Consent results · $appName" -Stem 'appreg-consent' | Out-Null }
+                            else { Write-IaHost '[yellow]Nothing to consent.[/]'; Read-IaPause | Out-Null }
+                        }
+                    }
+                    'Create enterprise*' {
+                        if (Read-IaConfirm "Create the enterprise app (service principal) for '$appName'?") {
+                            New-EntraServicePrincipal -App $appId -Confirm:$false | Out-Null
+                            Write-IaHost "[$Accent]✓ Done.[/]"; Read-IaPause | Out-Null
+                        }
+                    }
+                }
+            } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        }
+    }
+}
+
+function Invoke-IaTuiEntraInviteGuest {
+    # Invite an external (B2B guest) user from the CLI.
+    param([string]$Accent)
+    $email = Read-IaText -Question 'External email address to invite'
+    if ([string]::IsNullOrWhiteSpace($email)) { return }
+    $name  = Read-IaText -Question 'Display name (blank = let Entra derive it)'
+    $send  = Read-IaConfirm 'Email the invitation to them now?'
+    if (-not (Read-IaConfirm "Invite $email as a guest?")) { return }
+    try {
+        $p = @{ EmailAddress = $email; Confirm = $false }
+        if ($name) { $p.DisplayName = $name }
+        if ($send) { $p.SendInvitationMessage = $true }
+        $r = New-EntraGuestInvitation @p
+        Write-IaHost "[$Accent]✓ Invited[/] $email  (user id $($r.UserId), status $($r.Status))"
+        if ($r.RedeemUrl) { Write-IaHost "[grey]Redeem URL:[/] $($r.RedeemUrl)" }
+    } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+    Read-IaPause | Out-Null
+}
+
+function Invoke-IaTuiEntraCreateTeam {
+    # Create a Microsoft 365 Team from the CLI.
+    param([string]$Accent)
+    $name = Read-IaText -Question 'Team name'
+    if ([string]::IsNullOrWhiteSpace($name)) { return }
+    $owner = Select-IaUser -Accent $Accent -Title 'Who owns the team?'
+    if (-not $owner) { return }
+    $desc = Read-IaText -Question 'Description (blank = none)'
+    $vis  = Read-IaMenu -Title 'Visibility' -Color $Accent -Choices @('Private', 'Public')
+    if (-not (Read-IaConfirm "Create $vis Team '$name' owned by ${owner}?")) { return }
+    try {
+        $p = @{ Name = $name; Owner = $owner; Visibility = $vis; Confirm = $false }
+        if ($desc) { $p.Description = $desc }
+        $r = New-EntraTeam @p
+        if ($r.Teamified) { Write-IaHost "[$Accent]✓ Team created[/] '$name' (group $($r.GroupId))" }
+        else { Write-IaHost "[yellow]Group created ($($r.GroupId)); Teams enablement is still finishing — check in a minute.[/]" }
+    } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+    Read-IaPause | Out-Null
+}
+
 function Invoke-IaTuiEntraGroups {
     param([string]$Accent)
     while ($true) {
-        $action = Read-IaMenu -Title 'Groups' -Color $Accent -Choices @('Browse / manage groups', 'Create a group', 'Back')
+        $action = Read-IaMenu -Title 'Groups' -Color $Accent -Choices @('Browse / manage groups', 'Create a group', 'Create a Microsoft 365 Team', 'Back')
         if (-not $action -or $action -eq 'Back') { return }
-        if ($action -like 'Create*') { Invoke-IaTuiEntraCreateGroup -Accent $Accent; continue }
+        if ($action -like 'Create a Microsoft 365 Team*') { Invoke-IaTuiEntraCreateTeam -Accent $Accent; continue }
+        if ($action -like 'Create a group*') { Invoke-IaTuiEntraCreateGroup -Accent $Accent; continue }
         $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock { Get-EntraGroup -Top 500 })
         if (-not $groups) { Write-IaHost '[yellow]No groups.[/]'; Read-IaPause | Out-Null; continue }
         $disp = @($groups | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Type = $_.Type; Membership = $_.Membership; Mail = $_.Mail; Id = $_.Id } })

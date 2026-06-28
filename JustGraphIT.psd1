@@ -193,6 +193,14 @@
         'Get-EntraRiskyAppPermission',
         'Remove-EntraAppRoleAssignment',
         'Remove-EntraOAuth2Grant',
+        # --- app-registration & provisioning writes (Phase 1: do-it-from-the-CLI) ---
+        'Get-EntraAppRequestedPermission',
+        'Add-EntraAppPermission',
+        'Remove-EntraAppPermission',
+        'New-EntraServicePrincipal',
+        'Grant-EntraAdminConsent',
+        'New-EntraGuestInvitation',
+        'New-EntraTeam',
         # --- app governance / hygiene reports ---
         'Get-EntraExpiringSecret',
         'Get-EntraAppWithoutOwner',
