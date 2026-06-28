@@ -99,7 +99,7 @@ function Start-IntuneTide {
             'Export report (HTML · Excel · Rich HTML)',
             'Graph calls (live activity log)',
             'Group lookup (what is a group assigned to)',
-            'Help desk (user lookup · devices · groups · licenses)',
+            'Help desk (user · device lookup · hardware · actions)',
             'Mirror assignments (copy A -> B, pick which)',
             'Policies (configuration · compliance · scripts · remediations)',
             'Reports (status · audit · approvals)',
@@ -116,7 +116,7 @@ function Start-IntuneTide {
             switch -Wildcard ($choice) {
                 'View all*'       { Invoke-IaTuiViewAll     -Accent $accent }
                 'Dashboard*'      { Invoke-IaTuiDashboard   -Accent $accent }
-                'Help desk*'      { Invoke-IaTuiUserLookup  -Accent $accent }
+                'Help desk*'      { Invoke-IaTuiHelpDesk    -Accent $accent }
                 'Group lookup*'   { Invoke-IaTuiGroupLookup -Accent $accent }
                 'Compare*'        { Invoke-IaTuiCompare     -Accent $accent }
                 'What-if*'        { Invoke-IaTuiWhatIf      -Accent $accent }
@@ -1526,6 +1526,137 @@ function Invoke-IaTuiRemediations {
 
 # ─── reports submenu ──────────────────────────────────────────────────────────
 
+function Invoke-IaTuiDeviceAct {
+    # Confirm + send a single managedDevice action, with feedback.
+    param([string]$Accent, [string]$Device, [string]$Action)
+    $extra = @{}
+    if ($Action -eq 'Rename') {
+        $nn = Read-IaText -Question 'New device name'
+        if ([string]::IsNullOrWhiteSpace($nn)) { return }
+        $extra.NewName = $nn
+    }
+    if (-not (Read-IaConfirm "Send '$Action' to $Device?")) { return }
+    try {
+        Invoke-IaStatus -Spinner Dots -Title "Sending $Action…" -Color $Accent -ScriptBlock {
+            Invoke-IntuneDeviceAction -Device $Device -Action $Action @extra -Confirm:$false
+        } | Out-Null
+        Write-IaHost "[$Accent]✓ $Action sent to $Device.[/]"
+    } catch { Write-IaHost "[coral]Failed: $($_.Exception.Message)[/]" }
+    Read-IaPause | Out-Null
+}
+
+function Invoke-IaTuiDeviceCard {
+    # Reusable, ACTIONABLE device view: every field + the full hardwareInformation,
+    # the compliance/config/app states, and device actions (sync / restart / locate /
+    # lock / …). Reached from the dashboard device list and from Help desk.
+    param([string]$Accent, [string]$Device)
+    if ([string]::IsNullOrWhiteSpace($Device)) { return }
+    while ($true) {
+        $detail = Invoke-IaStatus -Spinner Dots -Title "Loading $Device…" -ScriptBlock { Get-IntuneDeviceDetail -Device $Device }
+        if (-not $detail) { Write-IaHost "[yellow]No detail found for '$Device'.[/]"; Read-IaPause | Out-Null; return }
+        $cs = "$($detail.ComplianceState)"
+        $cc = if ($cs -eq 'compliant') { $Accent } elseif ($cs -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
+        $hdr = [System.Collections.Generic.List[string]]::new()
+        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ TIDE[/]  [bold]· Device card[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[grey]$($detail.Device)[/]  ·  [$cc]$cs[/]"))
+        $hdr.Add('')
+        $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'OS',      "$($detail.OS) $($detail.OSVersion)")))
+        $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'Model',   "$($detail.Manufacturer) $($detail.Model)")))
+        $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'Serial',  $detail.SerialNumber)))
+        $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'User',    "$($detail.UserDisplayName)  $($detail.UserPrincipalName)")))
+        $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'Storage', "Free $($detail.FreeStorageGB) / $($detail.TotalStorageGB) GB")))
+        $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'Last sync', $detail.LastSyncAt)))
+        $hdr.Add('')
+        $cardHeader = ($hdr -join "`n")
+
+        $sub = Read-IaMenu -Title "Device · $Device" -Color $Accent -Header $cardHeader -PageSize 10 -Choices @(
+            'All fields & hardware (everything)',
+            'Compliance policy states',
+            'Configuration profile states',
+            'Detected apps (inventory)',
+            'Action: Sync now',
+            'Action: Restart',
+            'Action: Locate device',
+            'Action: more…',
+            'Back'
+        )
+        if (-not $sub -or $sub -eq 'Back') { return }
+        switch -Wildcard ($sub) {
+            'All fields*' {
+                $rows = [System.Collections.Generic.List[object]]::new()
+                foreach ($p in $detail.PSObject.Properties) {
+                    if ($p.Name -in 'Hardware', 'Apps', 'ConfigStates', 'ComplianceStates') { continue }
+                    if ($null -eq $p.Value -or "$($p.Value)" -eq '') { continue }
+                    $rows.Add([pscustomobject][ordered]@{ Property = $p.Name; Value = "$($p.Value)" })
+                }
+                if ($detail.Hardware) {
+                    $hw = $detail.Hardware
+                    $keys = if ($hw -is [System.Collections.IDictionary]) { @($hw.Keys) } else { @($hw.PSObject.Properties.Name) }
+                    foreach ($k in ($keys | Sort-Object)) {
+                        $v = $hw.$k
+                        if ($null -eq $v -or "$v" -eq '') { continue }
+                        $isC = ($v -is [System.Collections.IDictionary]) -or (($v -is [System.Collections.IEnumerable]) -and ($v -isnot [string]))
+                        $sv = if ($isC) { ConvertTo-Json $v -Depth 4 -Compress } else { "$v" }
+                        if ($sv.Length -gt 300) { $sv = $sv.Substring(0, 300) + '…' }
+                        $rows.Add([pscustomobject][ordered]@{ Property = "hw.$k"; Value = $sv })
+                    }
+                }
+                Read-IaTablePause -Data $rows.ToArray() -Stem "devcard-$Device" -Color $Accent -Title "All fields & hardware · $Device ($($rows.Count))"
+            }
+            'Compliance policy*' {
+                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeComplianceState).ComplianceStates })
+                $rows = $st | ForEach-Object {
+                    $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
+                    [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$c]$($_.state)[/]"; Platform = $_.platformType }
+                }
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-comp" -Color $Accent -Title "Compliance states · $Device ($($st.Count))"
+            }
+            'Configuration profile*' {
+                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeConfigState).ConfigStates })
+                $rows = $st | ForEach-Object {
+                    $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error', 'conflict') { 'coral' } else { 'grey' }
+                    [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$c]$($_.state)[/]"; Version = $_.version }
+                }
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-cfg" -Color $Accent -Title "Configuration states · $Device ($($st.Count))"
+            }
+            'Detected apps*' {
+                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeApps).Apps })
+                $rows = $st | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } }
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-apps" -Color $Accent -Title "Detected apps · $Device ($($st.Count))"
+            }
+            'Action: Sync*'    { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Sync' }
+            'Action: Restart*' { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Reboot' }
+            'Action: Locate*'  { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'LocateDevice' }
+            'Action: more*'    {
+                $a = Read-IaMenu -Title 'Device action' -Color $Accent -PageSize 14 -Choices @(
+                    'Sync', 'Reboot', 'RemoteLock', 'LocateDevice', 'RotateBitLockerKeys', 'DefenderScan',
+                    'DefenderUpdateSignatures', 'ResetPasscode', 'Rename', 'CollectDiagnostics',
+                    'EnableLostMode', 'DisableLostMode', 'Cancel')
+                if ($a -and $a -ne 'Cancel') { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action $a }
+            }
+        }
+    }
+}
+
+function Invoke-IaTuiHelpDesk {
+    # Help desk hub: user lookup or device lookup.
+    param([string]$Accent)
+    while ($true) {
+        $pick = Read-IaMenu -Title 'Help desk' -Color $Accent -Choices @(
+            'User lookup (devices · groups · licenses · sign-in)',
+            'Device lookup (hardware · compliance · apps · actions)',
+            'Back'
+        )
+        if (-not $pick -or $pick -eq 'Back') { return }
+        if ($pick -like 'User*') {
+            Invoke-IaTuiUserLookup -Accent $Accent
+        } else {
+            $dev = Select-IaManagedDevice -Accent $Accent -Title 'Which device?'
+            if (-not [string]::IsNullOrWhiteSpace($dev)) { Invoke-IaTuiDeviceCard -Accent $Accent -Device $dev }
+        }
+    }
+}
+
 function Invoke-IaTuiDashboard {
     # Live device-management overview for the first-page menu: KPI tiles plus
     # colour-graded bar charts, all computed from a single managedDevices read.
@@ -1630,7 +1761,12 @@ function Invoke-IaTuiDashboard {
             Compliance        = "[$cc]$($_.Compliance)[/]"
         }
     })
-    Read-IaTablePause -Data $devRows -Stem 'dashboard-devices' -Color $Accent -Title "Devices · OS · version · user · last sync ($total)"
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $devRows -Color $Accent -Selectable `
+            -Title "Devices · OS · version · user · last sync ($total)  ·  Enter = open device" -Stem 'dashboard-devices'
+        if (-not $picked) { break }   # q / Esc leaves the dashboard
+        Invoke-IaTuiDeviceCard -Accent $Accent -Device "$($picked.Device)"
+    }
 }
 
 function Invoke-IaTuiUserLookup {
