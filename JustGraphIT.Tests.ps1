@@ -3347,6 +3347,25 @@ Describe 'TUI write-menu smoke (new wiring)' {
             $script:rmId | Should -Be 'assign-1'
         }
     }
+
+    It 'Invoke-IaTuiEntraDashboard renders from injected data without error' {
+        InModuleScope JustGraphIT {
+            Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Write-IaRule {}; Mock Read-IaPause {}
+            $data = [ordered]@{ users = 100; disabled = 5; guests = 10; groups = 40; m365 = 20; dynamic = 3
+                apps = 12; sps = 60; devices = 80; expiring = 2; risky = @([pscustomobject]@{}); score = @([pscustomobject]@{ Percent = 55; Current = 300; Max = 545 }); ca = @([pscustomobject]@{ State = 'enabled' }) }
+            { Invoke-IaTuiEntraDashboard -Accent 'cyan' -Data $data } | Should -Not -Throw
+        }
+    }
+
+    It 'Invoke-IaTuiEntraDashboard degrades to placeholders when counts/reads are unavailable' {
+        InModuleScope JustGraphIT {
+            Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Write-IaRule {}; Mock Read-IaPause {}
+            # -1 counts (no permission) and null risky/score must not throw
+            $data = [ordered]@{ users = -1; disabled = -1; guests = -1; groups = -1; m365 = -1; dynamic = -1
+                apps = -1; sps = -1; devices = -1; expiring = 0; risky = $null; score = $null; ca = @() }
+            { Invoke-IaTuiEntraDashboard -Accent 'cyan' -Data $data } | Should -Not -Throw
+        }
+    }
 }
 
 Describe 'Security hardening (review fixes)' {

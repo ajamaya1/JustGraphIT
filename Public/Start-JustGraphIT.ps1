@@ -1978,11 +1978,113 @@ function Invoke-IaTuiReportView {
     }
 }
 
+function Invoke-IaTuiEntraDashboard {
+    # Live identity overview — KPI tiles, a secure-score gauge and breakdown bars, built
+    # from cheap $count calls plus a few guarded report reads. Any metric whose
+    # permission/license is missing renders as '—' rather than failing the whole view.
+    param([string]$Accent, [hashtable]$Data)
+    Write-IaTuiHeader -Screen 'Identity dashboard' -Sub 'live overview · Entra ID' -Accent $Accent
+    $d = if ($Data) { $Data } else { Invoke-IaStatus -Spinner Dots -Title 'Building identity dashboard…' -ScriptBlock {
+        $enc = { param($f) [uri]::EscapeDataString($f) }
+        [ordered]@{
+            users    = Get-IaCount -Path 'users/$count'
+            disabled = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "accountEnabled eq false"))
+            guests   = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "userType eq 'Guest'"))
+            groups   = Get-IaCount -Path 'groups/$count'
+            m365     = Get-IaCount -Path ('groups/$count?$filter=' + (& $enc "groupTypes/any(c:c eq 'Unified')"))
+            dynamic  = Get-IaCount -Path ('groups/$count?$filter=' + (& $enc "groupTypes/any(c:c eq 'DynamicMembership')"))
+            apps     = Get-IaCount -Path 'applications/$count'
+            sps      = Get-IaCount -Path 'servicePrincipals/$count'
+            devices  = Get-IaCount -Path 'devices/$count'
+            expiring = @(try { Get-EntraExpiringSecret -Days 30 } catch { @() }).Count
+            risky    = @(try { Get-EntraRiskyUser -AtRiskOnly } catch { $null })
+            score    = @(try { Get-EntraSecureScore } catch { $null })
+            ca       = @(try { Get-EntraConditionalAccessPolicy } catch { @() })
+        }
+    } }
+
+    # formatters: '—' when a count is unknown (-1) or a guarded read returned null
+    $fc = { param($n) if ($null -eq $n -or ($n -is [int] -and $n -lt 0)) { '—' } else { "$n" } }
+    $gauge = {
+        param([int]$pct, [int]$width, [string]$color)
+        $w = [int][math]::Round($pct / 100 * $width)
+        "[$color]$('█' * [Math]::Max(0, [Math]::Min($width, $w)))[/][grey]$('░' * [Math]::Max(0, $width - $w))[/]"
+    }
+    $drawBars = {
+        param($pairs, [int]$width, [string]$color)
+        $max = (@($pairs) | Measure-Object -Property Count -Maximum).Maximum
+        foreach ($p in @($pairs)) {
+            $w = if ($max) { [int][math]::Round($p.Count / $max * $width) } else { 0 }
+            Write-IaHost ("  [grey]{0,-18}[/] [$color]{1}[/] [white]{2}[/]" -f $p.Label, ('█' * [Math]::Max($w, 1)), $p.Count)
+        }
+    }
+    $tile = { param($text, $color, $w = 14) $s = "$text"; "[$color]$s[/]" + (' ' * [Math]::Max(1, $w - $s.Length)) }
+
+    $riskyN = if ($null -eq $d.risky) { $null } else { @($d.risky).Count }
+    $scoreRow = if ($d.score) { @($d.score)[0] } else { $null }
+    $scorePct = if ($scoreRow) { [int]$scoreRow.Percent } else { $null }
+    $caEnabled = @($d.ca | Where-Object { $_.State -eq 'enabled' }).Count
+    $caReport  = @($d.ca | Where-Object { $_.State -eq 'enabledForReportingButNotEnforced' }).Count
+    $caOff     = @($d.ca | Where-Object { $_.State -eq 'disabled' }).Count
+
+    # ── KPI tiles ──────────────────────────────────────────────────────────
+    $riskClr = if ($null -eq $riskyN) { 'grey' } elseif ($riskyN -eq 0) { $Accent } else { 'coral' }
+    $expClr  = if ($d.expiring -eq 0) { $Accent } else { 'coral' }
+    Write-IaHost ''
+    Write-IaHost (' ' + (& $tile '▎ USERS' $Accent) + (& $tile '▎ GUESTS' $Accent) + (& $tile '▎ GROUPS' $Accent) + (& $tile '▎ APP REGS' $Accent) + (& $tile '▎ ENT APPS' $Accent))
+    Write-IaHost ('   ' + (& $tile (& $fc $d.users) 'white') + (& $tile (& $fc $d.guests) 'white') + (& $tile (& $fc $d.groups) 'white') + (& $tile (& $fc $d.apps) 'white') + (& $tile (& $fc $d.sps) 'white'))
+    Write-IaHost ''
+    Write-IaHost (' ' + (& $tile '▎ DISABLED' 'grey') + (& $tile '▎ DEVICES' $Accent) + (& $tile '▎ RISKY' $riskClr) + (& $tile '▎ EXPIRING' $expClr) + (& $tile '▎ CA ON' $Accent))
+    Write-IaHost ('   ' + (& $tile (& $fc $d.disabled) 'grey') + (& $tile (& $fc $d.devices) 'white') + (& $tile (& $fc $riskyN) $riskClr) + (& $tile (& $fc $d.expiring) $expClr) + (& $tile (& $fc $caEnabled) 'white'))
+
+    # ── Secure score gauge ─────────────────────────────────────────────────
+    Write-IaHost ''
+    Write-IaRule -Title 'Microsoft Secure Score' -Color $Accent
+    if ($null -ne $scorePct) {
+        $scClr = if ($scorePct -ge 70) { $Accent } elseif ($scorePct -ge 45) { 'yellow' } else { 'coral' }
+        Write-IaHost ("  [grey]Secure score[/] $(& $gauge $scorePct 40 $scClr) [white]$scorePct%[/]  [grey]($($scoreRow.Current)/$($scoreRow.Max))[/]")
+    } else {
+        Write-IaHost '  [grey]Secure score unavailable (needs SecurityEvents.Read.All).[/]'
+    }
+
+    # ── Breakdowns ─────────────────────────────────────────────────────────
+    Write-IaHost ''
+    Write-IaRule -Title 'Users' -Color $Accent
+    $uMembers = if (($d.users -ge 0) -and ($d.guests -ge 0)) { [Math]::Max(0, $d.users - $d.guests) } else { 0 }
+    & $drawBars @(
+        [pscustomobject]@{ Label = 'Members'; Count = $uMembers }
+        [pscustomobject]@{ Label = 'Guests'; Count = $(if ($d.guests -ge 0) { $d.guests } else { 0 }) }
+        [pscustomobject]@{ Label = 'Disabled'; Count = $(if ($d.disabled -ge 0) { $d.disabled } else { 0 }) }
+    ) 30 $Accent
+
+    Write-IaRule -Title 'Groups' -Color $Accent
+    $secGroups = if (($d.groups -ge 0) -and ($d.m365 -ge 0)) { [Math]::Max(0, $d.groups - $d.m365) } else { 0 }
+    & $drawBars @(
+        [pscustomobject]@{ Label = 'Security'; Count = $secGroups }
+        [pscustomobject]@{ Label = 'Microsoft 365'; Count = $(if ($d.m365 -ge 0) { $d.m365 } else { 0 }) }
+        [pscustomobject]@{ Label = 'Dynamic'; Count = $(if ($d.dynamic -ge 0) { $d.dynamic } else { 0 }) }
+    ) 30 'deepskyblue1'
+
+    Write-IaRule -Title 'Conditional Access' -Color $Accent
+    if (@($d.ca).Count) {
+        & $drawBars @(
+            [pscustomobject]@{ Label = 'Enabled'; Count = $caEnabled }
+            [pscustomobject]@{ Label = 'Report-only'; Count = $caReport }
+            [pscustomobject]@{ Label = 'Disabled'; Count = $caOff }
+        ) 30 $Accent
+    } else { Write-IaHost '  [grey]No Conditional Access policies (or Policy.Read.All not consented).[/]' }
+
+    Write-IaHost ''
+    Write-IaHost '[grey]Live from Microsoft Graph beta · press any key to return…[/]'
+    Read-IaPause | Out-Null
+}
+
 function Invoke-IaTuiEntra {
     # Identity (Entra) hub — first-page category that fans out to every Entra surface.
     param([string]$Accent)
     while ($true) {
-        $pick = Read-IaMenu -Title 'Identity · Entra' -Color $Accent -PageSize 15 -Choices @(
+        $pick = Read-IaMenu -Title 'Identity · Entra' -Color $Accent -PageSize 16 -Choices @(
+            'Dashboard — live identity overview',
             'Users — lookup & manage',
             'Groups — list / create / manage',
             'Licenses — tenant SKUs',
@@ -2002,6 +2104,7 @@ function Invoke-IaTuiEntra {
         if (-not $pick -or $pick -eq 'Back') { return }
         try {
             switch -Wildcard ($pick) {
+                'Dashboard*'          { Invoke-IaTuiEntraDashboard -Accent $Accent }
                 'Users*'              { Invoke-IaTuiUserLookup -Accent $Accent }
                 'Groups*'             { Invoke-IaTuiEntraGroups -Accent $Accent }
                 'Licenses*'           { Invoke-IaTuiReportView -Accent $Accent -Title 'Licenses' -Stem 'entra-licenses' -Loader { Get-EntraLicense } }
