@@ -1135,7 +1135,7 @@ function Invoke-IaTuiAutopilot {
                 if ($groupTag) { $params['GroupTag']    = $groupTag }
                 if ($dispName) { $params['DisplayName'] = $dispName }
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Updating…' -Color $Accent -ScriptBlock {
-                    Set-IntuneAutopilotDevice @using:params -Confirm:$false
+                    Set-IntuneAutopilotDevice @params -Confirm:$false
                 }
                 Write-IaHost "[$Accent]Updated.[/]"
                 Read-IaPause | Out-Null

@@ -3,11 +3,15 @@ function Resolve-IaManagedDeviceId {
 
     if (Test-IaGuid $Value) { return $Value }
 
-    $encoded = [uri]::EscapeDataString($Value)
-    $results = Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices?`$select=id,deviceName,serialNumber&`$filter=deviceName eq '$encoded'")
+    # OData string literals escape a single quote by DOUBLING it; the whole filter
+    # is then URL-encoded for transport. (URL-encoding the value alone — the old bug —
+    # turned an apostrophe into %27, which Graph decodes back to a quote that breaks
+    # the literal, so a device named e.g. O'Brien-PC never matched.)
+    $odv     = $Value.Replace("'", "''")
+    $results = Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices?`$select=id,deviceName,serialNumber&`$filter=$([uri]::EscapeDataString("deviceName eq '$odv'"))")
 
     if ($results.Count -eq 0) {
-        $results = Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices?`$select=id,deviceName,serialNumber&`$filter=serialNumber eq '$encoded'")
+        $results = Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices?`$select=id,deviceName,serialNumber&`$filter=$([uri]::EscapeDataString("serialNumber eq '$odv'"))")
     }
 
     if ($results.Count -eq 0) { throw "No managed device found matching '$Value'." }
