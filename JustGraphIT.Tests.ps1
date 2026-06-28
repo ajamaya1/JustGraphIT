@@ -3265,6 +3265,56 @@ Describe 'Entra Teams depth (beta)' {
     }
 }
 
+Describe 'Entra users & licensing depth (beta)' {
+    It 'Set-EntraUser PATCHes the extended address / name properties' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'u-1' }
+            $script:b = $null
+            Mock Invoke-IaRequest { $script:b = $Body }
+            Set-EntraUser -User 'a@x.com' -City 'Seattle' -Country 'US' -GivenName 'Ada' -EmployeeType 'Contractor' -Confirm:$false | Out-Null
+            $script:b.city         | Should -Be 'Seattle'
+            $script:b.country      | Should -Be 'US'
+            $script:b.givenName    | Should -Be 'Ada'
+            $script:b.employeeType | Should -Be 'Contractor'
+        }
+    }
+
+    It 'Get-EntraUserManager reads the beta manager navigation' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'u-1' }
+            $script:u = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; [pscustomobject]@{ id = 'mgr-1'; displayName = 'Boss'; userPrincipalName = 'boss@x.com'; jobTitle = 'VP' } }
+            $r = Get-EntraUserManager -User 'a@x.com'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users/u-1/manager\?\$select='
+            $r.Manager    | Should -Be 'Boss'
+            $r.ManagerUPN | Should -Be 'boss@x.com'
+        }
+    }
+
+    It 'Remove-EntraUserManager DELETEs the manager $ref' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'u-1' }
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraUserManager -User 'a@x.com' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'users/u-1/manager/\$ref$'
+        }
+    }
+
+    It 'Set-EntraGroupLicense resolves the SKU part number and POSTs assignLicense' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'g-1' }
+            Mock Get-IaCollection { @([pscustomobject]@{ skuId = 'sku-guid-1'; skuPartNumber = 'ENTERPRISEPACK' }) }
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body }
+            Set-EntraGroupLicense -Group 'Sales' -AddSku 'ENTERPRISEPACK' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups/g-1/assignLicense$'
+            @($script:b.addLicenses)[0].skuId | Should -Be 'sku-guid-1'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {

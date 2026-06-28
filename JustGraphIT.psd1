@@ -163,6 +163,8 @@
         'Reset-EntraUserMfa',
         'New-EntraUserTempAccessPass',
         'New-EntraUser',
+        'Get-EntraUserManager',
+        'Remove-EntraUserManager',
         'Get-EntraInactiveUser',
         'Get-EntraGuestUser',
         # --- licensing ---
@@ -178,6 +180,7 @@
         'Remove-EntraGroupMember',
         'Add-EntraGroupOwner',
         'Remove-EntraGroupOwner',
+        'Set-EntraGroupLicense',
         'Remove-EntraGroup',
         # --- access & sign-ins (Phase 5) ---
         'Get-EntraSignIn',

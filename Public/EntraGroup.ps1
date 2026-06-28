@@ -257,6 +257,28 @@ function Remove-EntraGroupOwner {
     }
 }
 
+function Set-EntraGroupLicense {
+    <#
+    .SYNOPSIS
+        Group-based licensing — assign / remove license SKUs on a group so every
+        member inherits them. Beta POST /beta/groups/{id}/assignLicense.
+    .DESCRIPTION
+        -AddSku / -RemoveSku take SKU part numbers (e.g. ENTERPRISEPACK) or skuIds,
+        resolved against subscribedSkus. Members of the group are then (de)licensed
+        automatically by Entra. Members need a usageLocation for assignment to apply.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory, Position = 0)][string]$Group, [string[]]$AddSku, [string[]]$RemoveSku)
+    $gid  = Resolve-EntraGroupId -Group $Group
+    $add  = @(Resolve-EntraSkuId -Sku $AddSku | ForEach-Object { @{ skuId = $_ } })
+    $rem  = @(Resolve-EntraSkuId -Sku $RemoveSku)
+    $body = @{ addLicenses = $add; removeLicenses = $rem }
+    if ($PSCmdlet.ShouldProcess($Group, "Group license +[$($AddSku -join ',')] -[$($RemoveSku -join ',')]")) {
+        Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "groups/$gid/assignLicense") -Body $body | Out-Null
+        [pscustomobject]@{ Group = $Group; Added = ($AddSku -join ', '); Removed = ($RemoveSku -join ', ') }
+    }
+}
+
 function Remove-EntraGroup {
     <#
     .SYNOPSIS

@@ -72,12 +72,16 @@ function Set-EntraUser {
         [Parameter(Mandatory, Position = 0)][string]$User,
         [string]$DisplayName, [string]$JobTitle, [string]$Department, [string]$CompanyName,
         [string]$UsageLocation, [string]$OfficeLocation, [string]$MobilePhone,
-        [string]$EmployeeId, [string]$ManagerUser,
+        [string]$EmployeeId, [string]$EmployeeType, [string]$ManagerUser,
+        [string]$GivenName, [string]$Surname, [string]$PreferredLanguage,
+        [string]$StreetAddress, [string]$City, [string]$State, [string]$Country, [string]$PostalCode,
         [Nullable[bool]]$AccountEnabled
     )
     $id   = Resolve-EntraUserId -User $User
     $body = [ordered]@{}
-    foreach ($p in 'DisplayName', 'JobTitle', 'Department', 'CompanyName', 'UsageLocation', 'OfficeLocation', 'MobilePhone', 'EmployeeId') {
+    foreach ($p in 'DisplayName', 'JobTitle', 'Department', 'CompanyName', 'UsageLocation', 'OfficeLocation',
+        'MobilePhone', 'EmployeeId', 'EmployeeType', 'GivenName', 'Surname', 'PreferredLanguage',
+        'StreetAddress', 'City', 'State', 'Country', 'PostalCode') {
         if ($PSBoundParameters.ContainsKey($p)) { $body[[char]::ToLower($p[0]) + $p.Substring(1)] = $PSBoundParameters[$p] }
     }
     if ($PSBoundParameters.ContainsKey('AccountEnabled')) { $body['accountEnabled'] = [bool]$AccountEnabled }
@@ -170,10 +174,8 @@ function Set-EntraUserLicense {
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory, Position = 0)][string]$User, [string[]]$AddSku, [string[]]$RemoveSku)
     $id   = Resolve-EntraUserId -User $User
-    $skus = @(Get-IaCollection (Resolve-IaUri -Path "subscribedSkus?`$select=skuId,skuPartNumber"))
-    $map  = @{}; foreach ($s in $skus) { $map[$s.skuPartNumber] = $s.skuId; $map[$s.skuId] = $s.skuId }
-    $add  = @(); foreach ($a in @($AddSku    | Where-Object { $_ })) { if ($map.ContainsKey($a)) { $add += @{ skuId = $map[$a] } } else { throw "Unknown SKU '$a' (see Get-EntraLicense)." } }
-    $rem  = @(); foreach ($r in @($RemoveSku | Where-Object { $_ })) { if ($map.ContainsKey($r)) { $rem += $map[$r] }              else { throw "Unknown SKU '$r' (see Get-EntraLicense)." } }
+    $add  = @(Resolve-EntraSkuId -Sku $AddSku | ForEach-Object { @{ skuId = $_ } })
+    $rem  = @(Resolve-EntraSkuId -Sku $RemoveSku)
     $body = @{ addLicenses = $add; removeLicenses = $rem }
     if ($PSCmdlet.ShouldProcess($User, "License +[$($AddSku -join ',')] -[$($RemoveSku -join ',')]")) {
         Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "users/$id/assignLicense") -Body $body | Out-Null
@@ -290,6 +292,33 @@ function New-EntraUser {
     if ($PSCmdlet.ShouldProcess($UserPrincipalName, 'Create user')) {
         $u = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "users") -Body $body
         [pscustomobject]@{ User = $u.userPrincipalName; DisplayName = $u.displayName; Id = $u.id; TempPassword = $Password }
+    }
+}
+
+function Get-EntraUserManager {
+    <#
+    .SYNOPSIS
+        Show a user's manager. Beta GET /beta/users/{id}/manager.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory, Position = 0)][string]$User)
+    $id = Resolve-EntraUserId -User $User
+    $m  = try { Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "users/${id}/manager?`$select=id,displayName,userPrincipalName,mail,jobTitle") } catch { $null }
+    if (-not $m) { Write-Warning "'$User' has no manager assigned."; return }
+    [pscustomobject]@{ User = $User; Manager = $m.displayName; ManagerUPN = $m.userPrincipalName; ManagerTitle = $m.jobTitle; Id = $m.id }
+}
+
+function Remove-EntraUserManager {
+    <#
+    .SYNOPSIS
+        Clear a user's manager. Beta DELETE /beta/users/{id}/manager/$ref.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory, Position = 0)][string]$User)
+    $id = Resolve-EntraUserId -User $User
+    if ($PSCmdlet.ShouldProcess($User, 'Clear manager')) {
+        Invoke-IaRequest -Method DELETE -Uri (Resolve-IaUri -Path "users/$id/manager/`$ref") | Out-Null
+        [pscustomobject]@{ User = $User; ManagerCleared = $true }
     }
 }
 
