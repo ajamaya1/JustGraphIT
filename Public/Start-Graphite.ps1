@@ -1771,13 +1771,37 @@ function Invoke-IaTuiDashboard {
     }
 }
 
+function Show-IaAllFields {
+    # Render every populated property of an object (incl. nested hashtables/arrays as
+    # compact JSON) as a scrollable Property / Value table. The "all properties" view.
+    param([string]$Accent, [object]$Object, [string]$Title = 'All fields', [string]$Stem = 'allfields')
+    if ($null -eq $Object) { return }
+    $keys = if ($Object -is [System.Collections.IDictionary]) { @($Object.Keys) } else { @($Object.PSObject.Properties.Name) }
+    $rows = foreach ($k in ($keys | Sort-Object)) {
+        if ("$k" -eq '@odata.type') { continue }
+        $v = $Object.$k
+        if ($null -eq $v -or "$v" -eq '') { continue }
+        $isC = ($v -is [System.Collections.IDictionary]) -or (($v -is [System.Collections.IEnumerable]) -and ($v -isnot [string]))
+        $sv = if ($isC) { try { ConvertTo-Json $v -Depth 5 -Compress } catch { "$v" } } else { "$v" }
+        if ($sv.Length -gt 400) { $sv = $sv.Substring(0, 400) + '…' }
+        [pscustomobject][ordered]@{ Property = $k; Value = $sv }
+    }
+    Read-IaTablePause -Data @($rows) -Stem $Stem -Color $Accent -Title "$Title ($(@($rows).Count) fields)"
+}
+
 function Invoke-IaTuiReportView {
     # Run a loader (with spinner) and show the result in a scrollable/exportable table.
+    # The table is selectable: Enter on any row opens its full property set ("all
+    # properties for every category"). q/Esc backs out.
     param([string]$Accent, [string]$Title, [scriptblock]$Loader, [string]$Stem = 'entra')
     $rows = @(Invoke-IaStatus -Spinner Dots -Title "Loading $Title…" -ScriptBlock $Loader)
     Write-IaTuiHeader -Screen $Title -Accent $Accent
     if (-not $rows) { Write-IaHost '[yellow]No data (or the scope/license for this report is missing).[/]'; Read-IaPause | Out-Null; return }
-    Read-IaTablePause -Data $rows -Stem $Stem -Color $Accent -Title "$Title ($($rows.Count))"
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $rows -Color $Accent -Selectable -Title "$Title ($($rows.Count))  ·  Enter = all fields · e export" -Stem $Stem
+        if (-not $picked) { break }
+        Show-IaAllFields -Accent $Accent -Object $picked -Title "$Title — all fields" -Stem "$Stem-fields"
+    }
 }
 
 function Invoke-IaTuiEntra {
