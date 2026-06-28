@@ -1229,6 +1229,68 @@ Describe 'Public cmdlets — null @odata.type robustness (no hashtable null-inde
     }
 }
 
+Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
+
+    BeforeAll {
+        $script:tRows = @(
+            [pscustomobject]@{ Device = 'LAPTOP-01'; State = '[coral]noncompliant[/]' }
+            [pscustomobject]@{ Device = 'LAPTOP-02'; State = '[accent]compliant[/]' }
+        )
+    }
+
+    It 'builds the Workflows message envelope wrapping an AdaptiveCard 1.5 table' {
+        $m = ($script:tRows | Send-IntuneReportToTeams -Title 'Devices' -PassThru) | ConvertFrom-Json
+        $m.type                       | Should -Be 'message'
+        $m.attachments[0].contentType | Should -Be 'application/vnd.microsoft.card.adaptive'
+        $card = $m.attachments[0].content
+        $card.type    | Should -Be 'AdaptiveCard'
+        $card.version | Should -Be '1.5'
+        $card.body[0].text | Should -Be 'Devices'
+        $table = $card.body | Where-Object { $_.type -eq 'Table' }
+        $table.firstRowAsHeaders | Should -BeTrue
+        $table.rows.Count        | Should -Be 3      # header + 2 data
+    }
+
+    It 'strips TIDE markup from cell values' {
+        $json = $script:tRows | Send-IntuneReportToTeams -Title 'X' -PassThru
+        $json | Should -Not -Match '\[coral\]'
+        $json | Should -Match 'noncompliant'
+    }
+
+    It 'caps rows at -MaxRows and notes the remainder' {
+        $many = 1..20 | ForEach-Object { [pscustomobject]@{ N = $_ } }
+        $card = (($many | Send-IntuneReportToTeams -Title 'Many' -MaxRows 5 -PassThru) | ConvertFrom-Json).attachments[0].content
+        $table = $card.body | Where-Object { $_.type -eq 'Table' }
+        $table.rows.Count | Should -Be 6             # header + 5
+        (($card.body | ForEach-Object { $_.text }) -join ' ') | Should -Match 'and 15 more'
+    }
+
+    It 'restricts + orders columns with -Column' {
+        $json  = ([pscustomobject]@{ A = 1; B = 2; C = 3 }) | Send-IntuneReportToTeams -Title 'Cols' -Column A, C -PassThru
+        $table = ($json | ConvertFrom-Json).attachments[0].content.body | Where-Object { $_.type -eq 'Table' }
+        (($table.rows[0].cells | ForEach-Object { $_.items[0].text }) -join ',') | Should -Be 'A,C'
+    }
+
+    It 'POSTs the JSON to the webhook when a URL is supplied' {
+        InModuleScope IntuneTide {
+            $script:posted = $null
+            Mock Invoke-IaWebhookPost { $script:posted = [pscustomobject]@{ Uri = $Uri; Json = $Json } }
+            [pscustomobject]@{ X = 1 } | Send-IntuneReportToTeams -Title 'Push' -WebhookUrl 'https://hook.example/abc' -Confirm:$false
+            $script:posted.Uri  | Should -Be 'https://hook.example/abc'
+            $script:posted.Json | Should -Match 'AdaptiveCard'
+            Should -Invoke Invoke-IaWebhookPost -Times 1 -Exactly
+        }
+    }
+
+    It 'throws when no webhook URL is available and not -PassThru' {
+        InModuleScope IntuneTide {
+            $saved = $env:TIDE_TEAMS_WEBHOOK; $env:TIDE_TEAMS_WEBHOOK = ''
+            try { { [pscustomobject]@{ X = 1 } | Send-IntuneReportToTeams -Title 'NoUrl' -Confirm:$false } | Should -Throw '*webhook*' }
+            finally { $env:TIDE_TEAMS_WEBHOOK = $saved }
+        }
+    }
+}
+
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {

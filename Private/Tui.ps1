@@ -1076,7 +1076,7 @@ function Read-IaTableInteractive {
     <#
     .SYNOPSIS
         Scrollable, searchable, exportable interactive table viewer.
-        ↑/↓/PgUp/PgDn scroll · / search · e export · ? help · q back.
+        ↑/↓/PgUp/PgDn scroll · / search · e export · p push to Teams · ? help · q back.
         With -Selectable, Enter returns the chosen row for drill-down.
     #>
     [CmdletBinding()]
@@ -1262,7 +1262,7 @@ function Read-IaTableInteractive {
             $cnt    = "$dim[$reset$rs-$re of $total$dim]$reset"
             $selTip = if ($Selectable) { ' · Enter select' } else { '' }
             $clrTip = if ($st.query) { "  $dim(filter: $reset$border$($st.query)$reset$dim · Esc clear)$reset" } else { '' }
-            [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search · e export · ? help$selTip · q back$reset$clrTip")
+            [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search · e export · p Teams · ? help$selTip · q back$reset$clrTip")
         }
 
         Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + $buf.ToString()) -NoNewline
@@ -1383,6 +1383,7 @@ function Read-IaTableInteractive {
                         switch ($ev.KeyChar) {
                             '/'  { $st.searching = $true; & $renderFrame }
                             'e'  { Invoke-IaExport -Data $rows -Stem $Stem -Color $Color; & $renderFrame }
+                            'p'  { Invoke-IaPushToTeams -Data $rows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame }
                             '?'  { & $showHelp }
                             'q'  { return $null }
                             'j'  { if ($st.sel -lt ($total - 1)) { $st.sel++ }; & $renderFrame }

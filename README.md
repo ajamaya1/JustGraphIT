@@ -117,6 +117,26 @@ heavily-used and the idle), plus daily / quality / frontline / inaccessible repo
   <img src="docs/img/cloudpc-total-usage.png" width="820" alt="Cloud PC total usage: active hours and connection counts per Cloud PC">
 </p>
 
+## Push reports to Teams
+
+Any report can be pushed to a Teams channel as an **Adaptive Card** — interactively (press
+**`p`** in any table view) or from a script / scheduled runbook:
+
+```powershell
+Get-IntuneComplianceStatus | Where-Object State -eq noncompliant |
+    Send-IntuneReportToTeams -Title 'Non-compliant devices' -WebhookUrl $url
+```
+
+<p align="center">
+  <img src="docs/img/teams-card.png" width="760" alt="A TIDE report pushed to Teams as an Adaptive Card">
+</p>
+
+It posts to a Power Automate **Workflows** incoming webhook (the supported successor to the
+retired O365 connector webhooks) — **no extra Graph scopes**. The URL comes from
+`-WebhookUrl` or `$env:TIDE_TEAMS_WEBHOOK`, so the *same* cmdlet runs unattended from an
+**Azure Automation runbook** (with `Connect-IntuneTide` app-only auth) for nightly digests.
+`-PassThru` returns the card JSON for preview without posting.
+
 ## Prerequisites
 
 - **PowerShell 7.2+** (`pwsh`) on macOS, Windows or Linux.
@@ -259,6 +279,7 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneApprovalRequest` | Multi-admin approval requests |
 | `Get-IntuneReportCatalog` / `Export-IntuneReport` | Native Intune report exports |
 | `Export-IntuneAssignmentReport` / `Export-IntuneHtmlReport` / `Export-IntuneExcel` | HTML / CSV / JSON / Excel |
+| `Send-IntuneReportToTeams` | Push any report to a Teams channel as an Adaptive Card (Workflows webhook) |
 | `Get-IntuneBitLockerKey` | BitLocker recovery keys for a device |
 | `Get-IntuneLapsCredential` | Windows LAPS local-admin account + password (decoded) |
 | `Get-IntuneDeviceGroupMembership` | Entra groups a device belongs to (assigned + dynamic) |
