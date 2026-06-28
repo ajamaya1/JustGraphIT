@@ -3482,6 +3482,63 @@ Describe 'Security hardening (review fixes)' {
     }
 }
 
+Describe 'Entra Devices blade (beta)' {
+    It 'Get-EntraDevice -Disabled filters on accountEnabled and projects the device' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'd-1'; deviceId = 'aad-1'; displayName = 'PC1'; accountEnabled = $false; operatingSystem = 'Windows'; operatingSystemVersion = '10.0'; trustType = 'AzureAd'; isCompliant = $true; isManaged = $true; approximateLastSignInDateTime = '2020-01-01T00:00:00Z' }) }
+            $rows = @(Get-EntraDevice -Disabled)
+            $script:p | Should -Match 'graph\.microsoft\.com/beta/devices\?'
+            $script:p | Should -Match 'accountEnabled%20eq%20false'
+            $rows[0].DisplayName | Should -Be 'PC1'
+            $rows[0].Enabled     | Should -Be $false
+            $rows[0].Id          | Should -Be 'd-1'
+        }
+    }
+
+    It 'Set-EntraDevice -AccountEnabled $false PATCHes accountEnabled' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest {
+                $script:m = $Method; $script:u = $Uri; $script:b = $Body
+                if ($Method -eq 'GET') { return [pscustomobject]@{ id = '11111111-1111-1111-1111-111111111111' } }
+            }
+            Set-EntraDevice -Device '11111111-1111-1111-1111-111111111111' -AccountEnabled $false -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match '/devices/11111111-1111-1111-1111-111111111111$'
+            $script:b.accountEnabled | Should -Be $false
+        }
+    }
+
+    It 'Remove-EntraDevice DELETEs the device object' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; if ($Method -eq 'GET') { [pscustomobject]@{ id = '22222222-2222-2222-2222-222222222222' } } }
+            Remove-EntraDevice -Device '22222222-2222-2222-2222-222222222222' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match '/devices/22222222-2222-2222-2222-222222222222$'
+        }
+    }
+
+    It 'Resolve-EntraDeviceId resolves a display name via a URL-encoded filter' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'd-9'; displayName = 'Reception PC' }) }
+            Resolve-EntraDeviceId -Device 'Reception PC' | Should -Be 'd-9'
+            $script:p | Should -Match 'displayName%20eq%20'
+        }
+    }
+
+    It 'Get-IaCollection -ConsistencyLevel sends the eventual header' {
+        InModuleScope JustGraphIT {
+            $script:h = $null
+            Mock Invoke-IaRequest { $script:h = $Headers; [pscustomobject]@{ value = @() } }
+            Get-IaCollection -Path 'devices' -ConsistencyLevel | Out-Null
+            $script:h.ConsistencyLevel | Should -Be 'eventual'
+        }
+    }
+}
+
 Describe 'Query to group pipeline (beta)' {
     It 'Get-IntuneStaleDevice filters managedDevices on lastSyncDateTime and computes DaysStale' {
         InModuleScope JustGraphIT {

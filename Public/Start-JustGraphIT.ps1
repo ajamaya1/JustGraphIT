@@ -1978,6 +1978,45 @@ function Invoke-IaTuiReportView {
     }
 }
 
+function Invoke-IaTuiEntraDevices {
+    # Entra device objects (registered / joined) — filter, then enable / disable / delete
+    # or view registered owners. Distinct from Intune managedDevices.
+    param([string]$Accent)
+    $scope = Read-IaMenu -Title 'Which devices?' -Color $Accent -Choices @('All', 'Disabled only', 'Stale (no sign-in 90d+)', 'Back')
+    if (-not $scope -or $scope -eq 'Back') { return }
+    $loader = switch -Wildcard ($scope) {
+        'Disabled*' { { Get-EntraDevice -Disabled -Top 1000 } }
+        'Stale*'    { { Get-EntraDevice -StaleDays 90 -Top 1000 } }
+        default     { { Get-EntraDevice -Top 1000 } }
+    }
+    $project = { param($list, $ac) @($list | ForEach-Object { $ec = if ($_.Enabled) { $ac } else { 'grey' }; [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Enabled = "[$ec]$($_.Enabled)[/]"; _Enabled = [bool]$_.Enabled; OS = $_.OS; Trust = $_.Trust; Compliant = $_.Compliant; DaysStale = $_.DaysStale; Id = $_.Id } }) }
+    $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading Entra devices…' -ScriptBlock $loader)
+    if (-not $devs) { Write-IaHost '[yellow]No matching devices.[/]'; Read-IaPause | Out-Null; return }
+    $disp = @(& $project $devs $Accent)
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -HideColumns '_Enabled' -Title "Entra devices ($($disp.Count)) · Enter = manage" -Stem 'entra-devices'
+        if (-not $picked) { return }
+        $devId = $picked.Id; $devName = $picked.DisplayName
+        $toggle = if ($picked._Enabled) { 'Disable device' } else { 'Enable device' }
+        $act = Read-IaMenu -Title "Device · $devName" -Color $Accent -Choices @($toggle, 'View registered owners', 'Delete device object', 'Back')
+        if (-not $act -or $act -eq 'Back') { continue }
+        $changed = $false
+        try {
+            switch -Wildcard ($act) {
+                'Disable*' { if (Read-IaConfirm "[red]Disable '$devName'? It can't authenticate until re-enabled.[/]") { Set-EntraDevice -Device $devId -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]"; Read-IaPause | Out-Null; $changed = $true } }
+                'Enable*'  { if (Read-IaConfirm "Enable '$devName'?") { Set-EntraDevice -Device $devId -AccountEnabled $true -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]"; Read-IaPause | Out-Null; $changed = $true } }
+                'View*'    { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $devName" -Stem 'entra-dev-owners' -Loader { Get-EntraDeviceRegisteredOwner -Device $devId } }
+                'Delete*'  { if (Read-IaConfirm "[red]Delete the Entra device object '$devName'? It must re-register to return.[/]") { Remove-EntraDevice -Device $devId -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null; $changed = $true } }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        if ($changed) {
+            $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock $loader)
+            if (-not $devs) { return }
+            $disp = @(& $project $devs $Accent)
+        }
+    }
+}
+
 function Invoke-IaTuiEntraDashboard {
     # Live identity overview — KPI tiles, a secure-score gauge and breakdown bars, built
     # from cheap $count calls plus a few guarded report reads. Any metric whose
@@ -2094,6 +2133,7 @@ function Invoke-IaTuiEntra {
             'Applications — registrations (secret/cert expiry)',
             'Enterprise apps (service principals)',
             'Managed identities',
+            'Devices — registered / joined (enable · disable · delete)',
             'Lifecycle — inactive users · guests',
             'Directory roles & assignments',
             'PIM — eligible & active',
@@ -2114,6 +2154,7 @@ function Invoke-IaTuiEntra {
                 'Applications*'       { Invoke-IaTuiEntraApps -Accent $Accent }
                 'Enterprise apps*'    { Invoke-IaTuiEntraEnterpriseApp -Accent $Accent }
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
+                'Devices*'            { Invoke-IaTuiEntraDevices -Accent $Accent }
                 'Lifecycle*' {
                     $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Invite a guest user', 'Back')
                     switch -Wildcard ($m) {

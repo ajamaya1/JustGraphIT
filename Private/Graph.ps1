@@ -156,13 +156,16 @@ function Invoke-IaRequest {
 }
 
 function Get-IaCollection {
-    # GET a collection, following @odata.nextLink to completion.
+    # GET a collection, following @odata.nextLink to completion. -ConsistencyLevel sets
+    # the 'eventual' header advanced directory queries need ($count=true, not/ne/endsWith,
+    # filter on extensionAttributes, $search, $orderby+$filter).
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path, [switch]$V1)
+    param([Parameter(Mandatory)][string]$Path, [switch]$V1, [switch]$ConsistencyLevel)
     $items = [System.Collections.Generic.List[object]]::new()
     $uri = Resolve-IaUri -Path $Path -V1:$V1
+    $headers = if ($ConsistencyLevel) { @{ ConsistencyLevel = 'eventual' } } else { $null }
     while ($uri) {
-        $resp = Invoke-IaRequest -Method GET -Uri $uri
+        $resp = if ($headers) { Invoke-IaRequest -Method GET -Uri $uri -Headers $headers } else { Invoke-IaRequest -Method GET -Uri $uri }
         if ($resp.value) { foreach ($v in $resp.value) { [void]$items.Add($v) } }
         $uri = $resp.'@odata.nextLink'
     }
