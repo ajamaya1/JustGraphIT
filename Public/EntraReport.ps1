@@ -98,7 +98,7 @@ function Get-EntraTeamsUsage {
     @($rows | ForEach-Object {
         [pscustomobject][ordered]@{
             User          = $_.'User Principal Name'
-            DisplayName   = $_.'User Id'
+            UserId        = $_.'User Id'
             TeamChat      = $_.'Team Chat Message Count'
             PrivateChat   = $_.'Private Chat Message Count'
             Calls         = $_.'Call Count'
@@ -122,7 +122,6 @@ function Get-EntraM365AppUsage {
     @($rows | ForEach-Object {
         [pscustomobject][ordered]@{
             User         = $_.'User Principal Name'
-            DisplayName  = $_.'Display Name'
             LastActivity = $_.'Last Activation Date'
             Windows      = $_.'Windows'
             Mac          = $_.'Mac'

@@ -32,8 +32,8 @@ function Get-EntraGroup {
     $g = ConvertTo-IaEntraGroup $obj
     if ($Detailed) {
         $mc = $null; $oc = $null
-        try { $mc = Get-IaCount "groups/$id/members" } catch { }
-        try { $oc = Get-IaCount "groups/$id/owners" } catch { }
+        try { $mc = Get-IaCount "groups/$id/members/`$count" } catch { }
+        try { $oc = Get-IaCount "groups/$id/owners/`$count" } catch { }
         $g | Add-Member -NotePropertyName MemberCount -NotePropertyValue $mc -Force
         $g | Add-Member -NotePropertyName OwnerCount  -NotePropertyValue $oc -Force
     }
@@ -71,7 +71,7 @@ function Get-EntraGroupMember {
     param([Parameter(Mandatory, Position = 0)][string]$Group, [switch]$Transitive)
     $id   = Resolve-EntraGroupId -Group $Group
     $path = if ($Transitive) { "groups/$id/transitiveMembers" } else { "groups/$id/members" }
-    @(Get-IaCollection (Resolve-IaUri -Path "$path`?`$select=id,displayName,userPrincipalName,mail,deviceId") | ForEach-Object {
+    @(Get-IaCollection (Resolve-IaUri -Path $path) | ForEach-Object {
         [pscustomobject][ordered]@{
             Name = $_.displayName
             UPN  = $_.userPrincipalName
