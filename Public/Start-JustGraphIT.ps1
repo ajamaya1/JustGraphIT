@@ -1978,6 +1978,49 @@ function Invoke-IaTuiReportView {
     }
 }
 
+function Invoke-IaTuiEntraTenantSettings {
+    # Tenant "Settings" toggles — what the default user role can do, guest-invite policy,
+    # and the Security Defaults switch. Enter on a row flips / changes it.
+    param([string]$Accent)
+    while ($true) {
+        $ap = $null; $sd = $null
+        try { $ap = Invoke-IaStatus -Spinner Dots -Title 'Loading tenant settings…' -ScriptBlock { Get-EntraAuthorizationPolicy } } catch { }
+        try { $sd = Get-EntraSecurityDefault } catch { }
+        $rows = @()
+        if ($ap) {
+            $rows += [pscustomobject]@{ Setting = 'Users can register applications';   Raw = $ap.UsersCanCreateApps;           Key = 'apps' }
+            $rows += [pscustomobject]@{ Setting = 'Users can create security groups';   Raw = $ap.UsersCanCreateSecurityGroups; Key = 'secgrp' }
+            $rows += [pscustomobject]@{ Setting = 'Users can create tenants';           Raw = $ap.UsersCanCreateTenants;        Key = 'tenants' }
+            $rows += [pscustomobject]@{ Setting = 'Users can read other users';         Raw = $ap.UsersCanReadOtherUsers;       Key = 'readusers' }
+            $rows += [pscustomobject]@{ Setting = 'Users can use SSPR';                 Raw = $ap.AllowedToUseSSPR;             Key = 'sspr' }
+            $rows += [pscustomobject]@{ Setting = 'Guest invites allowed from';         Raw = $ap.AllowInvitesFrom;             Key = 'invites' }
+        }
+        if ($sd) { $rows += [pscustomobject]@{ Setting = 'Security Defaults enabled'; Raw = $sd.Enabled; Key = 'secdef' } }
+        if (-not $rows) { Write-IaHost '[yellow]Could not read tenant settings (needs Policy.Read.All).[/]'; Read-IaPause | Out-Null; return }
+        $disp = @($rows | ForEach-Object {
+            $vc = if ($_.Raw -is [bool]) { if ($_.Raw) { $Accent } else { 'grey' } } else { 'white' }
+            [pscustomobject][ordered]@{ Setting = $_.Setting; Value = "[$vc]$($_.Raw)[/]"; _Key = $_.Key; _Raw = $_.Raw }
+        })
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -HideColumns '_Key', '_Raw' -Title 'Tenant settings · Enter = change' -Stem 'entra-tenant-settings'
+        if (-not $picked) { return }
+        $changed = $false
+        try {
+            if ($picked._Key -eq 'invites') {
+                $v = Read-IaMenu -Title 'Allow guest invites from' -Color $Accent -Choices @('everyone', 'adminsGuestInvitersAndAllMembers', 'adminsAndGuestInviters', 'none', 'Cancel')
+                if ($v -and $v -ne 'Cancel' -and (Read-IaConfirm "Set guest invites → '$v'?")) { Set-EntraAuthorizationPolicy -AllowInvitesFrom $v -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null; $changed = $true }
+            } elseif ($picked._Key -eq 'secdef') {
+                $new = -not [bool]$picked._Raw
+                if (Read-IaConfirm "[red]Set Security Defaults → ${new}? (turning off removes baseline MFA)[/]") { Set-EntraSecurityDefault -Enabled $new -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null; $changed = $true }
+            } else {
+                $new   = -not [bool]$picked._Raw
+                $param = switch ($picked._Key) { 'apps' { 'UsersCanCreateApps' } 'secgrp' { 'UsersCanCreateSecurityGroups' } 'tenants' { 'UsersCanCreateTenants' } 'readusers' { 'UsersCanReadOtherUsers' } 'sspr' { 'AllowedToUseSSPR' } }
+                if (Read-IaConfirm "Set '$($picked.Setting)' → ${new}?") { Set-EntraAuthorizationPolicy @{ $param = $new; Confirm = $false } | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null; $changed = $true }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        if (-not $changed) { } # loop re-reads current state on next pass
+    }
+}
+
 function Invoke-IaTuiEntraDevices {
     # Entra device objects (registered / joined) — filter, then enable / disable / delete
     # or view registered owners. Distinct from Intune managedDevices.
@@ -2139,6 +2182,7 @@ function Invoke-IaTuiEntra {
             'PIM — eligible & active',
             'Security / XDR — score · alerts · incidents',
             'Usage & quota — mailbox · OneDrive · SharePoint · Teams',
+            'Tenant settings — user defaults · security defaults',
             'Back'
         )
         if (-not $pick -or $pick -eq 'Back') { return }
@@ -2155,6 +2199,7 @@ function Invoke-IaTuiEntra {
                 'Enterprise apps*'    { Invoke-IaTuiEntraEnterpriseApp -Accent $Accent }
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
                 'Devices*'            { Invoke-IaTuiEntraDevices -Accent $Accent }
+                'Tenant settings*'    { Invoke-IaTuiEntraTenantSettings -Accent $Accent }
                 'Lifecycle*' {
                     $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Invite a guest user', 'Back')
                     switch -Wildcard ($m) {
