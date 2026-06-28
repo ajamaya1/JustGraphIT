@@ -2201,6 +2201,61 @@ function Invoke-IaTuiEntraPim {
     }
 }
 
+function Invoke-IaTuiEntraTeamManage {
+    # Pick a Team (Microsoft 365 group) → manage its channels and members.
+    param([string]$Accent)
+    $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading Teams / Microsoft 365 groups…' -ScriptBlock { Get-EntraGroup -Top 500 | Where-Object { $_.Type -eq 'Microsoft 365' } })
+    if (-not $groups) { Write-IaHost '[yellow]No Microsoft 365 groups / teams.[/]'; Read-IaPause | Out-Null; return }
+    $disp = @($groups | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Mail = $_.Mail; Id = $_.Id } })
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Teams ($($disp.Count)) · Enter = manage" -Stem 'team-pick'
+        if (-not $picked) { return }
+        $teamId = $picked.Id; $teamName = $picked.DisplayName
+        while ($true) {
+            $act = Read-IaMenu -Title "Team · $teamName" -Color $Accent -Choices @('Channels (view / add / remove)', 'Members (view / add / remove)', 'Back')
+            if (-not $act -or $act -eq 'Back') { break }
+            try {
+                switch -Wildcard ($act) {
+                    'Channels*' {
+                        $op = Read-IaMenu -Title "Channels · $teamName" -Color $Accent -Choices @('View channels', 'Add a channel', 'Remove a channel', 'Back')
+                        switch -Wildcard ($op) {
+                            'View*' { Invoke-IaTuiReportView -Accent $Accent -Title "Channels · $teamName" -Stem 'team-chan' -Loader { Get-EntraTeamChannel -Team $teamId } }
+                            'Add*'  {
+                                $cn = Read-IaText -Question 'Channel name'
+                                if ([string]::IsNullOrWhiteSpace($cn)) { continue }
+                                $priv = Read-IaConfirm 'Make it a private channel?'
+                                if (Read-IaConfirm "Add channel '$cn' to ${teamName}?") { New-EntraTeamChannel -Team $teamId -Name $cn -Private:$priv -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null }
+                            }
+                            'Remove*' {
+                                $chans = @(Invoke-IaStatus -Spinner Dots -Title 'Loading channels…' -ScriptBlock { Get-EntraTeamChannel -Team $teamId })
+                                $cd = @($chans | Where-Object { $_.Name -ne 'General' } | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Type = $_.Type; Id = $_.Id } })
+                                if (-not $cd) { Write-IaHost '[yellow]No removable channels.[/]'; Read-IaPause | Out-Null; continue }
+                                $cp = Read-IaTableInteractive -Data $cd -Color $Accent -Selectable -Title "Channels ($($cd.Count)) · Enter = remove" -Stem 'team-chan-rm'
+                                if ($cp -and (Read-IaConfirm "[red]Delete channel '$($cp.Name)'?[/]")) { Remove-EntraTeamChannel -Team $teamId -Channel $cp.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null }
+                            }
+                        }
+                    }
+                    'Members*' {
+                        $op = Read-IaMenu -Title "Members · $teamName" -Color $Accent -Choices @('View members', 'Add a member', 'Add an owner', 'Remove a member', 'Back')
+                        switch -Wildcard ($op) {
+                            'View*' { Invoke-IaTuiReportView -Accent $Accent -Title "Members · $teamName" -Stem 'team-mem' -Loader { Get-EntraTeamMember -Team $teamId } }
+                            'Add a member*' { $u = Select-IaUser -Accent $Accent -Title 'Add which user?'; if ($u -and (Read-IaConfirm "Add $u to ${teamName}?")) { Add-EntraTeamMember -Team $teamId -User $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                            'Add an owner*' { $u = Select-IaUser -Accent $Accent -Title 'Add which owner?'; if ($u -and (Read-IaConfirm "Make $u an owner of ${teamName}?")) { Add-EntraTeamMember -Team $teamId -User $u -Owner -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                            'Remove a member*' {
+                                $mem = @(Invoke-IaStatus -Spinner Dots -Title 'Loading members…' -ScriptBlock { Get-EntraTeamMember -Team $teamId })
+                                if (-not $mem) { Write-IaHost '[yellow]No members.[/]'; Read-IaPause | Out-Null; continue }
+                                $md = @($mem | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Email = $_.Email; Roles = $_.Roles; UserId = $_.UserId } })
+                                $mp = Read-IaTableInteractive -Data $md -Color $Accent -Selectable -Title "Members ($($md.Count)) · Enter = remove" -Stem 'team-mem-rm'
+                                if ($mp -and (Read-IaConfirm "[red]Remove $($mp.Name) from ${teamName}?[/]")) { Remove-EntraTeamMember -Team $teamId -User $mp.UserId -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null }
+                            }
+                        }
+                    }
+                }
+            } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        }
+    }
+}
+
 function Invoke-IaTuiBuildGroupFromQuery {
     # Query → push to group. Filter a population (stale devices / users by name /
     # inactive users), review it, then add the whole set to a new or existing group.
@@ -2319,8 +2374,9 @@ function Invoke-IaTuiEntraCreateTeam {
 function Invoke-IaTuiEntraGroups {
     param([string]$Accent)
     while ($true) {
-        $action = Read-IaMenu -Title 'Groups' -Color $Accent -Choices @('Browse / manage groups', 'Create a group', 'Create a Microsoft 365 Team', 'Back')
+        $action = Read-IaMenu -Title 'Groups & Teams' -Color $Accent -Choices @('Browse / manage groups', 'Create a group', 'Create a Microsoft 365 Team', 'Manage a Team (channels · members)', 'Back')
         if (-not $action -or $action -eq 'Back') { return }
+        if ($action -like 'Manage a Team*') { Invoke-IaTuiEntraTeamManage -Accent $Accent; continue }
         if ($action -like 'Create a Microsoft 365 Team*') { Invoke-IaTuiEntraCreateTeam -Accent $Accent; continue }
         if ($action -like 'Create a group*') { Invoke-IaTuiEntraCreateGroup -Accent $Accent; continue }
         $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock { Get-EntraGroup -Top 500 })
