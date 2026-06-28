@@ -311,10 +311,15 @@ function Get-EntraInactiveUser {
         Department, Created, Id.
     #>
     [CmdletBinding()]
-    param([int]$Days = 90, [switch]$IncludeDisabled, [int]$Top = 1000, [switch]$Raw)
+    param([int]$Days = 90, [switch]$IncludeDisabled, [ValidateRange(1, 999)][int]$Top = 999, [switch]$Raw)
     $select = 'id,displayName,userPrincipalName,accountEnabled,userType,department,createdDateTime,signInActivity'
     $users  = @(Get-IaCollection (Resolve-IaUri -Path "users?`$select=$select&`$top=$Top"))
     if ($Raw) { return $users }
+    # signInActivity needs AuditLog.Read.All; without it Graph returns it null for
+    # everyone and every account looks "never signed in" — warn rather than mislead.
+    if ($users.Count -and -not @($users | Where-Object { $_.signInActivity.lastSignInDateTime })) {
+        Write-Warning 'No sign-in data returned for any user. Consent AuditLog.Read.All (or every account is genuinely dormant); results may over-report inactivity.'
+    }
     $now = (Get-Date).ToUniversalTime()
     @($users | ForEach-Object {
         if (-not $IncludeDisabled -and -not $_.accountEnabled) { return }
@@ -342,12 +347,11 @@ function Get-EntraGuestUser {
         /beta/users filtered to userType eq 'Guest'.
     .DESCRIPTION
         Surfaces external collaborators — when they were invited, whether they've
-        accepted, their last sign-in and sponsoring domain — for access reviews.
-        -StalePendingDays flags guests still in PendingAcceptance past that many days.
+        accepted (externalUserState), and their last sign-in — for access reviews.
         -Raw returns the untouched user objects.
     #>
     [CmdletBinding()]
-    param([int]$Top = 1000, [switch]$Raw)
+    param([ValidateRange(1, 999)][int]$Top = 999, [switch]$Raw)
     $select = 'id,displayName,userPrincipalName,mail,accountEnabled,createdDateTime,' +
               'externalUserState,externalUserStateChangeDateTime,creationType,signInActivity'
     $f     = "userType eq 'Guest'"
@@ -355,8 +359,6 @@ function Get-EntraGuestUser {
     if ($Raw) { return $users }
     @($users | ForEach-Object {
         $last = $_.signInActivity.lastSignInDateTime
-        # B2B guest UPNs look like ext#EXT#@tenant — pull the original domain for context.
-        $dom  = if ($_.mail -match '@(.+)$') { $Matches[1] } elseif ($_.userPrincipalName -match '#EXT#@') { ($_.userPrincipalName -replace '_.*$', '') } else { '' }
         [pscustomobject][ordered]@{
             DisplayName  = $_.displayName
             Mail         = $_.mail

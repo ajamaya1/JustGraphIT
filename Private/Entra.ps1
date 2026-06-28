@@ -105,7 +105,17 @@ $script:IaHighRiskPerms = @(
     'Policy.ReadWrite.ConditionalAccess', 'DeviceManagementConfiguration.ReadWrite.All',
     'DeviceManagementManagedDevices.ReadWrite.All', 'DeviceManagementRBAC.ReadWrite.All',
     'UserAuthenticationMethod.ReadWrite.All', 'IdentityRiskyUser.ReadWrite.All',
-    'Directory.AccessAsUser.All'
+    'Directory.AccessAsUser.All',
+    # consent-grant / policy escalation — an app that can grant itself consent
+    'DelegatedPermissionGrant.ReadWrite.All', 'Policy.ReadWrite.PermissionGrant',
+    # federation / domain takeover (golden-SAML class)
+    'Domain.ReadWrite.All',
+    # privileged-role assignment
+    'RoleManagement.ReadWrite.Exchange', 'RoleEligibilitySchedule.ReadWrite.Directory',
+    'RoleAssignmentSchedule.ReadWrite.Directory', 'RoleManagementPolicy.ReadWrite.Directory',
+    # account / identity manipulation
+    'Synchronization.ReadWrite.All', 'User.EnableDisableAccount.All', 'User.ManageIdentities.All',
+    'User-PasswordProfile.ReadWrite.All'
 )
 
 function Test-EntraHighRiskPermission {
