@@ -79,7 +79,7 @@ function Get-IntuneWin32App {
 function ConvertTo-IaWin32AppDetailObject {
     <#
     .SYNOPSIS
-        Maps a raw Graph win32LobApp item to the rich PSGraphIT detail object.
+        Maps a raw Graph win32LobApp item to the rich JustGraphIT detail object.
     #>
     param([Parameter(Mandatory)]$App)
 

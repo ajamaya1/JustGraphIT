@@ -122,7 +122,7 @@ function Resolve-IaAppId {
 function ConvertTo-IaAppObject {
     <#
     .SYNOPSIS
-        Maps a raw Graph mobileApps item to the standard PSGraphIT app object.
+        Maps a raw Graph mobileApps item to the standard JustGraphIT app object.
     #>
     param([Parameter(Mandatory)]$App)
 

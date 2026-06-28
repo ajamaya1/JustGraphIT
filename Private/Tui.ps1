@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  PSGraphIT self-contained terminal-UI engine  (no external TUI dependency)
+#  JustGraphIT self-contained terminal-UI engine  (no external TUI dependency)
 # ────────────────────────────────────────────────────────────────────────────
 #  WHY THIS EXISTS
 #    The TUI was originally built on PwshSpectreConsole. Two properties of that
@@ -513,7 +513,7 @@ function Write-IaRule {
     }
 }
 
-# 5-row block glyphs for the PSGRAPHIT banner; anything else falls back to a bold rule.
+# 5-row block glyphs for the JUSTGRAPHIT banner; anything else falls back to a bold rule.
 $script:IaFiglet = @{
     'T' = @('█████', '  █  ', '  █  ', '  █  ', '  █  ')
     'I' = @('█████', '  █  ', '  █  ', '  █  ', '█████')
@@ -1159,7 +1159,7 @@ function Invoke-IaExport {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Data,
-        [string]$Stem  = 'PSGRAPHIT-export',
+        [string]$Stem  = 'JUSTGRAPHIT-export',
         [string]$Color = 'turquoise2'
     )
     $clean = @($Data | ForEach-Object {
@@ -1229,7 +1229,7 @@ function Read-IaTableInteractive {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Data,
         [string]$Color     = 'grey',
         [string]$Title     = '',
-        [string]$Stem      = 'PSGRAPHIT-export',
+        [string]$Stem      = 'JUSTGRAPHIT-export',
         [switch]$Selectable
     )
 
@@ -1579,7 +1579,7 @@ function Read-IaTablePause {
     [CmdletBinding()]
     param(
         [object[]]$Data,
-        [string]$Stem  = 'PSGRAPHIT-export',
+        [string]$Stem  = 'JUSTGRAPHIT-export',
         [string]$Color = 'turquoise2',
         [string]$Title = ''
     )

@@ -1,4 +1,4 @@
-function Connect-PSGraphIT {
+function Connect-JustGraphIT {
     <#
     .SYNOPSIS
         Sign in to Microsoft Graph for Intune assignment management.
@@ -8,9 +8,9 @@ function Connect-PSGraphIT {
         secret or certificate. Runs anywhere pwsh + Microsoft.Graph.Authentication
         run (macOS, Windows, Linux).
     .EXAMPLE
-        Connect-PSGraphIT -UseDeviceCode
+        Connect-JustGraphIT -UseDeviceCode
     .EXAMPLE
-        Connect-PSGraphIT -TenantId contoso.com -ClientId <id> -ClientSecret <secret>
+        Connect-JustGraphIT -TenantId contoso.com -ClientId <id> -ClientSecret <secret>
     #>
     [CmdletBinding(DefaultParameterSetName = 'Interactive')]
     param(

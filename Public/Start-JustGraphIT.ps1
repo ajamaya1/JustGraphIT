@@ -1,4 +1,4 @@
-function Start-PSGraphIT {
+function Start-JustGraphIT {
     <#
     .SYNOPSIS
         Launch the interactive retro ANSI TUI.
@@ -14,17 +14,17 @@ function Start-PSGraphIT {
         selection lists, not free-text fields — pick from what's there instead
         of typing names that might 404.
     .EXAMPLE
-        Connect-PSGraphIT -UseDeviceCode; Start-PSGraphIT
+        Connect-JustGraphIT -UseDeviceCode; Start-JustGraphIT
     #>
     [CmdletBinding()]
     param([ValidateSet('green', 'amber', 'lego', 'deepsea', 'sunset', 'ocean', 'forest', 'mono')][string]$Theme = 'deepsea')
 
     if ($PSVersionTable.PSVersion.Major -lt 7) {
-        throw "The PSGRAPHIT TUI requires PowerShell 7+ (you are on $($PSVersionTable.PSVersion))."
+        throw "The JUSTGRAPHIT TUI requires PowerShell 7+ (you are on $($PSVersionTable.PSVersion))."
     }
     if (-not (Get-MgContext)) {
         Write-IaHost "[yellow]Not connected.[/] Starting device-code sign-in…"
-        Connect-PSGraphIT -UseDeviceCode | Out-Null
+        Connect-JustGraphIT -UseDeviceCode | Out-Null
     }
 
     $accent = switch ($Theme) {
@@ -58,7 +58,7 @@ function Start-PSGraphIT {
     # is repainted with every frame (rather than printed above it, where the redraw
     # would erase it).
     $splashHeader = @(
-        (Get-IaFigletString -Text 'PSGRAPHIT' -Color $accent)
+        (Get-IaFigletString -Text 'JUSTGRAPHIT' -Color $accent)
         (ConvertFrom-IaMarkup "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev")
         (ConvertFrom-IaMarkup "[$accent]≈ microsoft intune & entra management[/]")
         ''
@@ -66,13 +66,13 @@ function Start-PSGraphIT {
 
     function Show-IaTuiSplash {
         Clear-IaHost
-        Write-IaFiglet -Text 'PSGRAPHIT' -Color $accent
+        Write-IaFiglet -Text 'JUSTGRAPHIT' -Color $accent
         Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev"
-        Write-IaRule -Title 'PSGRAPHIT · microsoft intune & entra management' -Color $accent
+        Write-IaRule -Title 'JUSTGRAPHIT · microsoft intune & entra management' -Color $accent
     }
 
     Show-IaTuiSplash
-    # One-time inventory load: stream the live Graph calls as they happen (PSGRAPHIT logs
+    # One-time inventory load: stream the live Graph calls as they happen (JUSTGRAPHIT logs
     # every Invoke-MgGraphRequest via Add-IaCall), then wipe to a clean workspace so
     # each screen renders as a tidy bordered table instead of below a wall of GET lines.
     if ($null -eq $script:IaTuiInventory) {
@@ -389,8 +389,8 @@ function Select-IaBackupPath {
 function Write-IaTuiHeader {
     param([string]$Screen, [string]$Sub = '', [string]$Accent)
     Clear-IaHost
-    try { $host.UI.RawUI.WindowTitle = "PSGRAPHIT — $Screen" } catch { }
-    Write-IaHost "[$Accent]≈ PSGRAPHIT[/]  [bold]· $Screen[/]"
+    try { $host.UI.RawUI.WindowTitle = "JUSTGRAPHIT — $Screen" } catch { }
+    Write-IaHost "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· $Screen[/]"
     if ($Sub) {
         Write-IaHost "[grey]$Sub[/]"
     } elseif ($script:IaTuiAccount) {
@@ -1559,7 +1559,7 @@ function Invoke-IaTuiDeviceCard {
         $cs = "$($detail.ComplianceState)"
         $cc = if ($cs -eq 'compliant') { $Accent } elseif ($cs -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
         $hdr = [System.Collections.Generic.List[string]]::new()
-        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ PSGRAPHIT[/]  [bold]· Device card[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· Device card[/]"))
         $hdr.Add((ConvertFrom-IaMarkup "[grey]$($detail.Device)[/]  ·  [$cc]$cs[/]"))
         $hdr.Add('')
         $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'OS',      "$($detail.OS) $($detail.OSVersion)")))
@@ -2095,7 +2095,7 @@ function Invoke-IaTuiUserLookup {
             $compliant = @($uDevices | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
 
             $hdr = [System.Collections.Generic.List[string]]::new()
-            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ PSGRAPHIT[/]  [bold]· User lookup[/]"))
+            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· User lookup[/]"))
             $hdr.Add((ConvertFrom-IaMarkup "[grey]$upn[/]"))
             $hdr.Add('')
             $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]  [grey]({2} compliant)[/]" -f 'Devices',  $uDevices.Count, $compliant)))
@@ -2396,7 +2396,7 @@ function Invoke-IaTuiReports {
                         # Render the detail block into the menu's -Header so it stays on
                         # screen — Read-IaMenu repaints full-screen and would otherwise wipe it.
                         $hdr = [System.Collections.Generic.List[string]]::new()
-                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ PSGRAPHIT[/]  [bold]· Device detail[/]"))
+                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· Device detail[/]"))
                         $hdr.Add((ConvertFrom-IaMarkup "[grey]$devName[/]"))
                         $hdr.Add('')
                         foreach ($kv in $fields.GetEnumerator()) {
@@ -2865,7 +2865,7 @@ function Get-IaReportPanel {
     # Build the recipe-summary header repainted above the builder menu each frame.
     param([string]$Accent, [string]$SourceName, [int]$RowCount, $Recipe)
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add((ConvertFrom-IaMarkup "[$Accent]≈ PSGRAPHIT[/]  [bold]· Custom report builder[/]"))
+    $lines.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· Custom report builder[/]"))
     $lines.Add((ConvertFrom-IaMarkup "[grey]build a report: select · where · sort · group · export[/]"))
     $lines.Add((ConvertFrom-IaMarkup ("[darkslategray1]" + ('─' * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
 
@@ -3044,8 +3044,8 @@ function Invoke-IaTuiReportBuilder {
             'Save report definition' {
                 $name = Read-IaText -Question 'Report name' -DefaultAnswer 'my-report'
                 $safe = ($name -replace '[^\w-]', '-')
-                $path = Join-Path ([Environment]::GetFolderPath('UserProfile')) "PSGRAPHIT-report-$safe.json"
-                $def  = [pscustomobject]@{ Source = $srcName; Recipe = $recipe; SavedBy = 'PSGraphIT'; Version = 1 }
+                $path = Join-Path ([Environment]::GetFolderPath('UserProfile')) "JUSTGRAPHIT-report-$safe.json"
+                $def  = [pscustomobject]@{ Source = $srcName; Recipe = $recipe; SavedBy = 'JustGraphIT'; Version = 1 }
                 try {
                     $def | ConvertTo-Json -Depth 6 | Set-Content -Path $path -Encoding UTF8
                     Write-IaHost "[$Accent]✓ Saved → $path[/]"
@@ -3054,7 +3054,7 @@ function Invoke-IaTuiReportBuilder {
             }
             'Load report definition' {
                 $userHome = [Environment]::GetFolderPath('UserProfile')
-                $defs = @(Get-ChildItem -Path $userHome -Filter 'PSGRAPHIT-report-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+                $defs = @(Get-ChildItem -Path $userHome -Filter 'JUSTGRAPHIT-report-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
                 $path = $null
                 if ($defs) {
                     $choice = Read-IaMenu -Title 'Load which report?' -Color $Accent -PageSize 15 -Choices (@($defs | ForEach-Object { $_.Name }) + 'Type a path…')
