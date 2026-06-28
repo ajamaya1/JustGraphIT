@@ -511,7 +511,7 @@ dependency is ever introduced.
 Invoke-Pester ./JustGraphIT/JustGraphIT.Tests.ps1
 ```
 
-317 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps and TUI write-menu smoke tests.
+327 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps, TUI write-menu smoke tests, and regression guards that prove secret-bearing views (BitLocker keys / LAPS passwords) cannot be exported to disk or pushed to Teams.
 
 ## Roadmap
 
