@@ -236,6 +236,11 @@
         'Get-EntraExpiringSecret',
         'Get-EntraAppWithoutOwner',
         'Get-EntraAppCredentialSummary',
+        # --- devices blade (Entra device objects) ---
+        'Get-EntraDevice',
+        'Set-EntraDevice',
+        'Remove-EntraDevice',
+        'Get-EntraDeviceRegisteredOwner',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',
