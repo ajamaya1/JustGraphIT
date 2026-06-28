@@ -409,6 +409,13 @@ Anything you'd normally open the portal for, from the command line:
 - *Directory roles* → assign/remove; *PIM* → activate your own eligible role, make a user eligible, **remove eligibility**.
 - *Lifecycle* → invite a guest; inactive-user & guest reports.
 
+<p align="center">
+  <img src="docs/img/entra-enterprise-app-revoke.png" width="820" alt="Enterprise app management: see what an app can do, then revoke a delegated consent grant — from the CLI">
+</p>
+<p align="center">
+  <img src="docs/img/conditional-access-policies.png" width="820" alt="Conditional Access policies you can create (report-only by default), change state, rename and delete">
+</p>
+
 On the Intune side the menus cover browse / assign / **delete** for apps, configuration, compliance, scripts, remediations, update rings (now **create / edit / delete**), feature & driver update profiles, **assignment filters** (create/delete), and legacy device-config + ADMX profiles. Authoring policies whose definition is a full settings-catalog / compliance-rule / script body (`New-IntuneConfigurationPolicy`, `New-IntuneCompliancePolicy`, `New-IntuneScript`, `New-IntuneRemediation`, `New-IntuneAdminTemplate`, and the matching `Set-*` patches) stays a **CLI-first** operation by design — those take structured bodies a menu can't sensibly capture — but everything they create is fully browsable, assignable and deletable from the TUI.
 
 </details>
