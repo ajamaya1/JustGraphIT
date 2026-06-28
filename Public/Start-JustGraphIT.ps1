@@ -1978,6 +1978,34 @@ function Invoke-IaTuiReportView {
     }
 }
 
+function Invoke-IaTuiEntraDeletedItems {
+    # Directory recycle bin — pick a type, then restore or permanently purge a
+    # soft-deleted user / group / app registration (recoverable for 30 days).
+    param([string]$Accent)
+    while ($true) {
+        $type = Read-IaMenu -Title 'Deleted items — which type?' -Color $Accent -Choices @('Users', 'Groups', 'Applications', 'Back')
+        if (-not $type -or $type -eq 'Back') { return }
+        $t = switch ($type) { 'Users' { 'User' } 'Groups' { 'Group' } 'Applications' { 'Application' } }
+        $items = @(Invoke-IaStatus -Spinner Dots -Title "Loading deleted $type…" -ScriptBlock { Get-EntraDeletedItem -Type $t })
+        if (-not $items) { Write-IaHost "[$Accent]✓ Nothing recoverable in the $type recycle bin.[/]"; Read-IaPause | Out-Null; continue }
+        while ($true) {
+            $disp = @($items | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Identifier = $_.Identifier; Deleted = $_.Deleted; DaysLeft = $_.DaysLeft; Id = $_.Id } })
+            $pk = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Deleted $type ($($disp.Count)) · Enter = manage" -Stem 'entra-deleted'
+            if (-not $pk) { break }
+            $act = Read-IaMenu -Title "$($pk.DisplayName)" -Color $Accent -Choices @('Restore', 'Purge permanently', 'Cancel')
+            $changed = $false
+            try {
+                if ($act -eq 'Restore' -and (Read-IaConfirm "Restore '$($pk.DisplayName)'?")) { Restore-EntraDeletedItem -Id $pk.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Restored.[/]"; Read-IaPause | Out-Null; $changed = $true }
+                elseif ($act -eq 'Purge permanently' -and (Read-IaConfirm "[red]Permanently purge '$($pk.DisplayName)'? This cannot be undone.[/]")) { Remove-EntraDeletedItem -Id $pk.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Purged.[/]"; Read-IaPause | Out-Null; $changed = $true }
+            } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+            if ($changed) {
+                $items = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraDeletedItem -Type $t })
+                if (-not $items) { break }
+            }
+        }
+    }
+}
+
 function Invoke-IaTuiEntraTenantSettings {
     # Tenant "Settings" toggles — what the default user role can do, guest-invite policy,
     # and the Security Defaults switch. Enter on a row flips / changes it.
@@ -2183,6 +2211,7 @@ function Invoke-IaTuiEntra {
             'Security / XDR — score · alerts · incidents',
             'Usage & quota — mailbox · OneDrive · SharePoint · Teams',
             'Tenant settings — user defaults · security defaults',
+            'Deleted items — restore / purge users · groups · apps',
             'Back'
         )
         if (-not $pick -or $pick -eq 'Back') { return }
@@ -2200,6 +2229,7 @@ function Invoke-IaTuiEntra {
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
                 'Devices*'            { Invoke-IaTuiEntraDevices -Accent $Accent }
                 'Tenant settings*'    { Invoke-IaTuiEntraTenantSettings -Accent $Accent }
+                'Deleted items*'      { Invoke-IaTuiEntraDeletedItems -Accent $Accent }
                 'Lifecycle*' {
                     $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Invite a guest user', 'Back')
                     switch -Wildcard ($m) {

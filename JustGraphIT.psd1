@@ -252,6 +252,10 @@
         'New-EntraRoleDefinition',
         'Set-EntraRoleDefinition',
         'Remove-EntraRoleDefinition',
+        # --- directory recycle bin (soft-deleted users/groups/apps) ---
+        'Get-EntraDeletedItem',
+        'Restore-EntraDeletedItem',
+        'Remove-EntraDeletedItem',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',
