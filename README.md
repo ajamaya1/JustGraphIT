@@ -76,28 +76,45 @@ count/sum/avg/min/max aggregation:
   <img src="docs/img/report-builder.png" width="760" alt="The custom report builder: select, where, sort, group, export">
 </p>
 
-The **help-desk user lookup** answers "what does this caller have, and why?" from a single
-UPN — its **Overview** shows the user's devices, Entra group memberships and licenses on one
-page (licenses carry friendly product names like *Microsoft 365 E5* and flag any half-
-provisioned service plans):
+## Common workflows
+
+The five things TIDE gets reached for most — each is a few keystrokes from the main menu.
+
+**1. Help-desk user lookup** — one UPN → the caller's devices, Entra group memberships and
+licenses on a single **Overview** page (friendly SKU names like *Microsoft 365 E5*, with
+half-provisioned service plans flagged).
 
 <p align="center">
-  <img src="docs/img/user-lookup-overview.png" width="820" alt="User lookup Overview: devices, Entra groups and licenses on a single page">
+  <img src="docs/img/user-lookup-overview.png" width="820" alt="User lookup Overview: devices, Entra groups and licenses on one page">
 </p>
 
-…and its **sign-in & MFA diagnostics** answer "why can't they log in?" — recent sign-ins
-with the result, the failure reason and the **Conditional Access policy that blocked** the
-attempt, alongside the user's registered MFA methods:
+**2. Sign-in & MFA diagnostics** — "why can't they log in?" Recent sign-ins with the result,
+the failure reason, the **Conditional Access policy that blocked** the attempt, and the
+user's registered MFA methods.
 
 <p align="center">
   <img src="docs/img/user-signin-diagnostics.png" width="820" alt="Recent sign-ins with result, reason and the blocking Conditional Access policy">
 </p>
 
-On the device side, **compliance failures** drill past the `noncompliant` label to the exact
-settings that failed — so the tech sees *what to fix*:
+**3. Compliance failures** — drill past the `noncompliant` label to the exact settings that
+failed (BitLocker, minimum OS), so the tech sees *what to fix*.
 
 <p align="center">
   <img src="docs/img/device-compliance-failures.png" width="760" alt="Per-setting compliance failures for a device: BitLocker and minimum OS version">
+</p>
+
+**4. Device recovery** — the **Windows LAPS local-admin password** (decoded, newest backup
+first) and **BitLocker recovery keys**, straight from the device console.
+
+<p align="center">
+  <img src="docs/img/device-laps-recovery.png" width="820" alt="Windows LAPS local-admin password, decoded, newest backup first">
+</p>
+
+**5. Cloud PC usage** — total active hours and connection counts per Cloud PC (spot the
+heavily-used and the idle), plus daily / quality / frontline / inaccessible reports.
+
+<p align="center">
+  <img src="docs/img/cloudpc-total-usage.png" width="820" alt="Cloud PC total usage: active hours and connection counts per Cloud PC">
 </p>
 
 ## Prerequisites
