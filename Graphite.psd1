@@ -161,6 +161,8 @@
         'Get-EntraUserAuthMethod',
         'Reset-EntraUserMfa',
         'New-EntraUserTempAccessPass',
+        # --- licensing ---
+        'Get-EntraLicense',
         'Start-Graphite'
     )
     CmdletsToExport   = @()

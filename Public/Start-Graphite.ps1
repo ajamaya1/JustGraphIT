@@ -1769,6 +1769,90 @@ function Invoke-IaTuiDashboard {
     }
 }
 
+function Invoke-IaTuiUserActions {
+    # Actionable Entra user management from the help desk: enable/disable, reset
+    # password, revoke sessions, reset MFA, issue a TAP (passkey), group membership,
+    # licensing, property updates. Every write confirms first.
+    param([string]$Accent, [string]$Upn)
+    while ($true) {
+        $enabled = $null
+        try { $enabled = (Get-EntraUser -User $Upn).Enabled } catch { }
+        $toggle = if ($enabled -eq $false) { 'Enable account' } else { 'Disable account' }
+        $act = Read-IaMenu -Title "Manage $Upn" -Color $Accent -PageSize 12 -Choices @(
+            $toggle,
+            'Reset password (temp + force change)',
+            'Revoke all sign-in sessions',
+            'Reset MFA (delete strong methods)',
+            'Issue Temporary Access Pass (passkey enrollment)',
+            'Add to a group',
+            'Remove from a group',
+            'Assign / remove a license',
+            'Update properties (job title · department · office)',
+            'Back'
+        )
+        if (-not $act -or $act -eq 'Back') { return }
+        try {
+            switch -Wildcard ($act) {
+                'Enable account'  { if (Read-IaConfirm "Enable $Upn?")          { Set-EntraUser -User $Upn -AccountEnabled $true  -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]" } }
+                'Disable account' { if (Read-IaConfirm "[red]Disable $Upn?[/]")  { Set-EntraUser -User $Upn -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]" } }
+                'Reset password*' {
+                    if (Read-IaConfirm "Reset password for $Upn?") {
+                        $r = Reset-EntraUserPassword -User $Upn -Confirm:$false
+                        Write-IaHost "[$Accent]✓ Temporary password:[/] [white]$($r.TempPassword)[/]  [grey](must change at next sign-in)[/]"
+                    }
+                }
+                'Revoke all*' { if (Read-IaConfirm "[red]Sign $Upn out of every session?[/]") { Revoke-EntraUserSession -User $Upn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Sessions revoked.[/]" } }
+                'Reset MFA*'  { if (Read-IaConfirm "[red]Delete $Upn's strong MFA methods (forces re-register)?[/]") { $r = Reset-EntraUserMfa -User $Upn -Confirm:$false; Write-IaHost "[$Accent]✓ Removed $($r.MethodsRemoved) method(s).[/]" } }
+                'Issue Temporary*' {
+                    $r = New-EntraUserTempAccessPass -User $Upn -Confirm:$false
+                    Write-IaHost "[$Accent]✓ Temporary Access Pass:[/] [white]$($r.TemporaryAccessPass)[/]  [grey](valid $($r.LifetimeMinutes) min — the user redeems it to enroll a passkey)[/]"
+                }
+                'Add to a group' {
+                    $g = $null; try { $g = Select-IaGroup -Accent $Accent -Title 'Add to which group?' } catch { }
+                    $gn = if ($g -and $g.Id) { $g.Id } else { Read-IaText -Question 'Group name or GUID' }
+                    if (-not [string]::IsNullOrWhiteSpace($gn) -and (Read-IaConfirm "Add $Upn to $(if ($g) { $g.DisplayName } else { $gn })?")) {
+                        Add-EntraUserToGroup -User $Upn -Group $gn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"
+                    }
+                }
+                'Remove from a group' {
+                    $g = $null; try { $g = Select-IaGroup -Accent $Accent -Title 'Remove from which group?' } catch { }
+                    $gn = if ($g -and $g.Id) { $g.Id } else { Read-IaText -Question 'Group name or GUID' }
+                    if (-not [string]::IsNullOrWhiteSpace($gn) -and (Read-IaConfirm "[red]Remove $Upn from $(if ($g) { $g.DisplayName } else { $gn })?[/]")) {
+                        Remove-EntraUserFromGroup -User $Upn -Group $gn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"
+                    }
+                }
+                'Assign / remove*' {
+                    $skus = @(Invoke-IaStatus -Spinner Dots -Title 'Loading tenant SKUs…' -ScriptBlock { Get-EntraLicense })
+                    if (-not $skus) { Write-IaHost '[yellow]No SKUs found.[/]' }
+                    else {
+                        $mode = Read-IaMenu -Title 'License' -Color $Accent -Choices @('Assign', 'Remove', 'Cancel')
+                        if ($mode -in 'Assign', 'Remove') {
+                            $pick = Read-IaSelection -Title "$mode which SKU?" -Color $Accent -Choices (@($skus | ForEach-Object { "$($_.SkuPartNumber)  ($($_.Available) free)" }))
+                            if ($pick) {
+                                $sku = ($pick -split '  ')[0]
+                                if ($mode -eq 'Assign') { Set-EntraUserLicense -User $Upn -AddSku $sku -Confirm:$false | Out-Null }
+                                else { Set-EntraUserLicense -User $Upn -RemoveSku $sku -Confirm:$false | Out-Null }
+                                Write-IaHost "[$Accent]✓ $mode $sku done.[/]"
+                            }
+                        }
+                    }
+                }
+                'Update properties*' {
+                    $jt  = Read-IaText -Question 'Job title (blank = skip)'
+                    $dep = Read-IaText -Question 'Department (blank = skip)'
+                    $off = Read-IaText -Question 'Office location (blank = skip)'
+                    $p = @{ User = $Upn; Confirm = $false }
+                    if ($jt)  { $p.JobTitle = $jt }
+                    if ($dep) { $p.Department = $dep }
+                    if ($off) { $p.OfficeLocation = $off }
+                    if ($p.Count -gt 2) { Set-EntraUser @p | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]" } else { Write-IaHost '[grey]Nothing to update.[/]' }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+        Read-IaPause | Out-Null
+    }
+}
+
 function Invoke-IaTuiUserLookup {
     # Help-desk user report (devices, groups, licenses, sign-in/MFA). Reachable
     # from the first-page menu and from Reports.
@@ -1843,10 +1927,12 @@ function Invoke-IaTuiUserLookup {
                     'Group memberships (Entra)',
                     'Licenses (assigned SKUs + service plans)',
                     'Sign-in & MFA diagnostics (why can''t they log in)',
+                    'Manage user — actions (enable · reset · MFA · groups · license)',
                     'Back'
                 )
                 if (-not $sub -or $sub -eq 'Back') { break }
                 switch -Wildcard ($sub) {
+                    'Manage user*' { Invoke-IaTuiUserActions -Accent $Accent -Upn $upn }
                     'Overview*' {
                         Write-IaTuiHeader -Screen 'User profile' -Sub $upn -Accent $Accent
                         Write-IaHost ("[$Accent]$($uDevices.Count)[/] device(s)  ·  [$Accent]$($uGroups.Count)[/] group(s)  ·  [$Accent]$($uLicenses.Count)[/] license(s)  [grey]for $upn[/]")
