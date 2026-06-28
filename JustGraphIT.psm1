@@ -10,9 +10,9 @@ foreach ($file in @($Private + $Public)) {
     catch { throw "Failed to load $($file.FullName): $_" }
 }
 
-# Short launch aliases: `psg` or `graph` open the TUI.
-Set-Alias -Name psg   -Value Start-PSGraphIT
-Set-Alias -Name graph -Value Start-PSGraphIT
+# Short launch aliases: `jgi` or `graph` open the TUI.
+Set-Alias -Name jgi   -Value Start-JustGraphIT
+Set-Alias -Name graph -Value Start-JustGraphIT
 # Export every loaded Public function; the manifest's FunctionsToExport is the
 # authoritative gate (lets us group several cmdlets per domain file).
-Export-ModuleMember -Function * -Alias psg, graph
+Export-ModuleMember -Function * -Alias jgi, graph
