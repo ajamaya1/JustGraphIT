@@ -162,6 +162,8 @@
         'Reset-EntraUserMfa',
         'New-EntraUserTempAccessPass',
         'New-EntraUser',
+        'Get-EntraInactiveUser',
+        'Get-EntraGuestUser',
         # --- licensing ---
         'Get-EntraLicense',
         # --- groups (Phase 3: lifecycle) ---
