@@ -350,6 +350,31 @@ skipped — the rest of the sweep continues.
 
 </details>
 
+<details>
+<summary><b>Identity · Entra — users, groups, access, apps, security</b></summary>
+
+| Cmdlet | Purpose |
+| ------ | ------- |
+| `Get-/Set-/New-EntraUser` · `Reset-EntraUserPassword` · `Revoke-EntraUserSession` | Find, report, update, create users; reset password; revoke sessions |
+| `Reset-EntraUserMfa` · `New-EntraUserTempAccessPass` · `Get-EntraUserAuthMethod` | MFA reset · Temporary Access Pass (passkey enrollment) · registered methods |
+| `Set-EntraUserLicense` · `Add-/Remove-EntraUserFromGroup` | License assign/remove · group membership |
+| `Get-EntraInactiveUser` · `Get-EntraGuestUser` | Lifecycle hygiene — stale accounts by last sign-in · guest/B2B audit |
+| `Get-/New-/Set-/Remove-EntraGroup` · `Add-/Remove-EntraGroupMember` · `Add-/Remove-EntraGroupOwner` | Groups: list/create (security · M365 · dynamic), members, owners |
+| `Get-EntraLicense` | Tenant SKUs — consumed/available + service plans |
+| `Get-EntraSignIn` · `Get-EntraConditionalAccessPolicy` / `Set-EntraConditionalAccessState` | Sign-ins · Conditional Access policies & state |
+| `Get-EntraRiskyUser` / `Set-EntraRiskyUser` | Identity Protection — dismiss / confirm-compromised |
+| `Get-EntraAppRegistration` · `Get-EntraEnterpriseApp` · `Get-EntraManagedIdentity` | Applications, service principals, managed identities |
+| `Get-EntraExpiringSecret` · `Get-EntraAppWithoutOwner` · `Get-EntraAppCredentialSummary` | App hygiene — expiring secrets/certs, orphaned apps, credential status |
+| `Get-EntraAppPermission` · `Get-EntraRiskyAppPermission` | What an app can do (delegated + application perms) · tenant consent audit (high-risk Graph permissions) |
+| `Remove-EntraAppRoleAssignment` · `Remove-EntraOAuth2Grant` | Revoke an application permission · revoke a delegated consent grant |
+| `Get-EntraDirectoryRole` / `Get-EntraRoleAssignment` · `Get-EntraPimEligibility` / `Get-EntraPimActive` | Directory roles & assignments · PIM eligible/active |
+| `Get-EntraSecureScore` · `Get-EntraSecurityAlert` · `Get-EntraSecurityIncident` | Microsoft 365 Defender / XDR — score, alerts, incidents |
+| `Get-EntraMailboxUsage` · `Get-EntraOneDriveUsage` · `Get-EntraSharePointUsage` · `Get-EntraTeamsUsage` · `Get-EntraM365AppUsage` | Usage & quota reports (mailbox · OneDrive · SharePoint · Teams · M365 Apps) |
+
+All read cmdlets take `-Raw` for the full property set; all writes are `SupportsShouldProcess`-gated. Every endpoint uses Graph **beta**.
+
+</details>
+
 ## Project structure
 
 ```
