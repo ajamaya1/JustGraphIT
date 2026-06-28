@@ -22,7 +22,7 @@ function Get-IntuneAutopilotProfile {
 
     .OUTPUTS
         PSCustomObject per profile: Id, Name, Description, Language, OobeSettings,
-        OutOfBoxExperienceSettings, AssignedDeviceCount, Created, Modified.
+        OutOfBoxExperienceSettings, Created, Modified.
     #>
     [CmdletBinding()]
     param(
@@ -77,7 +77,9 @@ function ConvertTo-IaAutopilotProfileObject {
         Language                  = $Profile.language
         OobeSettings              = $oobeOut
         OutOfBoxExperienceSettings = $oobe
-        AssignedDeviceCount       = $Profile.assignedDeviceCount
+        # NOTE: windowsAutopilotDeploymentProfile has no assignedDeviceCount property
+        # (verified vs beta CSDL — it exposes the assignedDevices navigation instead),
+        # so that field is not surfaced here.
         Created                   = $Profile.createdDateTime
         Modified                  = $Profile.lastModifiedDateTime
     }

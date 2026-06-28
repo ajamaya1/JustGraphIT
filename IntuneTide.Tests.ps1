@@ -1212,6 +1212,23 @@ Describe 'Public cmdlets — Invoke-IntuneDeviceAction (CSDL-verified action ver
     }
 }
 
+Describe 'Public cmdlets — null @odata.type robustness (no hashtable null-index crash)' {
+
+    It 'Get-IntuneCompliancePolicy tolerates a policy with no @odata.type' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest { [pscustomobject]@{ value = @([pscustomobject]@{ id = 'p1'; displayName = 'No-Type Policy' }) } }
+            { Get-IntuneCompliancePolicy } | Should -Not -Throw
+        }
+    }
+
+    It 'Get-IntuneApp tolerates an app with no @odata.type' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaRequest { [pscustomobject]@{ value = @([pscustomobject]@{ id = 'a1'; displayName = 'No-Type App' }) } }
+            { Get-IntuneApp } | Should -Not -Throw
+        }
+    }
+}
+
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {

@@ -30,7 +30,7 @@ function Get-IntuneRbacRole {
         Get-IntuneRbacRole -Id 'Help Desk Operator'
 
     .OUTPUTS
-        PSCustomObject: Id, Name, Description, IsBuiltIn, Permissions, Created, Modified.
+        PSCustomObject: Id, Name, Description, IsBuiltIn, Permissions.
         When -Id is used, also includes ResourceActions array with full permission detail.
     #>
     [CmdletBinding()]
@@ -87,9 +87,9 @@ function ConvertTo-IaRbacRoleObject {
         Description = $Role.description
         IsBuiltIn   = $Role.isBuiltIn
         Permissions = $permissionCount
-        Created     = $Role.createdDateTime
-        Modified    = $Role.lastModifiedDateTime
     }
+    # NOTE: the Intune roleDefinition entity has no createdDateTime / lastModifiedDateTime
+    # (verified against the beta CSDL) — there is nothing to surface here.
 
     if ($IncludeResourceActions) {
         $resourceActions = [System.Collections.Generic.List[object]]::new()
