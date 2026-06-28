@@ -82,10 +82,13 @@ function Get-IaErrorStatus {
 }
 
 function Test-IaRetryable {
-    # 429/503/504 are safe to retry on any verb (request was rejected/never ran);
-    # a 500 is only retried on GET, since a write may have partially applied.
+    # 429 (throttled) is always safe to retry — the request was rejected before it
+    # ran. 503/504 are retried on idempotent verbs, but NOT on POST: a 504 can fire
+    # after the backend already created the object, so retrying a POST risks a
+    # duplicate. 500 is retried on GET only (a write may have partially applied).
     param([int]$Status, [string]$Method)
-    if ($Status -in 429, 503, 504) { return $true }
+    if ($Status -eq 429) { return $true }
+    if ($Status -in 503, 504 -and $Method -ne 'POST') { return $true }
     if ($Status -eq 500 -and $Method -eq 'GET') { return $true }
     $false
 }

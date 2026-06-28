@@ -610,11 +610,15 @@ Describe 'Transient retry (throttling / 429 / 503)' {
     }
 
     Context 'Test-IaRetryable policy' {
-        It 'retries 429/503/504 on any verb' {
+        It 'retries 429 on any verb, but 503/504 only on idempotent verbs (not POST)' {
             InModuleScope JustGraphIT {
-                Test-IaRetryable -Status 429 -Method POST  | Should -BeTrue
+                Test-IaRetryable -Status 429 -Method POST  | Should -BeTrue   # rejected pre-processing
                 Test-IaRetryable -Status 503 -Method PATCH | Should -BeTrue
                 Test-IaRetryable -Status 504 -Method GET   | Should -BeTrue
+                Test-IaRetryable -Status 504 -Method DELETE| Should -BeTrue
+                # a 504 can fire after a POST create committed — retrying would duplicate
+                Test-IaRetryable -Status 503 -Method POST  | Should -BeFalse
+                Test-IaRetryable -Status 504 -Method POST  | Should -BeFalse
             }
         }
         It 'retries 500 only on idempotent GET' {
@@ -2734,6 +2738,38 @@ Describe 'Entra app permissions & consent (beta)' {
             $risky[0].Risk     | Should -Be 'High'
             # -All keeps the benign grant too
             @(Get-EntraRiskyAppPermission -All).Count | Should -Be 2
+        }
+    }
+
+    It 'Get-EntraRiskyAppPermission surfaces an unresolved appRoleId as Unknown (never hides it)' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection {
+                if ($Path -match "appId eq '00000003-0000-0000-c000-000000000000'") {
+                    return @([pscustomobject]@{ id = 'graphsp'; displayName = 'Microsoft Graph'; appRoles = @([pscustomobject]@{ id = 'rKnown'; value = 'User.Read.All' }) })
+                }
+                if ($Path -match 'appRoleAssignedTo') {
+                    return @(
+                        [pscustomobject]@{ id = 'a1'; principalDisplayName = 'Mystery App'; principalId = 'p1'; principalType = 'ServicePrincipal'; appRoleId = 'rUNRESOLVED' }
+                        [pscustomobject]@{ id = 'a2'; principalDisplayName = 'Reader App';  principalId = 'p2'; principalType = 'ServicePrincipal'; appRoleId = 'rKnown' }
+                    )
+                }
+                return @()
+            }
+            $rows = @(Get-EntraRiskyAppPermission)   # default (no -All)
+            # benign-resolved (User.Read.All) is dropped; unresolved is kept as Unknown
+            $rows.App  | Should -Contain 'Mystery App'
+            $rows.App  | Should -Not -Contain 'Reader App'
+            ($rows | Where-Object App -eq 'Mystery App').Risk | Should -Be 'Unknown'
+        }
+    }
+
+    It 'Remove-EntraAppRoleAssignment / Remove-EntraOAuth2Grant reject ids with URL metacharacters' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraServicePrincipalId { 'sp-1' }
+            Mock Invoke-IaRequest { }
+            { Remove-EntraAppRoleAssignment -ServicePrincipal 'p1' -AssignmentId '../victim/x' -Confirm:$false } | Should -Throw
+            { Remove-EntraOAuth2Grant -GrantId 'a/b?c' -Confirm:$false } | Should -Throw
+            Should -Invoke Invoke-IaRequest -Times 0 -Exactly   # never reached the DELETE
         }
     }
 

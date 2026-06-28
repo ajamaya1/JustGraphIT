@@ -123,18 +123,20 @@ function Get-EntraAppPermission {
         }
     }
     foreach ($a in $assignments) {
-        $res  = Get-EntraResourceSp -Id $a.resourceId -Cache $cache
-        $map  = Get-EntraAppRoleMap -ResourceSp $res
-        $name = if ($map.ContainsKey([string]$a.appRoleId)) { $map[[string]$a.appRoleId] } else { [string]$a.appRoleId }
+        $res      = Get-EntraResourceSp -Id $a.resourceId -Cache $cache
+        $map      = Get-EntraAppRoleMap -ResourceSp $res
+        $resolved = $map.ContainsKey([string]$a.appRoleId)
+        $name     = if ($resolved) { $map[[string]$a.appRoleId] } else { [string]$a.appRoleId }
         $rows += [pscustomobject][ordered]@{
             Type       = 'Application'
             Resource   = if ($res) { $res.displayName } else { $a.resourceDisplayName }
             Permission = $name
             Consent    = 'Admin'
-            Risk       = if (Test-EntraHighRiskPermission $name) { 'High' } else { '' }
+            # an unresolved appRoleId is surfaced as Unknown, never silently benign
+            Risk       = if (Test-EntraHighRiskPermission $name) { 'High' } elseif (-not $resolved) { 'Unknown' } else { '' }
         }
     }
-    @($rows | Sort-Object @{ Expression = { if ($_.Risk -eq 'High') { 0 } else { 1 } } }, Type, Resource, Permission)
+    @($rows | Sort-Object @{ Expression = { switch ($_.Risk) { 'High' { 0 } 'Unknown' { 1 } default { 2 } } } }, Type, Resource, Permission)
 }
 
 function Get-EntraRiskyAppPermission {
@@ -147,7 +149,8 @@ function Get-EntraRiskyAppPermission {
     .DESCRIPTION
         Reads the app-role grants made ON the Microsoft Graph service principal — one
         efficient paged call surfaces every consenting app. -All lists every Graph
-        app-role grant; by default only the high-risk ones are returned.
+        app-role grant; by default the high-risk ones AND any whose permission can't be
+        resolved (shown as Unknown — investigate, never assumed safe) are returned.
     .OUTPUTS
         PSCustomObject: App, Permission, Risk, PrincipalType, AppPrincipalId, GrantId.
     #>
@@ -159,18 +162,20 @@ function Get-EntraRiskyAppPermission {
     $assignedTo = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals/$($graph[0].id)/appRoleAssignedTo"))
     if ($Raw) { return $assignedTo }
     $rows = @($assignedTo | ForEach-Object {
-        $name = if ($map.ContainsKey([string]$_.appRoleId)) { $map[[string]$_.appRoleId] } else { [string]$_.appRoleId }
+        $resolved = $map.ContainsKey([string]$_.appRoleId)
+        $name     = if ($resolved) { $map[[string]$_.appRoleId] } else { [string]$_.appRoleId }
         [pscustomobject][ordered]@{
             App            = $_.principalDisplayName
             Permission     = $name
-            Risk           = if (Test-EntraHighRiskPermission $name) { 'High' } else { '' }
+            # never hide an unresolved grant from a security audit — flag it Unknown
+            Risk           = if (Test-EntraHighRiskPermission $name) { 'High' } elseif (-not $resolved) { 'Unknown' } else { '' }
             PrincipalType  = $_.principalType
             AppPrincipalId = $_.principalId
             GrantId        = $_.id
         }
     })
-    if (-not $All) { $rows = @($rows | Where-Object { $_.Risk -eq 'High' }) }
-    @($rows | Sort-Object @{ Expression = { if ($_.Risk -eq 'High') { 0 } else { 1 } } }, App, Permission)
+    if (-not $All) { $rows = @($rows | Where-Object { $_.Risk -in 'High', 'Unknown' }) }
+    @($rows | Sort-Object @{ Expression = { switch ($_.Risk) { 'High' { 0 } 'Unknown' { 1 } default { 2 } } } }, App, Permission)
 }
 
 function Remove-EntraAppRoleAssignment {
@@ -190,7 +195,8 @@ function Remove-EntraAppRoleAssignment {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory, Position = 0)][string]$ServicePrincipal,
-        [Parameter(Mandatory, Position = 1)][string]$AssignmentId
+        # reject path/query metacharacters so the id can't reshape the DELETE URL
+        [Parameter(Mandatory, Position = 1)][ValidatePattern('^[^/?#\s]+$')][string]$AssignmentId
     )
     $spId = Resolve-EntraServicePrincipalId -App $ServicePrincipal
     if ($PSCmdlet.ShouldProcess("$ServicePrincipal ($AssignmentId)", 'Revoke application permission')) {
@@ -209,7 +215,7 @@ function Remove-EntraOAuth2Grant {
         Get-EntraAppPermission -Raw). Revokes the whole grant — every scope it carries.
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-    param([Parameter(Mandatory, Position = 0)][string]$GrantId)
+    param([Parameter(Mandatory, Position = 0)][ValidatePattern('^[^/?#\s]+$')][string]$GrantId)
     if ($PSCmdlet.ShouldProcess($GrantId, 'Revoke delegated consent grant')) {
         Invoke-IaRequest -Method DELETE -Uri (Resolve-IaUri -Path "oauth2PermissionGrants/$GrantId") | Out-Null
         [pscustomobject]@{ GrantId = $GrantId; Revoked = $true }

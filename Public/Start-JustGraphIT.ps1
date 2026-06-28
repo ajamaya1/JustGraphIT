@@ -1924,8 +1924,9 @@ function Invoke-IaTuiEntraConsentAudit {
     param([string]$Accent)
     while ($true) {
         $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Auditing Graph app consents…' -ScriptBlock { Get-EntraRiskyAppPermission })
-        if (-not $rows) { Write-IaHost "[$Accent]✓ No apps hold high-risk Graph application permissions.[/]"; Read-IaPause | Out-Null; return }
-        $disp = @($rows | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Permission = $_.Permission; Risk = (ConvertFrom-IaMarkup '[coral]High[/]'); PrincipalType = $_.PrincipalType; AppId = $_.AppPrincipalId; GrantId = $_.GrantId } })
+        if (-not $rows) { Write-IaHost "[$Accent]✓ No high-risk or unresolved Graph application permissions found.[/]"; Read-IaPause | Out-Null; return }
+        # pass the markup string (not pre-rendered ANSI) so `e` export stays clean
+        $disp = @($rows | ForEach-Object { $rc = if ($_.Risk -eq 'Unknown') { 'yellow' } else { 'coral' }; [pscustomobject][ordered]@{ App = $_.App; Permission = $_.Permission; Risk = "[$rc]$($_.Risk)[/]"; PrincipalType = $_.PrincipalType; AppId = $_.AppPrincipalId; GrantId = $_.GrantId } })
         $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Risky Graph consents ($($disp.Count)) · Enter = revoke" -Stem 'entra-consent'
         if (-not $picked) { return }
         $act = Read-IaMenu -Title "$($picked.App) — $($picked.Permission)" -Color $Accent -Choices @('Revoke this permission', 'Cancel')
