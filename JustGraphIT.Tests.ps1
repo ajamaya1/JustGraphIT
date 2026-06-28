@@ -2852,6 +2852,125 @@ Describe 'Entra lifecycle hygiene (beta)' {
     }
 }
 
+Describe 'Entra write actions — permissions, consent, provisioning (beta)' {
+
+    It 'Add-EntraAppPermission resolves names and PATCHes requiredResourceAccess (Role)' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest {
+                $script:m = $Method; $script:u = $Uri; $script:b = $Body
+                if ($Method -eq 'GET' -and $Uri -match '/applications/22222222') {
+                    return [pscustomobject]@{ id = '22222222-2222-2222-2222-222222222222'; appId = 'client-app-id'; displayName = 'CI App'; requiredResourceAccess = @() }
+                }
+                return $null
+            }
+            Mock Get-IaCollection {
+                if ($Path -match "appId eq '00000003-0000-0000-c000-000000000000'") {
+                    return @([pscustomobject]@{ id = 'graphsp'; appId = '00000003-0000-0000-c000-000000000000'; displayName = 'Microsoft Graph'
+                            appRoles = @([pscustomobject]@{ id = 'role-urall'; value = 'User.Read.All'; isEnabled = $true }); oauth2PermissionScopes = @() })
+                }
+                return @()
+            }
+            Add-EntraAppPermission -App '22222222-2222-2222-2222-222222222222' -Permission 'User.Read.All' -Type Application -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/applications/22222222-2222-2222-2222-222222222222$'
+            $rra = @($script:b.requiredResourceAccess)
+            $rra[0].resourceAppId          | Should -Be '00000003-0000-0000-c000-000000000000'
+            @($rra[0].resourceAccess)[0].id   | Should -Be 'role-urall'
+            @($rra[0].resourceAccess)[0].type | Should -Be 'Role'
+        }
+    }
+
+    It 'Grant-EntraAdminConsent creates an appRoleAssignment (Role) and an AllPrincipals grant (Scope)' {
+        InModuleScope JustGraphIT {
+            $script:posts = [System.Collections.Generic.List[object]]::new()
+            Mock Invoke-IaRequest {
+                if ($Method -eq 'GET' -and $Uri -match '/applications/33333333') {
+                    return [pscustomobject]@{ id = '33333333-3333-3333-3333-333333333333'; appId = 'client-app-id'; displayName = 'Worker'
+                        requiredResourceAccess = @([pscustomobject]@{ resourceAppId = '00000003-0000-0000-c000-000000000000'
+                                resourceAccess = @([pscustomobject]@{ id = 'role1'; type = 'Role' }, [pscustomobject]@{ id = 'scope1'; type = 'Scope' }) }) }
+                }
+                if ($Method -eq 'POST') { $script:posts.Add([pscustomobject]@{ Uri = $Uri; Body = $Body }) }
+                return [pscustomobject]@{ id = 'new' }
+            }
+            Mock Get-IaCollection {
+                if ($Path -match "appId eq 'client-app-id'") { return @([pscustomobject]@{ id = 'clientsp'; appId = 'client-app-id'; displayName = 'Worker' }) }
+                if ($Path -match "appId eq '00000003-0000-0000-c000-000000000000'") {
+                    return @([pscustomobject]@{ id = 'graphsp'; appId = '00000003-0000-0000-c000-000000000000'; displayName = 'Microsoft Graph'
+                            appRoles = @([pscustomobject]@{ id = 'role1'; value = 'Directory.ReadWrite.All' })
+                            oauth2PermissionScopes = @([pscustomobject]@{ id = 'scope1'; value = 'User.Read' }) })
+                }
+                if ($Path -match 'oauth2PermissionGrants\?') { return @() }   # no existing grant
+                return @()
+            }
+            Grant-EntraAdminConsent -App '33333333-3333-3333-3333-333333333333' -Confirm:$false | Out-Null
+            $rolePost  = $script:posts | Where-Object { $_.Uri -match '/servicePrincipals/clientsp/appRoleAssignments$' } | Select-Object -First 1
+            $grantPost = $script:posts | Where-Object { $_.Uri -match '/oauth2PermissionGrants$' } | Select-Object -First 1
+            $rolePost  | Should -Not -BeNullOrEmpty
+            $rolePost.Body.appRoleId   | Should -Be 'role1'
+            $rolePost.Body.resourceId  | Should -Be 'graphsp'
+            $rolePost.Body.principalId | Should -Be 'clientsp'
+            $grantPost | Should -Not -BeNullOrEmpty
+            $grantPost.Body.consentType | Should -Be 'AllPrincipals'
+            $grantPost.Body.scope       | Should -Be 'User.Read'
+        }
+    }
+
+    It 'New-EntraServicePrincipal POSTs the appId to beta /servicePrincipals' {
+        InModuleScope JustGraphIT {
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest {
+                $script:u = $Uri; $script:b = $Body
+                if ($Method -eq 'GET') { return [pscustomobject]@{ id = '44444444-4444-4444-4444-444444444444'; appId = 'the-app-id'; displayName = 'New Daemon' } }
+                return [pscustomobject]@{ id = 'sp-new' }
+            }
+            Mock Get-IaCollection { @() }   # no existing SP
+            $r = New-EntraServicePrincipal -App '44444444-4444-4444-4444-444444444444' -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals$'
+            $script:b.appId | Should -Be 'the-app-id'
+            $r.Created | Should -BeTrue
+        }
+    }
+
+    It 'New-EntraGuestInvitation POSTs the invitation and returns the redeem URL' {
+        InModuleScope JustGraphIT {
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest {
+                $script:u = $Uri; $script:b = $Body
+                [pscustomobject]@{ status = 'PendingAcceptance'; inviteRedeemUrl = 'https://redeem/abc'; invitedUserDisplayName = 'Dana'; invitedUser = [pscustomobject]@{ id = 'guest-1' } }
+            }
+            $r = New-EntraGuestInvitation -EmailAddress 'dana@contoso.com' -DisplayName 'Dana' -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/invitations$'
+            $script:b.invitedUserEmailAddress | Should -Be 'dana@contoso.com'
+            $script:b.sendInvitationMessage   | Should -Be $false
+            $r.UserId    | Should -Be 'guest-1'
+            $r.RedeemUrl | Should -Be 'https://redeem/abc'
+        }
+    }
+
+    It 'New-EntraTeam creates a Unified group with an owner bind then PUTs the team' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'owner-1' }
+            $script:calls = [System.Collections.Generic.List[object]]::new()
+            Mock Invoke-IaRequest {
+                $script:calls.Add([pscustomobject]@{ Method = $Method; Uri = $Uri; Body = $Body })
+                if ($Method -eq 'POST') { return [pscustomobject]@{ id = 'grp-1' } }
+                return [pscustomobject]@{ id = 'team-1' }   # PUT teamify
+            }
+            $r = New-EntraTeam -Name 'Project Atlas' -Owner 'aaron@x.com' -Visibility Private -Confirm:$false
+            $groupPost = $script:calls | Where-Object { $_.Method -eq 'POST' -and $_.Uri -match '/groups$' } | Select-Object -First 1
+            $teamPut   = $script:calls | Where-Object { $_.Method -eq 'PUT'  -and $_.Uri -match '/groups/grp-1/team$' } | Select-Object -First 1
+            $groupPost | Should -Not -BeNullOrEmpty
+            @($groupPost.Body.groupTypes)               | Should -Contain 'Unified'
+            $groupPost.Body.'owners@odata.bind'         | Should -Match 'users/owner-1'
+            $groupPost.Body.visibility                  | Should -Be 'Private'
+            $teamPut   | Should -Not -BeNullOrEmpty
+            $r.Teamified | Should -BeTrue
+            $r.GroupId   | Should -Be 'grp-1'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {
