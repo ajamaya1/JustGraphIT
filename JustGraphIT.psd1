@@ -241,6 +241,11 @@
         'Set-EntraDevice',
         'Remove-EntraDevice',
         'Get-EntraDeviceRegisteredOwner',
+        # --- tenant settings & properties blade ---
+        'Get-EntraAuthorizationPolicy',
+        'Set-EntraAuthorizationPolicy',
+        'Get-EntraSecurityDefault',
+        'Set-EntraSecurityDefault',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',

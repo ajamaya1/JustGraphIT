@@ -3482,6 +3482,44 @@ Describe 'Security hardening (review fixes)' {
     }
 }
 
+Describe 'Entra Tenant Settings blade (beta)' {
+    It 'Get-EntraAuthorizationPolicy projects the default user-role permissions' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { [pscustomobject]@{ allowInvitesFrom = 'everyone'; allowedToUseSSPR = $true; defaultUserRolePermissions = [pscustomobject]@{ allowedToCreateApps = $true; allowedToCreateSecurityGroups = $false; allowedToCreateTenants = $false; allowedToReadOtherUsers = $true; allowedToReadBitlockerKeysForOwnedDevice = $false } } }
+            $r = Get-EntraAuthorizationPolicy
+            $r.UsersCanCreateApps    | Should -Be $true
+            $r.UsersCanCreateTenants | Should -Be $false
+            $r.AllowInvitesFrom      | Should -Be 'everyone'
+        }
+    }
+
+    It 'Set-EntraAuthorizationPolicy read-modify-writes defaultUserRolePermissions to the doubled segment' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest {
+                $script:m = $Method; $script:u = $Uri; $script:b = $Body
+                if ($Method -eq 'GET') { return [pscustomobject]@{ defaultUserRolePermissions = [pscustomobject]@{ allowedToCreateApps = $true; allowedToCreateSecurityGroups = $true; allowedToCreateTenants = $true; allowedToReadOtherUsers = $true; allowedToReadBitlockerKeysForOwnedDevice = $false } } }
+            }
+            Set-EntraAuthorizationPolicy -UsersCanCreateApps $false -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match '/policies/authorizationPolicy/authorizationPolicy$'   # doubled segment
+            $script:b.defaultUserRolePermissions.allowedToCreateApps    | Should -Be $false
+            $script:b.defaultUserRolePermissions.allowedToCreateTenants | Should -Be $true    # untouched toggle preserved
+        }
+    }
+
+    It 'Set-EntraSecurityDefault PATCHes isEnabled' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; $script:b = $Body }
+            Set-EntraSecurityDefault -Enabled $false -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match 'identitySecurityDefaultsEnforcementPolicy$'
+            $script:b.isEnabled | Should -Be $false
+        }
+    }
+}
+
 Describe 'Entra Devices blade (beta)' {
     It 'Get-EntraDevice -Disabled filters on accountEnabled and projects the device' {
         InModuleScope JustGraphIT {
