@@ -2971,6 +2971,77 @@ Describe 'Entra write actions — permissions, consent, provisioning (beta)' {
     }
 }
 
+Describe 'Entra app-registration lifecycle (beta)' {
+    It 'New-EntraAppRegistration POSTs displayName + audience + web redirect URI' {
+        InModuleScope JustGraphIT {
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'app-obj'; appId = 'app-id'; displayName = 'New App'; signInAudience = 'AzureADMyOrg' } }
+            $r = New-EntraAppRegistration -Name 'New App' -RedirectUri 'https://app/callback' -Platform Web -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/applications$'
+            $script:b.displayName    | Should -Be 'New App'
+            $script:b.signInAudience | Should -Be 'AzureADMyOrg'
+            @($script:b.web.redirectUris) | Should -Contain 'https://app/callback'
+            $r.AppId | Should -Be 'app-id'
+        }
+    }
+
+    It 'New-EntraAppSecret POSTs addPassword and surfaces the one-time secret' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                if ($Method -eq 'GET') { return [pscustomobject]@{ id = 'app-obj'; appId = 'app-id'; displayName = 'CI App' } }
+                $script:u = $Uri; $script:b = $Body
+                [pscustomobject]@{ keyId = 'sec-1'; displayName = 'ci'; endDateTime = '2027-06-28T00:00:00Z'; secretText = 'S3cr3t!value' }
+            }
+            $r = New-EntraAppSecret -App '55555555-5555-5555-5555-555555555555' -DisplayName 'ci' -Months 6 -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/applications/app-obj/addPassword$'
+            $script:b.passwordCredential.displayName | Should -Be 'ci'
+            $r.Secret   | Should -Be 'S3cr3t!value'
+            $r.SecretId | Should -Be 'sec-1'
+        }
+    }
+
+    It 'Add-EntraAppRedirectUri merges with existing URIs and PATCHes the platform' {
+        InModuleScope JustGraphIT {
+            $script:patch = $null
+            Mock Invoke-IaRequest {
+                if ($Method -eq 'GET' -and $Uri -match 'addPassword') { return $null }
+                if ($Method -eq 'GET' -and $Uri -match '\$select=web') { return [pscustomobject]@{ web = [pscustomobject]@{ redirectUris = @('https://old/cb') } } }
+                if ($Method -eq 'GET') { return [pscustomobject]@{ id = 'app-obj'; appId = 'a'; displayName = 'App' } }
+                if ($Method -eq 'PATCH') { $script:patch = $Body }
+                $null
+            }
+            Add-EntraAppRedirectUri -App '66666666-6666-6666-6666-666666666666' -Uri 'https://new/cb' -Platform Web -Confirm:$false | Out-Null
+            @($script:patch.web.redirectUris) | Should -Contain 'https://old/cb'
+            @($script:patch.web.redirectUris) | Should -Contain 'https://new/cb'
+        }
+    }
+
+    It 'Add-EntraAppOwner POSTs a directoryObjects ref to applications/{id}/owners/$ref' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraUserId { 'user-7' }
+            Mock Invoke-IaRequest {
+                if ($Method -eq 'GET') { return [pscustomobject]@{ id = 'app-obj'; appId = 'a'; displayName = 'App' } }
+                $script:u = $Uri; $script:b = $Body; $null
+            }
+            Add-EntraAppOwner -App '77777777-7777-7777-7777-777777777777' -Owner 'bob@x.com' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/applications/app-obj/owners/\$ref$'
+            $script:b.'@odata.id' | Should -Match 'directoryObjects/user-7$'
+        }
+    }
+
+    It 'Remove-EntraAppRegistration DELETEs /beta/applications/{id}' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                if ($Method -eq 'GET') { return [pscustomobject]@{ id = 'app-obj'; appId = 'a'; displayName = 'Doomed' } }
+                $script:m = $Method; $script:u = $Uri; $null
+            }
+            Remove-EntraAppRegistration -App '88888888-8888-8888-8888-888888888888' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/applications/app-obj$'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {
