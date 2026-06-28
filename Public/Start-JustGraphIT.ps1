@@ -87,12 +87,13 @@ function Start-JustGraphIT {
 
     while ($true) {
         # Actions are listed alphabetically (utility items pinned at the bottom).
-        $choice = Read-IaMenu -Title "Choose an action" -Header $splashHeader -Color $accent -PageSize 16 -ShowGraphFooter -Choices @(
+        $choice = Read-IaMenu -Title "Choose an action" -Header $splashHeader -Color $accent -PageSize 17 -ShowGraphFooter -Choices @(
             'Apps (list · assign · Win32 details)',
             'Assign a group to many (pick which)',
             'Audit',
             'Autopilot & enrollment (devices · profiles · restrictions)',
             'Backup / Restore / Drift',
+            'Build a group from a query (stale devices · users → group)',
             'Compare two groups',
             'Dashboard (device management overview · live)',
             'Elevate (PIM) — activate an eligible role',
@@ -120,6 +121,7 @@ function Start-JustGraphIT {
                 'Help desk*'      { Invoke-IaTuiHelpDesk    -Accent $accent }
                 'Identity*'       { Invoke-IaTuiEntra       -Accent $accent }
                 'Group lookup*'   { Invoke-IaTuiGroupLookup -Accent $accent }
+                'Build a group*'  { Invoke-IaTuiBuildGroupFromQuery -Accent $accent }
                 'Compare*'        { Invoke-IaTuiCompare     -Accent $accent }
                 'What-if*'        { Invoke-IaTuiWhatIf      -Accent $accent }
                 'Mirror*'         { Invoke-IaTuiMirror      -Accent $accent }
@@ -2197,6 +2199,82 @@ function Invoke-IaTuiEntraPim {
             }
         } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
+}
+
+function Invoke-IaTuiBuildGroupFromQuery {
+    # Query → push to group. Filter a population (stale devices / users by name /
+    # inactive users), review it, then add the whole set to a new or existing group.
+    param([string]$Accent)
+    $src = Read-IaMenu -Title 'Build a group from…' -Color $Accent -PageSize 6 -Choices @(
+        'Devices not synced in N days', 'Users by display-name prefix', 'Inactive users (no sign-in in N days)', 'Back')
+    if (-not $src -or $src -eq 'Back') { return }
+
+    $objIds = @(); $what = ''
+    try {
+        switch -Wildcard ($src) {
+            'Devices not synced*' {
+                $dC = Read-IaMenu -Title 'Not synced in…' -Color $Accent -Choices @('7 days', '14 days', '30 days', '60 days', '90 days')
+                if (-not $dC) { return }
+                $days = [int]($dC -replace '\D')
+                $devs = @(Invoke-IaStatus -Spinner Dots -Title "Finding devices stale > $days days…" -ScriptBlock { Get-IntuneStaleDevice -Days $days })
+                if (-not $devs) { Write-IaHost "[$Accent]✓ No devices stale beyond $days days.[/]"; Read-IaPause | Out-Null; return }
+                $disp = @($devs | ForEach-Object { [pscustomobject][ordered]@{ DeviceName = $_.DeviceName; OS = $_.OS; LastSync = $_.LastSync; DaysStale = $_.DaysStale; User = $_.User } })
+                Read-IaTablePause -Data $disp -Color $Accent -Title "Stale devices ($($devs.Count)) · not synced > $days days" -Stem 'q2g-dev' | Out-Null
+                $what = "$($devs.Count) device(s) not synced > $days days"
+                if (-not (Read-IaConfirm "Add these $($devs.Count) device(s) to a group?")) { return }
+                $objIds = @(Invoke-IaStatus -Spinner Dots -Title 'Resolving device objects…' -ScriptBlock { $devs | ForEach-Object { Resolve-EntraDeviceObjectId -AzureAdDeviceId $_.AzureAdDeviceId } | Where-Object { $_ } })
+            }
+            'Users by display-name*' {
+                $prefix = Read-IaText -Question 'Display name starts with'
+                if ([string]::IsNullOrWhiteSpace($prefix)) { return }
+                $f = "startswith(displayName,'$($prefix.Replace("'", "''"))')"
+                $users = @(Invoke-IaStatus -Spinner Dots -Title "Finding users starting '$prefix'…" -ScriptBlock { Get-EntraUser -Filter $f -Top 999 })
+                if (-not $users) { Write-IaHost "[$Accent]No users match '$prefix'.[/]"; Read-IaPause | Out-Null; return }
+                $disp = @($users | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; UPN = $_.UPN; Department = $_.Department } })
+                Read-IaTablePause -Data $disp -Color $Accent -Title "Users starting '$prefix' ($($users.Count))" -Stem 'q2g-usr' | Out-Null
+                $what = "$($users.Count) user(s) starting '$prefix'"
+                if (-not (Read-IaConfirm "Add these $($users.Count) user(s) to a group?")) { return }
+                $objIds = @($users | ForEach-Object { $_.Id } | Where-Object { $_ })
+            }
+            'Inactive users*' {
+                $dC = Read-IaMenu -Title 'No sign-in in…' -Color $Accent -Choices @('30 days', '60 days', '90 days', '180 days')
+                if (-not $dC) { return }
+                $days = [int]($dC -replace '\D')
+                $users = @(Invoke-IaStatus -Spinner Dots -Title "Finding users inactive > $days days…" -ScriptBlock { Get-EntraInactiveUser -Days $days })
+                if (-not $users) { Write-IaHost "[$Accent]✓ No inactive users.[/]"; Read-IaPause | Out-Null; return }
+                $disp = @($users | ForEach-Object { [pscustomobject][ordered]@{ User = $_.User; LastSignIn = $_.LastSignIn; DaysInactive = $_.DaysInactive } })
+                Read-IaTablePause -Data $disp -Color $Accent -Title "Inactive users ($($users.Count))" -Stem 'q2g-inact' | Out-Null
+                $what = "$($users.Count) user(s) inactive > $days days"
+                if (-not (Read-IaConfirm "Add these $($users.Count) user(s) to a group?")) { return }
+                $objIds = @($users | ForEach-Object { $_.Id } | Where-Object { $_ })
+            }
+        }
+        if (-not $objIds) { Write-IaHost '[coral]Could not resolve any of those to directory objects.[/]'; Read-IaPause | Out-Null; return }
+
+        $gMode = Read-IaMenu -Title "Target group for $what" -Color $Accent -Choices @('Create a new security group', 'Pick an existing group')
+        if (-not $gMode) { return }
+        $groupRef = $null; $groupName = $null
+        if ($gMode -like 'Create*') {
+            $gn = Read-IaText -Question 'New security-group name'
+            if ([string]::IsNullOrWhiteSpace($gn)) { return }
+            $g = New-EntraGroup -Name $gn -Type Security -Confirm:$false
+            $groupRef = $g.Id; $groupName = $g.DisplayName
+        } else {
+            $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock { Get-EntraGroup -Top 500 })
+            if (-not $groups) { Write-IaHost '[yellow]No groups.[/]'; Read-IaPause | Out-Null; return }
+            $gd = @($groups | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Type = $_.Type; Membership = $_.Membership; Id = $_.Id } })
+            $gp = Read-IaTableInteractive -Data $gd -Color $Accent -Selectable -Title 'Pick the target group · Enter = select' -Stem 'q2g-grp'
+            if (-not $gp) { return }
+            if ($gp.Membership -eq 'Dynamic') { Write-IaHost '[yellow]That group is dynamic — its members are rule-driven and cannot be set manually.[/]'; Read-IaPause | Out-Null; return }
+            $groupRef = $gp.Id; $groupName = $gp.DisplayName
+        }
+
+        $res = Add-EntraGroupMemberBulk -Group $groupRef -MemberId $objIds -Confirm:$false
+        $msg = "[$Accent]✓ Added $($res.Added) of $($res.Requested) → '$groupName'.[/]"
+        if ($res.Failed) { $msg += " [coral]$($res.Failed) failed.[/]" }
+        Write-IaHost $msg
+    } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+    Read-IaPause | Out-Null
 }
 
 function Invoke-IaTuiEntraInviteGuest {

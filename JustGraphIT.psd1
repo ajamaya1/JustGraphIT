@@ -58,6 +58,7 @@
         # --- device actions & detail ---
         'Invoke-IntuneDeviceAction',
         'Get-IntuneDeviceDetail',
+        'Get-IntuneStaleDevice',
         'Get-IntuneBitLockerKey',
         'Get-IntuneLapsCredential',
         'Get-IntuneDeviceGroupMembership',
@@ -173,6 +174,7 @@
         'New-EntraGroup',
         'Set-EntraGroup',
         'Add-EntraGroupMember',
+        'Add-EntraGroupMemberBulk',
         'Remove-EntraGroupMember',
         'Add-EntraGroupOwner',
         'Remove-EntraGroupOwner',

@@ -3170,6 +3170,60 @@ Describe 'Entra Conditional Access authoring (beta)' {
     }
 }
 
+Describe 'Query to group pipeline (beta)' {
+    It 'Get-IntuneStaleDevice filters managedDevices on lastSyncDateTime and computes DaysStale' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection {
+                $script:p = $Path
+                @([pscustomobject]@{ deviceName = 'OLD-PC'; operatingSystem = 'Windows'; osVersion = '10.0'; lastSyncDateTime = '2020-01-01T00:00:00Z'
+                        userPrincipalName = 'a@x.com'; managedDeviceOwnerType = 'company'; complianceState = 'compliant'; azureADDeviceId = 'aad-1'; id = 'md-1' })
+            }
+            $rows = @(Get-IntuneStaleDevice -Days 30)
+            $script:p | Should -Match 'graph\.microsoft\.com/beta/deviceManagement/managedDevices'
+            $script:p | Should -Match 'lastSyncDateTime'
+            $rows[0].DeviceName      | Should -Be 'OLD-PC'
+            $rows[0].AzureAdDeviceId | Should -Be 'aad-1'
+            $rows[0].DaysStale       | Should -BeGreaterThan 30
+        }
+    }
+
+    It 'Resolve-EntraDeviceObjectId maps an azureADDeviceId to the Entra device object id' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'dev-obj-1' }) }
+            Resolve-EntraDeviceObjectId -AzureAdDeviceId 'aad-xyz' | Should -Be 'dev-obj-1'
+            $script:p | Should -Match "devices\?.*deviceId eq 'aad-xyz'"
+        }
+    }
+
+    It 'Add-EntraGroupMemberBulk adds each member via $ref and counts already-members as added' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'g-1' }
+            $script:n = 0
+            Mock Invoke-IaRequest {
+                $script:n++
+                if ($script:n -eq 2) { throw 'One or more added object references already exist for the following modified properties: members.' }
+            }
+            $r = Add-EntraGroupMemberBulk -Group 'Stale devices' -MemberId 'o1', 'o2', 'o3' -Confirm:$false
+            Should -Invoke Invoke-IaRequest -Times 3 -Exactly
+            $r.Added    | Should -Be 3
+            $r.Failed   | Should -Be 0
+            $r.Requested | Should -Be 3
+        }
+    }
+
+    It 'Add-EntraGroupMemberBulk records genuine failures' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'g-1' }
+            Mock Invoke-IaRequest { throw 'Insufficient privileges' }
+            $r = Add-EntraGroupMemberBulk -Group 'g' -MemberId 'o1', 'o2' -Confirm:$false
+            $r.Added  | Should -Be 0
+            $r.Failed | Should -Be 2
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {
