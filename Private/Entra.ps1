@@ -63,3 +63,27 @@ function Resolve-EntraDirectoryObjectRef {
     param([string]$Id)
     "https://graph.microsoft.com/beta/directoryObjects/$Id"
 }
+
+function Get-IaGraphReportCsv {
+    # Microsoft 365 usage reports (reports/get*) return CSV, not JSON, so they can't
+    # go through Invoke-IaRequest (which forces OutputType=PSObject). Fetch the raw
+    # response and parse it. Logged to the Graph-call log like everything else.
+    param([Parameter(Mandatory)][string]$Path)
+    $uri = Resolve-IaUri -Path $Path
+    $sw  = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $resp   = Invoke-MgGraphRequest -Method GET -Uri $uri -OutputType HttpResponseMessage -ErrorAction Stop
+        $text   = $resp.Content.ReadAsStringAsync().Result
+        $status = try { [int]$resp.StatusCode } catch { 200 }
+        if ([string]::IsNullOrWhiteSpace($text)) { Add-IaCall -Method GET -Uri $uri -Status $status -Ms $sw.Elapsed.TotalMilliseconds -Count 0; return @() }
+        $text = $text.TrimStart([char]0xFEFF)   # strip UTF-8 BOM
+        $rows = @($text | ConvertFrom-Csv)
+        Add-IaCall -Method GET -Uri $uri -Status $status -Ms $sw.Elapsed.TotalMilliseconds -Count $rows.Count
+        return $rows
+    } catch {
+        Add-IaCall -Method GET -Uri $uri -Status 0 -Ms $sw.Elapsed.TotalMilliseconds -Count 0 -ErrorText $_.Exception.Message
+        throw
+    }
+}
+
+function ConvertTo-IaGB { param($Bytes) if ($Bytes) { [math]::Round([double]$Bytes / 1GB, 2) } else { 0 } }

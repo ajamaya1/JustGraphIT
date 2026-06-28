@@ -200,6 +200,12 @@
         'Get-EntraSecureScore',
         'Get-EntraSecurityAlert',
         'Get-EntraSecurityIncident',
+        # --- usage & quota reports (M365) ---
+        'Get-EntraMailboxUsage',
+        'Get-EntraOneDriveUsage',
+        'Get-EntraSharePointUsage',
+        'Get-EntraTeamsUsage',
+        'Get-EntraM365AppUsage',
         'Start-Graphite'
     )
     CmdletsToExport   = @()
