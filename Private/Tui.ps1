@@ -1234,7 +1234,11 @@ function Read-IaTableInteractive {
         # Columns to drop from the RENDER and EXPORT while leaving them on the row
         # object selection returns — e.g. hide a real grant id (show a masked one) but
         # still hand the true id to the revoke action. Sensitive values never leave here.
-        [string[]]$HideColumns = @()
+        [string[]]$HideColumns = @(),
+        # Disable the file-export ('e') and push-to-Teams ('p') actions entirely. Use for
+        # secret-bearing views (BitLocker keys, LAPS passwords) so a revealed secret can
+        # never be written to a temp file or shipped to a webhook.
+        [switch]$NoExport
     )
 
     $rows = @($Data | Where-Object { $null -ne $_ })
@@ -1445,8 +1449,9 @@ function Read-IaTableInteractive {
         else {
             $cnt    = "$dim[$reset$rs-$re of $total$dim]$reset"
             $selTip = if ($Selectable) { ' · Enter select' } else { '' }
+            $expTip = if ($NoExport) { '' } else { ' · e export · p Teams' }
             $clrTip = if ($st.query) { "  $dim(filter: $reset$border$($st.query)$reset$dim · Esc clear)$reset" } else { '' }
-            [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search · e export · p Teams · ? help$selTip · q back$reset$clrTip")
+            [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search$expTip · ? help$selTip · q back$reset$clrTip")
         }
 
         Write-IaRaw ("$($script:IaEsc)[2J$($script:IaEsc)[3J$($script:IaEsc)[H" + $buf.ToString()) -NoNewline
@@ -1466,7 +1471,7 @@ function Read-IaTableInteractive {
         $hl.Add('  [grey]/[/]           open search filter (real-time)')
         $hl.Add('  [grey]Esc[/]         clear filter / go back')
         $hl.Add('')
-        $hl.Add('  [grey]e[/]           export (CSV · Excel · JSON)')
+        if (-not $NoExport) { $hl.Add('  [grey]e[/]           export (CSV · Excel · JSON)') }
         $hl.Add('  [grey]?[/]           this help overlay')
         if ($Selectable) { $hl.Add('  [grey]Enter[/]       select row · drill-down') }
         $hl.Add('  [grey]q[/]           go back')
@@ -1566,8 +1571,8 @@ function Read-IaTableInteractive {
                     default     {
                         switch ($ev.KeyChar) {
                             '/'  { $st.searching = $true; & $renderFrame }
-                            'e'  { Invoke-IaExport -Data $exportRows -Stem $Stem -Color $Color; & $renderFrame }
-                            'p'  { Invoke-IaPushToTeams -Data $exportRows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame }
+                            'e'  { if (-not $NoExport) { Invoke-IaExport -Data $exportRows -Stem $Stem -Color $Color; & $renderFrame } }
+                            'p'  { if (-not $NoExport) { Invoke-IaPushToTeams -Data $exportRows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame } }
                             '?'  { & $showHelp }
                             'q'  { return $null }
                             'j'  { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ }; & $renderFrame }
@@ -1582,6 +1587,7 @@ function Read-IaTableInteractive {
     finally {
         Stop-IaMouse    # mouse off + restore console mode
         $bh = 50; try { $bh = [Console]::WindowHeight } catch { }
+        if ($bh -lt 1) { $bh = 50 }   # redirected output reports -1/0; "`n" * -1 would throw
         Write-IaRaw ("$($script:IaEsc)[H" + ("$($script:IaEsc)[2K`n" * $bh) + "$($script:IaEsc)[H") -NoNewline
         Write-IaRaw (Get-IaSeq '?25h') -NoNewline    # show cursor
     }
@@ -1595,9 +1601,10 @@ function Read-IaTablePause {
         [object[]]$Data,
         [string]$Stem  = 'JUSTGRAPHIT-export',
         [string]$Color = 'turquoise2',
-        [string]$Title = ''
+        [string]$Title = '',
+        [switch]$NoExport
     )
-    [void](Read-IaTableInteractive -Data @($Data) -Stem $Stem -Color $Color -Title $Title)
+    [void](Read-IaTableInteractive -Data @($Data) -Stem $Stem -Color $Color -Title $Title -NoExport:$NoExport)
 }
 
 # ─── custom report pipeline engine (pure data — unit-testable) ────────────────

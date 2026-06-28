@@ -1948,7 +1948,7 @@ function Invoke-IaTuiDashboard {
 function Show-IaAllFields {
     # Render every populated property of an object (incl. nested hashtables/arrays as
     # compact JSON) as a scrollable Property / Value table. The "all properties" view.
-    param([string]$Accent, [object]$Object, [string]$Title = 'All fields', [string]$Stem = 'allfields')
+    param([string]$Accent, [object]$Object, [string]$Title = 'All fields', [string]$Stem = 'allfields', [switch]$NoExport)
     if ($null -eq $Object) { return }
     $keys = if ($Object -is [System.Collections.IDictionary]) { @($Object.Keys) } else { @($Object.PSObject.Properties.Name) }
     $rows = foreach ($k in ($keys | Sort-Object)) {
@@ -1960,21 +1960,22 @@ function Show-IaAllFields {
         if ($sv.Length -gt 400) { $sv = $sv.Substring(0, 400) + '…' }
         [pscustomobject][ordered]@{ Property = $k; Value = $sv }
     }
-    Read-IaTablePause -Data @($rows) -Stem $Stem -Color $Accent -Title "$Title ($(@($rows).Count) fields)"
+    Read-IaTablePause -Data @($rows) -Stem $Stem -Color $Accent -Title "$Title ($(@($rows).Count) fields)" -NoExport:$NoExport
 }
 
 function Invoke-IaTuiReportView {
     # Run a loader (with spinner) and show the result in a scrollable/exportable table.
     # The table is selectable: Enter on any row opens its full property set ("all
     # properties for every category"). q/Esc backs out.
-    param([string]$Accent, [string]$Title, [scriptblock]$Loader, [string]$Stem = 'entra')
+    param([string]$Accent, [string]$Title, [scriptblock]$Loader, [string]$Stem = 'entra', [switch]$NoExport)
     $rows = @(Invoke-IaStatus -Spinner Dots -Title "Loading $Title…" -ScriptBlock $Loader)
     Write-IaTuiHeader -Screen $Title -Accent $Accent
     if (-not $rows) { Write-IaHost '[yellow]No data (or the scope/license for this report is missing).[/]'; Read-IaPause | Out-Null; return }
+    $hint = if ($NoExport) { 'Enter = all fields' } else { 'Enter = all fields · e export' }
     while ($true) {
-        $picked = Read-IaTableInteractive -Data $rows -Color $Accent -Selectable -Title "$Title ($($rows.Count))  ·  Enter = all fields · e export" -Stem $Stem
+        $picked = Read-IaTableInteractive -Data $rows -Color $Accent -Selectable -NoExport:$NoExport -Title "$Title ($($rows.Count))  ·  $hint" -Stem $Stem
         if (-not $picked) { break }
-        Show-IaAllFields -Accent $Accent -Object $picked -Title "$Title — all fields" -Stem "$Stem-fields"
+        Show-IaAllFields -Accent $Accent -Object $picked -Title "$Title — all fields" -Stem "$Stem-fields" -NoExport:$NoExport
     }
 }
 
@@ -2042,7 +2043,7 @@ function Invoke-IaTuiEntraTenantSettings {
             } else {
                 $new   = -not [bool]$picked._Raw
                 $param = switch ($picked._Key) { 'apps' { 'UsersCanCreateApps' } 'secgrp' { 'UsersCanCreateSecurityGroups' } 'tenants' { 'UsersCanCreateTenants' } 'readusers' { 'UsersCanReadOtherUsers' } 'sspr' { 'AllowedToUseSSPR' } }
-                if (Read-IaConfirm "Set '$($picked.Setting)' → ${new}?") { Set-EntraAuthorizationPolicy @{ $param = $new; Confirm = $false } | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null; $changed = $true }
+                if (Read-IaConfirm "Set '$($picked.Setting)' → ${new}?") { $sp = @{ $param = $new; Confirm = $false }; Set-EntraAuthorizationPolicy @sp | Out-Null; Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null; $changed = $true }
             }
         } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
         if (-not $changed) { } # loop re-reads current state on next pass
@@ -2077,8 +2078,8 @@ function Invoke-IaTuiEntraDevices {
                 'Disable*' { if (Read-IaConfirm "[red]Disable '$devName'? It can't authenticate until re-enabled.[/]") { Set-EntraDevice -Device $devId -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]"; Read-IaPause | Out-Null; $changed = $true } }
                 'Enable*'  { if (Read-IaConfirm "Enable '$devName'?") { Set-EntraDevice -Device $devId -AccountEnabled $true -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]"; Read-IaPause | Out-Null; $changed = $true } }
                 'View*'      { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $devName" -Stem 'entra-dev-owners' -Loader { Get-EntraDeviceRegisteredOwner -Device $devId } }
-                'BitLocker*' { if (Read-IaConfirm "[red]Reveal BitLocker recovery key(s) for '$devName'? This is audited.[/]") { Invoke-IaTuiReportView -Accent $Accent -Title "BitLocker keys · $devName" -Stem 'entra-bitlocker' -Loader { Get-EntraBitLockerKey -DeviceId $aadDevId -Reveal } } }
-                'LAPS*'      { if (Read-IaConfirm "[red]Reveal the Windows LAPS local-admin password for '$devName'? This is audited.[/]") { Invoke-IaTuiReportView -Accent $Accent -Title "LAPS · $devName" -Stem 'entra-laps' -Loader { Get-EntraLapsCredential -DeviceId $aadDevId } } }
+                'BitLocker*' { if (Read-IaConfirm "[red]Reveal BitLocker recovery key(s) for '$devName'? This is audited.[/]") { Invoke-IaTuiReportView -Accent $Accent -Title "BitLocker keys · $devName" -Stem 'entra-bitlocker' -NoExport -Loader { Get-EntraBitLockerKey -DeviceId $aadDevId -Reveal } } }
+                'LAPS*'      { if (Read-IaConfirm "[red]Reveal the Windows LAPS local-admin password for '$devName'? This is audited.[/]") { Invoke-IaTuiReportView -Accent $Accent -Title "LAPS · $devName" -Stem 'entra-laps' -NoExport -Loader { Get-EntraLapsCredential -DeviceId $aadDevId } } }
                 'Delete*'    { if (Read-IaConfirm "[red]Delete the Entra device object '$devName'? It must re-register to return.[/]") { Remove-EntraDevice -Device $devId -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null; $changed = $true } }
             }
         } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
@@ -2098,6 +2099,12 @@ function Invoke-IaTuiEntraDashboard {
     Write-IaTuiHeader -Screen 'Identity dashboard' -Sub 'live overview · Entra ID' -Accent $Accent
     $d = if ($Data) { $Data } else { Invoke-IaStatus -Spinner Dots -Title 'Building identity dashboard…' -ScriptBlock {
         $enc = { param($f) [uri]::EscapeDataString($f) }
+        # Hoisted: a try/catch is a statement, not a hashtable-value expression. risky is the
+        # COUNT (not the array) because an empty array stored as a dict value reads back as
+        # $null — so a failed read must stay $null (renders '—') while zero-at-risk is 0
+        # (renders '0'); the two must not collapse.
+        $risky = try { @(Get-EntraRiskyUser -AtRiskOnly).Count } catch { $null }
+        $score = try { @(Get-EntraSecureScore) }                catch { $null }
         [ordered]@{
             users    = Get-IaCount -Path 'users/$count'
             disabled = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "accountEnabled eq false"))
@@ -2109,8 +2116,8 @@ function Invoke-IaTuiEntraDashboard {
             sps      = Get-IaCount -Path 'servicePrincipals/$count'
             devices  = Get-IaCount -Path 'devices/$count'
             expiring = @(try { Get-EntraExpiringSecret -Days 30 } catch { @() }).Count
-            risky    = @(try { Get-EntraRiskyUser -AtRiskOnly } catch { $null })
-            score    = @(try { Get-EntraSecureScore } catch { $null })
+            risky    = $risky
+            score    = $score
             ca       = @(try { Get-EntraConditionalAccessPolicy } catch { @() })
         }
     } }
@@ -2132,7 +2139,7 @@ function Invoke-IaTuiEntraDashboard {
     }
     $tile = { param($text, $color, $w = 14) $s = "$text"; "[$color]$s[/]" + (' ' * [Math]::Max(1, $w - $s.Length)) }
 
-    $riskyN = if ($null -eq $d.risky) { $null } else { @($d.risky).Count }
+    $riskyN = if ($null -eq $d.risky) { $null } elseif ($d.risky -is [int]) { $d.risky } else { @($d.risky).Count }
     $scoreRow = if ($d.score) { @($d.score)[0] } else { $null }
     $scorePct = if ($scoreRow) { [int]$scoreRow.Percent } else { $null }
     $caEnabled = @($d.ca | Where-Object { $_.State -eq 'enabled' }).Count
@@ -2594,7 +2601,9 @@ function Invoke-IaTuiEntraCustomRoles {
                     if (-not $acts) { Write-IaHost '[yellow]Could not load the action catalogue.[/]'; Read-IaPause | Out-Null; continue }
                     $picked = Read-IaMultiMenu -Title "Allowed actions for '$nm'" -Choices (@($acts | ForEach-Object Action)) -Color $Accent -PageSize 18
                     if (-not $picked) { Write-IaHost '[yellow]No actions selected — a custom role needs at least one.[/]'; Read-IaPause | Out-Null; continue }
-                    if (Read-IaConfirm "Create custom role '$nm' with $($picked.Count) action(s)?") {
+                    $privPicked = @($acts | Where-Object { $_.Action -in $picked -and $_.Privileged })
+                    $warn = if ($privPicked.Count) { "[red]⚠ $($privPicked.Count) of the selected action(s) are PRIVILEGED (can elevate access).[/] " } else { '' }
+                    if (Read-IaConfirm "${warn}Create custom role '$nm' with $($picked.Count) action(s)?") {
                         $p = @{ Name = $nm; AllowedResourceAction = @($picked); Confirm = $false }; if ($desc) { $p.Description = $desc }
                         $r = New-EntraRoleDefinition @p
                         Write-IaHost "[$Accent]✓ Created[/] '$($r.Name)' ($($r.Id))"; Read-IaPause | Out-Null
@@ -3686,14 +3695,14 @@ function Invoke-IaTuiReports {
                                     Get-IntuneBitLockerKey -Device $devName
                                 })
                                 if (-not $bk) { Write-IaHost '[yellow]No BitLocker recovery keys escrowed for this device.[/]'; Read-IaPause | Out-Null }
-                                else { Read-IaTablePause -Data $bk -Stem "device-$devName-bitlocker" -Color $Accent -Title "BitLocker recovery keys · $devName" }
+                                else { Read-IaTablePause -Data $bk -Stem "device-$devName-bitlocker" -Color $Accent -Title "BitLocker recovery keys · $devName" -NoExport }
                             }
                             'LAPS*' {
                                 $laps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading LAPS credential…' -ScriptBlock {
                                     Get-IntuneLapsCredential -Device $devName
                                 })
                                 if (-not $laps) { Write-IaHost '[yellow]No Windows LAPS credential backed up for this device.[/]'; Read-IaPause | Out-Null }
-                                else { Read-IaTablePause -Data $laps -Stem "device-$devName-laps" -Color $Accent -Title "LAPS local admin · $devName" }
+                                else { Read-IaTablePause -Data $laps -Stem "device-$devName-laps" -Color $Accent -Title "LAPS local admin · $devName" -NoExport }
                             }
                             'Device actions*' {
                                 $actLabels = [ordered]@{
