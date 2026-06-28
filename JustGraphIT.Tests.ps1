@@ -3224,6 +3224,47 @@ Describe 'Query to group pipeline (beta)' {
     }
 }
 
+Describe 'Entra Teams depth (beta)' {
+    It 'New-EntraTeamChannel POSTs a channel with membershipType' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'team-1' }
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = '19:abc'; displayName = 'Releases'; membershipType = 'private' } }
+            New-EntraTeamChannel -Team 'Project Atlas' -Name 'Releases' -Private -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/teams/team-1/channels$'
+            $script:b.displayName    | Should -Be 'Releases'
+            $script:b.membershipType | Should -Be 'private'
+        }
+    }
+
+    It 'Add-EntraTeamMember POSTs an aadUserConversationMember with the owner role' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'team-1' }
+            Mock Resolve-EntraUserId { 'user-9' }
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'mem-1' } }
+            Add-EntraTeamMember -Team 'Project Atlas' -User 'bob@x.com' -Owner -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/teams/team-1/members$'
+            $script:b.'@odata.type'     | Should -Be '#microsoft.graph.aadUserConversationMember'
+            @($script:b.roles)          | Should -Contain 'owner'
+            $script:b.'user@odata.bind' | Should -Match "users\('user-9'\)"
+        }
+    }
+
+    It 'Remove-EntraTeamMember resolves the membership id then DELETEs it' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraGroupId { 'team-1' }
+            Mock Resolve-EntraUserId { 'user-9' }
+            Mock Get-IaCollection { @([pscustomobject]@{ id = 'membership-77'; userId = 'user-9'; displayName = 'Bob'; roles = @() }) }
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraTeamMember -Team 'Project Atlas' -User 'bob@x.com' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'teams/team-1/members/membership-77$'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {

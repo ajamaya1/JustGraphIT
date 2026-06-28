@@ -209,6 +209,13 @@
         'Grant-EntraAdminConsent',
         'New-EntraGuestInvitation',
         'New-EntraTeam',
+        # --- Teams depth (Phase 5) ---
+        'Get-EntraTeamChannel',
+        'New-EntraTeamChannel',
+        'Remove-EntraTeamChannel',
+        'Get-EntraTeamMember',
+        'Add-EntraTeamMember',
+        'Remove-EntraTeamMember',
         # --- app-registration lifecycle (Phase 2) ---
         'New-EntraAppRegistration',
         'Set-EntraAppRegistration',
