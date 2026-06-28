@@ -3301,6 +3301,52 @@ Describe 'TUI write-menu smoke (new wiring)' {
             }
         }
     }
+
+    It 'Invoke-IaTuiEntraEnterpriseApp revokes the picked delegated grant by its grant id' {
+        InModuleScope JustGraphIT {
+            $script:ti = 0; $script:mc = 0; $script:revoked = $null
+            Mock Invoke-IaStatus { & $ScriptBlock }                # run the loader so the grant list is real
+            Mock Get-EntraEnterpriseApp { @([pscustomobject]@{ DisplayName = 'Backup SP'; AppId = 'app-1'; Id = 'sp-1' }) }
+            Mock Get-EntraAppPermission { [pscustomobject]@{ Delegated = @([pscustomobject]@{ id = 'grant-xyz'; scope = 'Mail.Read Mail.Send'; consentType = 'AllPrincipals' }); Application = @() } }
+            Mock Read-IaTableInteractive {
+                $script:ti++
+                if ($script:ti -eq 1) { [pscustomobject]@{ Id = 'sp-1'; DisplayName = 'Backup SP' } }       # pick the SP
+                elseif ($script:ti -eq 2) { [pscustomobject]@{ Consent = 'Admin (all users)'; Scopes = 'Mail.Read'; GrantId = 'grant-xyz' } }  # pick the grant
+                else { $null }                                      # exit the outer loop
+            }
+            Mock Read-IaMenu { $script:mc++; if ($script:mc -eq 1) { 'Revoke a delegated grant' } else { 'Back' } }
+            Mock Read-IaConfirm { $true }
+            Mock Read-IaPause {}
+            Mock Write-IaHost {}
+            Mock Remove-EntraOAuth2Grant { $script:revoked = $GrantId; [pscustomobject]@{ GrantId = $GrantId; Revoked = $true } }
+            Invoke-IaTuiEntraEnterpriseApp -Accent 'cyan'
+            $script:revoked | Should -Be 'grant-xyz'
+            Should -Invoke Remove-EntraOAuth2Grant -Times 1 -Exactly
+        }
+    }
+
+    It 'Invoke-IaTuiEntraEnterpriseApp revokes the picked application permission by sp + assignment id' {
+        InModuleScope JustGraphIT {
+            $script:ti = 0; $script:mc = 0; $script:rmSp = $null; $script:rmId = $null
+            Mock Invoke-IaStatus { & $ScriptBlock }
+            Mock Get-EntraEnterpriseApp { @([pscustomobject]@{ DisplayName = 'Backup SP'; AppId = 'app-1'; Id = 'sp-1' }) }
+            Mock Get-EntraAppPermission { [pscustomobject]@{ Delegated = @(); Application = @([pscustomobject]@{ id = 'assign-1'; appRoleId = 'role-1'; resourceDisplayName = 'Microsoft Graph' }) } }
+            Mock Read-IaTableInteractive {
+                $script:ti++
+                if ($script:ti -eq 1) { [pscustomobject]@{ Id = 'sp-1'; DisplayName = 'Backup SP' } }
+                elseif ($script:ti -eq 2) { [pscustomobject]@{ Resource = 'Microsoft Graph'; AppRoleId = 'role-1'; AssignmentId = 'assign-1' } }
+                else { $null }
+            }
+            Mock Read-IaMenu { $script:mc++; if ($script:mc -eq 1) { 'Revoke an application permission' } else { 'Back' } }
+            Mock Read-IaConfirm { $true }
+            Mock Read-IaPause {}
+            Mock Write-IaHost {}
+            Mock Remove-EntraAppRoleAssignment { $script:rmSp = $ServicePrincipal; $script:rmId = $AssignmentId; [pscustomobject]@{ Revoked = $true } }
+            Invoke-IaTuiEntraEnterpriseApp -Accent 'cyan'
+            $script:rmSp | Should -Be 'sp-1'
+            $script:rmId | Should -Be 'assign-1'
+        }
+    }
 }
 
 Describe 'Query to group pipeline (beta)' {
