@@ -1797,6 +1797,7 @@ function Invoke-IaTuiEntra {
             'Directory roles & assignments',
             'PIM — eligible & active',
             'Security / XDR — score · alerts · incidents',
+            'Usage & quota — mailbox · OneDrive · SharePoint · Teams',
             'Back'
         )
         if (-not $pick -or $pick -eq 'Back') { return }
@@ -1823,6 +1824,16 @@ function Invoke-IaTuiEntra {
                         'Secure score' { Invoke-IaTuiReportView -Accent $Accent -Title 'Secure score' -Stem 'secscore' -Loader { Get-EntraSecureScore } }
                         'Alerts'       { Invoke-IaTuiReportView -Accent $Accent -Title 'Security alerts' -Stem 'secalerts' -Loader { Get-EntraSecurityAlert } }
                         'Incidents'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Security incidents' -Stem 'secinc' -Loader { Get-EntraSecurityIncident } }
+                    }
+                }
+                'Usage*' {
+                    $m = Read-IaMenu -Title 'Usage & quota' -Color $Accent -Choices @('Mailbox usage & quota', 'OneDrive usage', 'SharePoint sites', 'Teams activity', 'Microsoft 365 Apps', 'Back')
+                    switch -Wildcard ($m) {
+                        'Mailbox*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Mailbox usage & quota' -Stem 'mbx-usage' -Loader { Get-EntraMailboxUsage } }
+                        'OneDrive*'   { Invoke-IaTuiReportView -Accent $Accent -Title 'OneDrive usage' -Stem 'od-usage' -Loader { Get-EntraOneDriveUsage } }
+                        'SharePoint*' { Invoke-IaTuiReportView -Accent $Accent -Title 'SharePoint sites' -Stem 'sp-usage' -Loader { Get-EntraSharePointUsage } }
+                        'Teams*'      { Invoke-IaTuiReportView -Accent $Accent -Title 'Teams activity' -Stem 'teams-usage' -Loader { Get-EntraTeamsUsage } }
+                        'Microsoft 365*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Microsoft 365 Apps usage' -Stem 'm365-usage' -Loader { Get-EntraM365AppUsage } }
                     }
                 }
             }

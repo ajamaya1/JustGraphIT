@@ -2463,3 +2463,30 @@ Describe 'Entra create-user + app governance (beta)' {
         }
     }
 }
+
+Describe 'Entra usage reports (CSV → objects)' {
+    It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
+        InModuleScope Graphite {
+            Mock Get-IaGraphReportCsv {
+                @([pscustomobject]@{
+                    'User Principal Name'='a@x.com'; 'Display Name'='Aaron'; 'Item Count'='1200'
+                    'Storage Used (Byte)'='53687091200'                    # 50 GB
+                    'Prohibit Send/Receive Quota (Byte)'='107374182400'    # 100 GB
+                    'Issue Warning Quota (Byte)'='106300440576'; 'Last Activity Date'='2026-06-01' })
+            }
+            $r = @(Get-EntraMailboxUsage)
+            $r[0].UsedGB      | Should -Be 50
+            $r[0].QuotaGB     | Should -Be 100
+            $r[0].PercentUsed | Should -Be 50
+            $r[0].User        | Should -Be 'a@x.com'
+        }
+    }
+    It 'Get-EntraMailboxUsage -Period builds the beta getMailboxUsageDetail path' {
+        InModuleScope Graphite {
+            $script:p=$null
+            Mock Get-IaGraphReportCsv { $script:p=$Path; @() }
+            Get-EntraMailboxUsage -Period D7 | Out-Null
+            $script:p | Should -Be "reports/getMailboxUsageDetail(period='D7')"
+        }
+    }
+}
