@@ -11,7 +11,7 @@ function Backup-IntuneAssignment {
 
     .PARAMETER Path
         Where to write the JSON snapshot. Optional — when omitted, a standard
-        timestamped name (intunetide-assignments-yyyy-MM-dd-HHmm.json) is created
+        timestamped name (justgraphit-assignments-yyyy-MM-dd-HHmm.json) is created
         in the current directory.
 
     .PARAMETER Area
@@ -52,7 +52,7 @@ function Backup-IntuneAssignment {
     $items = Get-IaInventory -Area $Area -Type $Type -AssignedOnly:$AssignedOnly
     $tenant = try { (Get-MgContext).TenantId } catch { $null }
     $snap = [pscustomobject]@{
-        schema    = 'intunetide/assignment-snapshot/1'
+        schema    = 'justgraphit/assignment-snapshot/1'
         created   = (Get-Date).ToUniversalTime().ToString('o')
         tenant    = $tenant
         count     = $items.Count

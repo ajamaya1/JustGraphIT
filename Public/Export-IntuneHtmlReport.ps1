@@ -27,7 +27,7 @@ function Export-IntuneHtmlReport {
         Open the report in the browser when done.
 
     .EXAMPLE
-        Export-IntuneHtmlReport -Path JUSTGRAPHIT.html -Show
+        Export-IntuneHtmlReport -Path JustGraphIT.html -Show
 
         Interactive report of every assignment, opened in the browser.
 
@@ -60,9 +60,9 @@ function Export-IntuneHtmlReport {
     }
     $drift = if ($DriftAgainst) { @(Get-IntuneAssignmentDrift -Path $DriftAgainst -Area $Area -Type $Type) } else { @() }
 
-    New-HTML -TitleText 'JUSTGRAPHIT — Intune Assignments' -FilePath $Path -ShowHTML:$Show {
+    New-HTML -TitleText 'JustGraphIT — Intune Assignments' -FilePath $Path -ShowHTML:$Show {
         New-HTMLHeader {
-            New-HTMLText -Text 'JUSTGRAPHIT — Microsoft Intune & Entra management' -FontSize 26 -FontWeight bold -Color '#1f9d8f'
+            New-HTMLText -Text 'JustGraphIT — Microsoft Intune & Entra management' -FontSize 26 -FontWeight bold -Color '#1f9d8f'
         }
         New-HTMLSection -HeaderText 'Overview' -Invisible {
             New-HTMLPanel { New-HTMLText -Text "Resources: $($items.Count)" -FontSize 18 }

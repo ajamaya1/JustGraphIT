@@ -38,7 +38,7 @@ function Resolve-EntraGroupId {
 }
 
 function ConvertTo-IaEntraUser {
-    # Normalize a Graph user object to JUSTGRAPHIT's user shape.
+    # Normalize a Graph user object to JustGraphIT's user shape.
     param($u)
     [pscustomobject][ordered]@{
         DisplayName   = $u.displayName

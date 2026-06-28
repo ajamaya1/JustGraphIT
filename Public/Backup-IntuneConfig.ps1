@@ -15,7 +15,7 @@ function Backup-IntuneConfig {
 
     .PARAMETER Path
         Destination folder. Optional — defaults to a timestamped folder
-        (intunetide-config-yyyy-MM-dd-HHmm) in the current directory.
+        (justgraphit-config-yyyy-MM-dd-HHmm) in the current directory.
 
     .PARAMETER Area
         Limit the backup to one or more areas (Apps, Configuration, …).
@@ -49,7 +49,7 @@ function Backup-IntuneConfig {
         [string[]]$Type,
         [switch]$AssignedOnly
     )
-    if (-not $Path) { $Path = Get-IaBackupName -Prefix 'intunetide-config' -Extension '' }
+    if (-not $Path) { $Path = Get-IaBackupName -Prefix 'justgraphit-config' -Extension '' }
     $null = New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop
 
     $items = Get-IaInventory -Area $Area -Type $Type -AssignedOnly:$AssignedOnly
@@ -83,7 +83,7 @@ function Backup-IntuneConfig {
     Write-Progress -Activity 'Backing up Intune configs' -Completed
 
     $manifest = [pscustomobject]@{
-        schema  = 'intunetide/config-backup-manifest/1'
+        schema  = 'justgraphit/config-backup-manifest/1'
         created = (Get-Date).ToUniversalTime().ToString('o')
         tenant  = $tenant
         count   = $index.Count

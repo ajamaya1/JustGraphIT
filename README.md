@@ -1,20 +1,22 @@
-# JUSTGRAPHIT - Microsoft Intune & Entra management
+# JustGraphIT
+
+> **Stop clicking through admin portals. Just graph it.**
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-170%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-327%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A cross-platform **PowerShell 7 module and interactive terminal UI** for inspecting,
-managing and reporting on **Microsoft Intune** — assignments, policies, apps, devices,
-Windows 365, updates and baselines — across every assignable area. The UI is rendered by
-a **self-contained ANSI engine** (no Spectre.Console, no WPF, no `Out-GridView`), so the
-full mouse-driven, scrollable, clickable experience works identically on macOS, Windows
-and Linux.
+A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
+**Microsoft Intune and Entra ID (Azure AD)** — assignments, policies, apps, devices, Windows 365,
+plus users, groups, app consent, directory roles, Conditional Access and identity security — straight
+over Microsoft Graph. The UI is rendered by a **self-contained ANSI engine** (no Spectre.Console, no
+WPF, no `Out-GridView`), so the full mouse-driven, scrollable, clickable experience works identically
+on macOS, Windows and Linux.
 
 <p align="center">
-  <img src="docs/img/main-menu.png" width="760" alt="JUSTGRAPHIT main menu with the live Graph-call log">
+  <img src="docs/img/main-menu.png" width="760" alt="JustGraphIT main menu with the live Graph-call log">
 </p>
 
 ## Features
@@ -58,7 +60,7 @@ and Linux.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
   (one file per object), and diff current state against a snapshot.
 - **Live Graph-call log** - The bottom of the main menu is a copy-pasteable log of the
-  actual Microsoft Graph calls JUSTGRAPHIT made — full path + query, status and timing.
+  actual Microsoft Graph calls JustGraphIT made — full path + query, status and timing.
 - **Eight themes, masked tenant ID, native Save dialogs** - `deepsea` (default), `green`,
   `amber`, `lego`, `sunset`, `ocean`, `forest`, `mono`; the tenant ID is masked for safe
   screenshots; exports use the OS-native "Save as…" picker.
@@ -78,7 +80,7 @@ count/sum/avg/min/max aggregation:
 
 ## Common workflows
 
-The five things JUSTGRAPHIT gets reached for most — each is a few keystrokes from the main menu.
+The five things JustGraphIT gets reached for most — each is a few keystrokes from the main menu.
 
 **1. Help-desk user lookup** — one UPN → the caller's devices, Entra group memberships and
 licenses on a single **Overview** page (friendly SKU names like *Microsoft 365 E5*, with
@@ -128,7 +130,7 @@ Get-IntuneComplianceStatus | Where-Object State -eq noncompliant |
 ```
 
 <p align="center">
-  <img src="docs/img/teams-card.png" width="760" alt="A JUSTGRAPHIT report pushed to Teams as an Adaptive Card">
+  <img src="docs/img/teams-card.png" width="760" alt="A JustGraphIT report pushed to Teams as an Adaptive Card">
 </p>
 
 It posts to a Power Automate **Workflows** incoming webhook (the supported successor to the
@@ -153,8 +155,8 @@ Install-Module PSWriteHTML -Scope CurrentUser                      # optional
 ## Installation
 
 ```powershell
-git clone https://github.com/ajamaya1/IntuneTide.git
-Import-Module ./IntuneTide/JustGraphIT.psd1
+git clone https://github.com/ajamaya1/JustGraphIT.git
+Import-Module ./JustGraphIT/JustGraphIT.psd1
 ```
 
 ### Try it offline (no tenant, no dependencies)
@@ -173,7 +175,7 @@ Connect-JustGraphIT -UseDeviceCode
 
 # Launch the interactive UI
 Start-JustGraphIT                  # default "deepsea" theme
-JUSTGRAPHIT                              # short alias
+jgi                                # short alias (also: jgit)
 Start-JustGraphIT -Theme sunset    # green | amber | lego | sunset | ocean | forest | mono
 ```
 
@@ -348,7 +350,7 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneConditionalAccess` | Conditional Access policies |
 | `Watch-IntuneTenant` | Poll for changes |
 | `Get-/Clear-IntuneCallLog` | The Graph activity log (also shown in the TUI) |
-| `Start-JustGraphIT` | Launch the interactive TUI (alias `JUSTGRAPHIT`) |
+| `Start-JustGraphIT` | Launch the interactive TUI (alias `jgi` / `jgit`) |
 
 </details>
 
@@ -444,7 +446,7 @@ On the Intune side the menus cover browse / assign / **delete** for apps, config
 JustGraphIT/
 ├── JustGraphIT.psd1          # module manifest (PowerShell 7.2+, exports)
 ├── JustGraphIT.psm1          # loader — dot-sources Private + Public, exports public surface
-├── Public/                  # 220+ cmdlets (the public API)
+├── Public/                  # 227 cmdlets (the public API)
 │   ├── Connect-JustGraphIT.ps1
 │   ├── Get-IntuneAssignment.ps1
 │   ├── Copy-IntuneAssignment.ps1

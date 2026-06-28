@@ -1,0 +1,30 @@
+# JustGraphIT generates these from a real tenant — never commit them.
+# Export artifacts (CSV / Excel / JSON / HTML reports + Teams payloads)
+*.csv
+*.xlsx
+*.html
+justgraphit-*.json
+justgraphit-assignments-*
+justgraphit-config-*
+*-assignments-*.json
+*-snapshot-*.json
+
+# Local backups / restores
+backup/
+backups/
+restore/
+
+# Keep the offline demo + any intentionally tracked sample data:
+!examples/**
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# PowerShell / build
+*.log
+.tmp/

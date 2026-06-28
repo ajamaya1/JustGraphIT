@@ -33,7 +33,7 @@ function Restore-IntuneConfig {
         Don't re-apply the backed-up assignments (config bodies only).
 
     .EXAMPLE
-        Restore-IntuneConfig -Path .\intunetide-config-2026-06-25-1430 -WhatIf
+        Restore-IntuneConfig -Path .\justgraphit-config-2026-06-25-1430 -WhatIf
 
         Preview exactly what restoring would change.
 

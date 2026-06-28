@@ -1,9 +1,11 @@
 @{
     RootModule        = 'JustGraphIT.psm1'
-    ModuleVersion     = '0.1.0'
+    ModuleVersion     = '1.0.0'
     GUID              = 'b7e4a2c1-9f3d-4e6a-8c2b-1a5d7e9f0c34'
-    Author            = 'Aaron'
-    Description       = 'JUSTGRAPHIT (Microsoft Intune & Entra management) — inspect, manage and report on Microsoft Intune assignments across every assignable area: list/reverse-lookup/compare/what-if, copy & selectively mirror, bulk-assign, templates, audit, deployment/install/compliance reporting, HTML report, and an interactive Deep Sea terminal UI rendered by a self-contained ANSI engine (no external TUI dependency). Cross-platform (macOS/Windows/Linux) via the Microsoft Graph PowerShell SDK.'
+    Author            = 'Aaron Amaya'
+    CompanyName       = 'Aaron Amaya'
+    Copyright         = '(c) 2026 Aaron Amaya. Released under the MIT License.'
+    Description       = 'Cross-platform PowerShell 7 module and terminal UI to inspect, manage and report on Microsoft Intune and Entra ID (Azure AD) via Microsoft Graph — assignments, devices, identities, app consent, roles and Conditional Access — with CSV / Excel / HTML / Teams output. Rendered by a self-contained ANSI engine (no external TUI dependency).'
     PowerShellVersion = '7.2'
 
     # Not hard-required so the module imports cleanly; cmdlets check at runtime
@@ -288,13 +290,14 @@
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
-    AliasesToExport   = @('jgi', 'graph')
+    AliasesToExport   = @('jgi', 'jgit')
 
     PrivateData = @{
         PSData = @{
-            Tags       = @('Intune', 'MicrosoftGraph', 'MEM', 'Assignments', 'Endpoint', 'TUI', 'ANSI')
-            ProjectUri = 'https://github.com/ajamaya1/IntuneTide'
-            LicenseUri = 'https://github.com/ajamaya1/IntuneTide/blob/main/LICENSE'
+            Tags         = @('Intune', 'Entra', 'EntraID', 'AzureAD', 'MicrosoftGraph', 'MEM', 'Endpoint', 'Assignments', 'CloudPC', 'TUI', 'PowerShell7', 'CrossPlatform')
+            ProjectUri   = 'https://github.com/ajamaya1/JustGraphIT'
+            LicenseUri   = 'https://github.com/ajamaya1/JustGraphIT/blob/main/LICENSE'
+            ReleaseNotes = 'v1.0.0 — first public release. Read AND write across Microsoft Intune and Entra ID from a cross-platform terminal UI: assignment inspect / compare / mirror, device and identity management, app-consent audit and revoke, custom roles, Conditional Access, deleted-item restore, and BitLocker / LAPS recovery. Self-contained ANSI engine (no external TUI dependency); CSV / Excel / JSON / HTML export and Teams push; secret-bearing views are export-disabled. 327 offline tests.'
         }
     }
 }

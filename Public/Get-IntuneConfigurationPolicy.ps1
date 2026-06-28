@@ -50,10 +50,10 @@ function Get-IntuneConfigurationPolicy {
 
     $filter = @()
     if ($Platform -ne 'all') { $filter += "platforms eq '$Platform'" }
-    if ($Technology)         { $filter += "technologies eq '$Technology'" }
+    if ($Technology)         { $filter += "technologies eq '$($Technology -replace "'", "''")'" }
 
     $query = 'deviceManagement/configurationPolicies?$orderby=name'
-    if ($filter) { $query += '&$filter=' + ($filter -join ' and ') }
+    if ($filter) { $query += '&$filter=' + [uri]::EscapeDataString($filter -join ' and ') }
     if ($IncludeSettings) { $query += '&$expand=settings' }
 
     $policies = Get-IaCollection (Resolve-IaUri $query)

@@ -1136,7 +1136,7 @@ Describe 'Public cmdlets — Get-IntuneUserDevice' {
                 )
             }
             $r = @(Get-IntuneUserDevice -User 'alice@contoso.com')
-            $script:capturedPath | Should -Match "userPrincipalName eq 'alice@contoso.com'"
+            ([uri]::UnescapeDataString($script:capturedPath)) | Should -Match "userPrincipalName eq 'alice@contoso.com'"
             $r.Count             | Should -Be 2
             $r[0].Device         | Should -Be 'LAPTOP-01'
             $r[0].OS             | Should -Be 'Windows 10.0.22631'
@@ -1150,7 +1150,8 @@ Describe 'Public cmdlets — Get-IntuneUserDevice' {
             $script:capturedPath = $null
             Mock Get-IaCollection { $script:capturedPath = $Path; @() }
             Get-IntuneUserDevice -User "o'brien@contoso.com" | Out-Null
-            $script:capturedPath | Should -Match "o''brien@contoso.com"   # doubled, not a broken quote
+            ([uri]::UnescapeDataString($script:capturedPath)) | Should -Match "o''brien@contoso.com"   # doubled, not a broken quote
+            $script:capturedPath | Should -Not -Match "userPrincipalName eq "                          # filter clause is URL-encoded
         }
     }
 }
@@ -1344,7 +1345,7 @@ Describe 'Public cmdlets — Get-IntuneUserSignIn' {
             $r[0].Status      | Should -Be 'success'
             $r[1].Status      | Should -Be 'failure (53003)'
             $r[1].BlockedBy   | Should -Be 'Require compliant device'   # only result=failure surfaced
-            $script:capturedUri | Should -Match "userPrincipalName eq 'alice@contoso.com'"
+            ([uri]::UnescapeDataString($script:capturedUri)) | Should -Match "userPrincipalName eq 'alice@contoso.com'"
             $script:capturedUri | Should -Match '\$top=5'
             $script:capturedUri | Should -Match 'orderby=createdDateTime desc'
         }
@@ -1435,7 +1436,7 @@ Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
         $table.rows.Count        | Should -Be 3      # header + 2 data
     }
 
-    It 'strips JUSTGRAPHIT markup from cell values' {
+    It 'strips JustGraphIT markup from cell values' {
         $json = $script:tRows | Send-IntuneReportToTeams -Title 'X' -PassThru
         $json | Should -Not -Match '\[coral\]'
         $json | Should -Match 'noncompliant'
@@ -2134,7 +2135,7 @@ Describe 'TUI engine · output primitives do not throw' {
         }
     }
 
-    It 'Get-IaFigletString returns a multi-line banner for JUSTGRAPHIT' {
+    It 'Get-IaFigletString returns a multi-line banner for JustGraphIT' {
         InModuleScope JustGraphIT {
             $banner = Get-IaFigletString -Text 'JUSTGRAPHIT' -Color turquoise2
             $banner | Should -Not -BeNullOrEmpty
@@ -3517,6 +3518,80 @@ Describe 'Consolidation review fixes' {
                 $valueRow = $script:lines[$idx + 1]
                 $valueRow | Should -Not -Match '—'
                 $valueRow | Should -Not -Match '1'
+            }
+        }
+    }
+}
+
+Describe 'Primetime hardening (security + correctness)' {
+    Context 'OData/URL injection in per-user reports' {
+        It 'Get-IntuneUserSignIn URL-encodes the UPN filter so # cannot truncate the query (cross-user disclosure)' {
+            InModuleScope JustGraphIT {
+                $script:u = $null
+                Mock Invoke-IaRequest { $script:u = $Uri; [pscustomobject]@{ value = @() } }
+                Get-IntuneUserSignIn -User 'evil#@contoso.com' -Top 5 | Out-Null
+                $script:u | Should -Not -Match '#'                                                    # the # is percent-encoded, never a fragment delimiter
+                $script:u | Should -Match '%23'
+                ([uri]::UnescapeDataString($script:u)) | Should -Match "userPrincipalName eq 'evil#@contoso.com'"
+            }
+        }
+        It 'Get-IntuneUserDevice URL-encodes the UPN filter so & cannot inject a second query param' {
+            InModuleScope JustGraphIT {
+                $script:p = $null
+                Mock Get-IaCollection { $script:p = $Path; @() }
+                Get-IntuneUserDevice -User 'a&$top=999@contoso.com' | Out-Null
+                ([uri]::UnescapeDataString($script:p)) | Should -Match "userPrincipalName eq 'a&\`$top=999@contoso.com'"
+                $script:p | Should -Not -Match 'userPrincipalName eq '                                 # encoded, not literal
+            }
+        }
+        It 'Get-IntuneAuditLog -Category doubles the quote AND encodes so an OData clause cannot break out' {
+            InModuleScope JustGraphIT {
+                $script:p = $null
+                Mock Get-IaCollection { $script:p = $Path; @() }
+                Get-IntuneAuditLog -Category "x' or category ne 'zz" | Out-Null
+                ([uri]::UnescapeDataString($script:p)) | Should -Match "category eq 'x'' or category ne ''zz'"   # doubled → stays one literal
+                $script:p | Should -Not -Match "category eq 'x' or"                                   # not a raw breakout
+            }
+        }
+    }
+
+    Context 'Cloud PC destructive-action gating' {
+        It 'Restore: Esc at the snapshot picker cancels — no action fires (IndexOf($null) data-loss guard)' {
+            InModuleScope JustGraphIT {
+                $script:acted = $false
+                Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Read-IaPause {}; Mock Format-IaTable {}
+                Mock Invoke-IaStatus { & $ScriptBlock }
+                Mock Get-IntuneCloudPC { @([pscustomobject]@{ CloudPC = 'CPC-01' }) }
+                Mock Get-IntuneCloudPCSnapshot { @(
+                        [pscustomobject]@{ CreatedAt = '2026-01-01'; SnapshotType = 'automatic'; Id = 'snap-OLD' }
+                        [pscustomobject]@{ CreatedAt = '2026-06-01'; SnapshotType = 'manual'; Id = 'snap-LAST' }) }
+                $script:mc = 0
+                Mock Read-IaMenu {
+                    $script:mc++
+                    switch ($script:mc) { 1 { 'Cloud PC actions' } 2 { 'CPC-01' } 3 { 'Restore' } 4 { $null } default { $null } }
+                }
+                Mock Read-IaConfirm { $true }   # even a yes must not act — the picker was cancelled before the confirm
+                Mock Invoke-IntuneCloudPCAction { $script:acted = $true; [pscustomobject]@{ Submitted = $true } }
+                Invoke-IaTuiCloudPC -Accent 'cyan'
+                $script:acted | Should -BeFalse -Because 'Esc at the snapshot picker must cancel, not roll back to the last snapshot'
+            }
+        }
+        It 'Restore: declining the [red] confirm fires no irreversible action' {
+            InModuleScope JustGraphIT {
+                $script:acted = $false
+                Mock Write-IaTuiHeader {}; Mock Write-IaHost {}; Mock Read-IaPause {}; Mock Format-IaTable {}
+                Mock Invoke-IaStatus { & $ScriptBlock }
+                Mock Get-IntuneCloudPC { @([pscustomobject]@{ CloudPC = 'CPC-01' }) }
+                Mock Get-IntuneCloudPCSnapshot { @([pscustomobject]@{ CreatedAt = '2026-06-01'; SnapshotType = 'manual'; Id = 'snap-1' }) }
+                $script:mc = 0
+                Mock Read-IaMenu {
+                    $script:mc++
+                    switch ($script:mc) { 1 { 'Cloud PC actions' } 2 { 'CPC-01' } 3 { 'Restore' } 4 { '2026-06-01  (manual)' } default { $null } }
+                }
+                Mock Read-IaConfirm { $false }   # decline the irreversible restore
+                Mock Invoke-IntuneCloudPCAction { $script:acted = $true; [pscustomobject]@{ Submitted = $true } }
+                Invoke-IaTuiCloudPC -Accent 'cyan'
+                $script:acted | Should -BeFalse -Because 'declining the confirm must not run the restore'
             }
         }
     }
