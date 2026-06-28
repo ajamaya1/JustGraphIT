@@ -52,6 +52,8 @@
         # --- diagnostics ---
         'Get-IntuneCallLog',
         'Clear-IntuneCallLog',
+        # --- Teams push ---
+        'Send-IntuneReportToTeams',
         # --- device actions & detail ---
         'Invoke-IntuneDeviceAction',
         'Get-IntuneDeviceDetail',
