@@ -2142,3 +2142,76 @@ Describe 'TUI engine · report pipeline' {
         }
     }
 }
+
+Describe 'Get-IntunePatchReport (patch reporting from Intune update reports)' {
+
+    It 'normalizes quality + feature rows to one common shape (tagged by UpdateType)' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaReportExport {
+                @(
+                    [pscustomobject]@{ DeviceName='PC-1'; UPN='a@x.com'; PolicyName='QU-Ring'; AggregateState='Success'; CurrentDeviceUpdateStatus='UpToDate'; CurrentDeviceUpdateSubstatus=''; LatestAlertMessage=''; EventDateTimeUTC='2026-06-01' }
+                    [pscustomobject]@{ DeviceName='PC-2'; UPN='b@x.com'; PolicyName='QU-Ring'; AggregateState='Error';   CurrentDeviceUpdateStatus='Failed';   CurrentDeviceUpdateSubstatus='DownloadError'; LatestAlertMessage='0x80070002'; EventDateTimeUTC='2026-06-02' }
+                )
+            } -ParameterFilter { $ReportName -eq 'QualityUpdateDeviceStatusByPolicy' }
+            Mock Invoke-IaReportExport {
+                @(
+                    [pscustomobject]@{ DeviceName='PC-1'; UPN='a@x.com'; PolicyName='FU-23H2'; AggregateState='Success'; FeatureUpdateVersion='Windows 11, version 23H2'; CurrentDeviceUpdateStatus='UpToDate'; EventDateTimeUTC='2026-06-01' }
+                )
+            } -ParameterFilter { $ReportName -eq 'FeatureUpdateDeviceState' }
+
+            $r = @(Get-IntunePatchReport)
+            $r.Count | Should -Be 3
+            @($r | Where-Object UpdateType -eq 'Quality').Count | Should -Be 2
+            @($r | Where-Object UpdateType -eq 'Feature').Count | Should -Be 1
+            ($r | Where-Object Device -eq 'PC-2').State | Should -Be 'Error'
+            # Feature 'Detail' surfaces the target version; quality surfaces the alert message.
+            ($r | Where-Object UpdateType -eq 'Feature').Detail | Should -Be 'Windows 11, version 23H2'
+            ($r | Where-Object Device -eq 'PC-2').Detail        | Should -Be '0x80070002'
+        }
+    }
+
+    It '-Summary returns per-(type,state) device counts' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaReportExport {
+                @(
+                    [pscustomobject]@{ DeviceName='PC-1'; AggregateState='Success' }
+                    [pscustomobject]@{ DeviceName='PC-2'; AggregateState='Error' }
+                    [pscustomobject]@{ DeviceName='PC-3'; AggregateState='Error' }
+                )
+            } -ParameterFilter { $ReportName -eq 'QualityUpdateDeviceStatusByPolicy' }
+            Mock Invoke-IaReportExport { @() } -ParameterFilter { $ReportName -eq 'FeatureUpdateDeviceState' }
+
+            $s = Get-IntunePatchReport -Type Quality -Summary
+            ($s | Where-Object { $_.State -eq 'Success' }).Devices | Should -Be 1
+            ($s | Where-Object { $_.State -eq 'Error' }).Devices   | Should -Be 2
+        }
+    }
+
+    It '-State filters and -Type Quality only runs the quality report' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaReportExport {
+                @(
+                    [pscustomobject]@{ DeviceName='PC-1'; AggregateState='Success' }
+                    [pscustomobject]@{ DeviceName='PC-2'; AggregateState='Error' }
+                )
+            } -ParameterFilter { $ReportName -eq 'QualityUpdateDeviceStatusByPolicy' }
+            Mock Invoke-IaReportExport { throw 'feature report should not run for -Type Quality' } -ParameterFilter { $ReportName -eq 'FeatureUpdateDeviceState' }
+
+            $err = @(Get-IntunePatchReport -Type Quality -State Error)
+            $err.Count | Should -Be 1
+            $err[0].Device | Should -Be 'PC-2'
+        }
+    }
+
+    It '-Raw preserves original columns and tags UpdateType' {
+        InModuleScope IntuneTide {
+            Mock Invoke-IaReportExport {
+                @( [pscustomobject]@{ DeviceName='PC-2'; AggregateState='Error'; LatestAlertMessage='0x80070002' } )
+            } -ParameterFilter { $ReportName -eq 'QualityUpdateDeviceStatusByPolicy' }
+
+            $raw = @(Get-IntunePatchReport -Type Quality -Raw)
+            $raw[0].UpdateType        | Should -Be 'Quality'
+            $raw[0].LatestAlertMessage | Should -Be '0x80070002'
+        }
+    }
+}

@@ -828,13 +828,13 @@ function Invoke-IaTuiElevate {
 # ─── apps submenu ─────────────────────────────────────────────────────────────
 function Invoke-IaTuiApps {
     param([string]$Accent)
-    Write-IaTuiHeader -Screen 'Apps' -Sub 'list · assign · Win32 details' -Accent $Accent
+    Write-IaTuiHeader -Screen 'Apps' -Sub 'list · assign · details' -Accent $Accent
 
     while ($true) {
         $pick = Read-IaMenu -Title 'Apps' -Color $Accent -PageSize 10 -Choices @(
             'List all apps',
             'Filter by type (Win32 / Store / iOS / Android / macOS)',
-            'Win32 app details (detection · requirements · return codes)',
+            'App details (any type · all fields)',
             'Assign app to groups',
             'Back'
         )
@@ -863,23 +863,36 @@ function Invoke-IaTuiApps {
                 $rows | Format-IaTable -Color $Accent -Title "$type Apps ($($rows.Count))"
                 Read-IaTablePause -Data $script:_apps -Stem "apps-$($type.ToLower())" -Color $Accent
             }
-            'Win32 app details*' {
+            'App details*' {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
                 if (-not $app) { return }
                 $name = $app.Id
-                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
-                    $script:_w32 = Get-IntuneWin32App -Id $name
+                Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading app…' -Color $Accent -ScriptBlock {
+                    $script:_appRaw = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$name")
                 }
-                if ($script:_w32) {
-                    Write-IaHost "[$Accent]$($script:_w32.Name)[/]  v$($script:_w32.Version)  ($($script:_w32.Publisher))"
-                    Write-IaHost "Install:   $($script:_w32.InstallCommandLine)"
-                    Write-IaHost "Uninstall: $($script:_w32.UninstallCommandLine)"
-                    Write-IaHost "Run as:    $($script:_w32.InstallExperience?.runAsAccount)"
-                    Write-IaHost "Min OS:    $($script:_w32.MinimumOS)"
-                    Write-IaHost "Detection rules: $($script:_w32.DetectionRules.Count)"
-                    Write-IaHost "Requirement rules: $($script:_w32.RequirementRules.Count)"
+                $raw = $script:_appRaw
+                if (-not $raw) { Write-IaHost '[yellow]Could not load that app.[/]'; Read-IaPause | Out-Null; break }
+                $type = "$($raw.'@odata.type')" -replace '#microsoft\.graph\.', ''
+                Write-IaTuiHeader -Screen 'App details' -Sub "$($raw.displayName)  ·  $type" -Accent $Accent
+                Write-IaHost "[$Accent]$($raw.displayName)[/]  $(if ($raw.version) { "v$($raw.version)  " })$(if ($raw.publisher) { "($($raw.publisher))" })"
+                Write-IaHost "[grey]Type:[/] $type"
+                if ($raw.description) { Write-IaHost "[grey]Description:[/] $($raw.description)" }
+                Write-IaHost ''
+                # Every populated field as a Property / Value table — works for ANY app
+                # type (Win32, macOS PKG/DMG, store, LOB, VPP, web link…), so non-Win32
+                # apps show their real detail instead of empty Win32 fields.
+                $skip = @('@odata.type', 'displayName', 'publisher', 'description', 'largeIcon', 'id')
+                $keys = if ($raw -is [System.Collections.IDictionary]) { @($raw.Keys) } else { @($raw.PSObject.Properties.Name) }
+                $kv = foreach ($k in ($keys | Sort-Object)) {
+                    if ($k -in $skip) { continue }
+                    $v = $raw.$k
+                    if ($null -eq $v -or "$v" -eq '') { continue }
+                    $isComplex = ($v -is [System.Collections.IDictionary]) -or (($v -is [System.Collections.IEnumerable]) -and ($v -isnot [string]))
+                    $sv = if ($isComplex) { ConvertTo-Json $v -Depth 5 -Compress } else { "$v" }
+                    if ($sv.Length -gt 400) { $sv = $sv.Substring(0, 400) + '…' }
+                    [pscustomobject][ordered]@{ Property = $k; Value = $sv }
                 }
-                Read-IaPause | Out-Null
+                Read-IaTablePause -Data @($kv) -Stem "app-$name" -Color $Accent -Title "App details · $($raw.displayName)"
             }
             'Assign app*' {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
@@ -929,12 +942,74 @@ function Invoke-IaTuiApps {
 }
 
 # ─── windows update submenu ───────────────────────────────────────────────────
+function Invoke-IaTuiPatchReport {
+    # Windows patch status (quality + feature updates) pulled from the Intune
+    # report export API via Get-IntunePatchReport.
+    param([string]$Accent)
+    $mode = Read-IaMenu -Title 'Patch report (from Intune update reports)' -Color $Accent -PageSize 8 -Choices @(
+        'Summary (quality + feature roll-up)',
+        'Quality updates — per device',
+        'Feature updates — per device',
+        'Failures only (quality + feature)',
+        'Back'
+    )
+    if (-not $mode -or $mode -eq 'Back') { return }
+    Write-IaTuiHeader -Screen 'Patch report' -Sub 'pulled from Intune update reports (async export)' -Accent $Accent
+    Write-IaHost '[grey]Async Intune export jobs (quality + feature update status) — large tenants can take 1–3 min.[/]'
+
+    $colorState = {
+        param($s)
+        switch -Regex ("$s") {
+            '^(Success|Compliant|UpToDate|Installed)$' { $Accent }
+            '^(Error|Failed|Cancelled)$'               { 'coral' }
+            '^(InProgress|Pending|Scheduled|Offer)'    { 'yellow' }
+            default                                    { 'grey' }
+        }
+    }
+
+    if ($mode -like 'Summary*') {
+        $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Running quality + feature update reports…' -ScriptBlock {
+            Get-IntunePatchReport -Summary
+        })
+        if (-not $rows) { Write-IaHost '[yellow]No update-status rows (no update policies, or the reports are empty).[/]'; Read-IaPause | Out-Null; return }
+        $disp = @($rows | ForEach-Object {
+            $sc = & $colorState $_.State
+            [pscustomobject][ordered]@{ UpdateType = $_.UpdateType; State = "[$sc]$($_.State)[/]"; Devices = $_.Devices }
+        })
+        $total = (@($rows | Measure-Object -Property Devices -Sum).Sum)
+        Read-IaTablePause -Data $disp -Stem 'patch-summary' -Color $Accent -Title "Patch status summary ($total device-states)"
+        return
+    }
+
+    # Per-device views (Quality / Feature / Failures-only)
+    $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Running update report(s)…' -ScriptBlock {
+        if     ($mode -like 'Quality*')  { Get-IntunePatchReport -Type Quality }
+        elseif ($mode -like 'Feature*')  { Get-IntunePatchReport -Type Feature }
+        else                             { Get-IntunePatchReport -State Error }
+    })
+    if (-not $rows) { Write-IaHost '[yellow]No matching update-status rows.[/]'; Read-IaPause | Out-Null; return }
+    $disp = @($rows | ForEach-Object {
+        $sc = & $colorState $_.State
+        [pscustomobject][ordered]@{
+            Type      = $_.UpdateType
+            Device    = $_.Device
+            User      = $_.User
+            State     = "[$sc]$($_.State)[/]"
+            Detail    = $_.Detail
+            LastEvent = $_.LastEvent
+        }
+    })
+    $label = ($mode -replace '\s+—.*', '' -replace '\s*\(.*', '')
+    Read-IaTablePause -Data $disp -Stem 'patch-report' -Color $Accent -Title "Patch report · $label ($($rows.Count))"
+}
+
 function Invoke-IaTuiWindowsUpdate {
     param([string]$Accent)
-    Write-IaTuiHeader -Screen 'Windows Update' -Sub 'rings · feature updates · driver updates' -Accent $Accent
+    Write-IaTuiHeader -Screen 'Windows Update' -Sub 'rings · feature updates · driver updates · patch report' -Accent $Accent
 
     while ($true) {
         $pick = Read-IaMenu -Title 'Windows Update' -Color $Accent -PageSize 10 -Choices @(
+            'Patch report (quality · feature update status)',
             'List update rings',
             'Create update ring',
             'Delete update ring',
@@ -944,6 +1019,7 @@ function Invoke-IaTuiWindowsUpdate {
             'Back'
         )
         switch -Wildcard ($pick) {
+            'Patch report*' { Invoke-IaTuiPatchReport -Accent $Accent }
             'List update rings' {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_rings = @(Get-IntuneUpdateRing)
@@ -2173,6 +2249,8 @@ function Get-IaReportSources {
         'Configuration policies' = @{ Cmd = 'Get-IntuneConfigurationPolicy'; Load = { Get-IntuneConfigurationPolicy } }
         'Compliance policies'    = @{ Cmd = 'Get-IntuneCompliancePolicy';  Load = { Get-IntuneCompliancePolicy } }
         'Audit log (7d)'         = @{ Cmd = 'Get-IntuneAuditLog -Since 7d'; Load = { Get-IntuneAuditLog -Since 7d } }
+        'Quality update status'  = @{ Cmd = 'Get-IntunePatchReport -Type Quality'; Load = { Get-IntunePatchReport -Type Quality } }
+        'Feature update status'  = @{ Cmd = 'Get-IntunePatchReport -Type Feature'; Load = { Get-IntunePatchReport -Type Feature } }
     }
 }
 
