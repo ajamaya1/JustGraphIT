@@ -103,6 +103,15 @@ function Resolve-EntraRoleDefinitionId {
     throw "No directory role found matching '$Role'."
 }
 
+function Resolve-EntraDeviceObjectId {
+    # Azure AD device id (managedDevice.azureADDeviceId / device.deviceId) → the Entra
+    # device OBJECT id, which is what group membership and directory writes key on.
+    param([Parameter(Mandatory)][string]$AzureAdDeviceId)
+    if ([string]::IsNullOrWhiteSpace($AzureAdDeviceId)) { return $null }
+    $d = @(Get-IaCollection (Resolve-IaUri -Path "devices?`$filter=deviceId eq '$AzureAdDeviceId'&`$select=id"))
+    if ($d) { [string]$d[0].id } else { $null }
+}
+
 function Resolve-EntraCaPolicyId {
     # Conditional Access policy display name or id → policy id. CA policies don't
     # support a server-side displayName filter, so non-GUID input matches client-side.

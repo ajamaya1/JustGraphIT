@@ -174,6 +174,44 @@ function Add-EntraGroupMember {
     }
 }
 
+function Add-EntraGroupMemberBulk {
+    <#
+    .SYNOPSIS
+        Add many members (directory object ids) to a group in one go — the "push a
+        filtered population into a group" action. Beta POST /beta/groups/{id}/members/$ref.
+    .DESCRIPTION
+        Takes a list of directory OBJECT ids (users, devices, groups, service
+        principals) and adds each. Devices must be the Entra device object id
+        (Resolve-EntraDeviceObjectId turns an azureADDeviceId into one). Already-members
+        are counted as added, not errors. Reports how many were added / failed.
+    .PARAMETER Group
+        Target group display name or id.
+    .PARAMETER MemberId
+        One or more directory object ids to add.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory, Position = 0)][string]$Group,
+        [Parameter(Mandatory, Position = 1)][string[]]$MemberId
+    )
+    $gid = Resolve-EntraGroupId -Group $Group
+    $ids = @($MemberId | Where-Object { $_ } | Select-Object -Unique)
+    if (-not $ids) { Write-Warning 'No member ids supplied.'; return }
+    if (-not $PSCmdlet.ShouldProcess($Group, "Add $($ids.Count) member(s)")) { return }
+    $added = 0; $failed = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $ids) {
+        try {
+            Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "groups/$gid/members/`$ref") -Body @{ '@odata.id' = (Resolve-EntraDirectoryObjectRef $id) } | Out-Null
+            $added++
+        } catch {
+            # already-a-member is reported as a 400 by Graph — treat as success, not failure
+            if ($_.Exception.Message -match 'already exist|references already exist|added object references already exist') { $added++ }
+            else { $failed.Add([pscustomobject]@{ Id = $id; Error = $_.Exception.Message }) }
+        }
+    }
+    [pscustomobject]@{ Group = $Group; Requested = $ids.Count; Added = $added; Failed = $failed.Count; Errors = @($failed) }
+}
+
 function Remove-EntraGroupMember {
     <#
     .SYNOPSIS
