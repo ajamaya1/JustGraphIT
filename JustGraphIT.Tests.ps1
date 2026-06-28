@@ -526,6 +526,126 @@ Describe 'Call log' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+Describe 'Transient retry (throttling / 429 / 503)' {
+
+    Context 'Get-IaErrorStatus extraction' {
+        It 'pulls 429 from a Too Many Requests message' {
+            InModuleScope JustGraphIT {
+                $er = try { throw 'Response status code 429 (Too Many Requests)' } catch { $_ }
+                Get-IaErrorStatus $er | Should -Be 429
+            }
+        }
+        It 'pulls 404 from the message text' {
+            InModuleScope JustGraphIT {
+                $er = try { throw 'The server returned 404 Not Found' } catch { $_ }
+                Get-IaErrorStatus $er | Should -Be 404
+            }
+        }
+        It 'returns 0 when no status is discoverable' {
+            InModuleScope JustGraphIT {
+                $er = try { throw 'totally opaque failure' } catch { $_ }
+                Get-IaErrorStatus $er | Should -Be 0
+            }
+        }
+    }
+
+    Context 'Test-IaRetryable policy' {
+        It 'retries 429/503/504 on any verb' {
+            InModuleScope JustGraphIT {
+                Test-IaRetryable -Status 429 -Method POST  | Should -BeTrue
+                Test-IaRetryable -Status 503 -Method PATCH | Should -BeTrue
+                Test-IaRetryable -Status 504 -Method GET   | Should -BeTrue
+            }
+        }
+        It 'retries 500 only on idempotent GET' {
+            InModuleScope JustGraphIT {
+                Test-IaRetryable -Status 500 -Method GET  | Should -BeTrue
+                Test-IaRetryable -Status 500 -Method POST | Should -BeFalse
+            }
+        }
+        It 'never retries ordinary 4xx (404/403)' {
+            InModuleScope JustGraphIT {
+                Test-IaRetryable -Status 404 -Method GET | Should -BeFalse
+                Test-IaRetryable -Status 403 -Method GET | Should -BeFalse
+            }
+        }
+    }
+
+    Context 'Invoke-IaRequest retry loop' {
+        BeforeEach {
+            InModuleScope JustGraphIT {
+                # The Graph SDK isn't installed offline; define a module-scope stub
+                # (script: so it persists out of this child scope) for Pester to mock.
+                function script:Invoke-MgGraphRequest { [CmdletBinding()] param([string]$Method, [string]$Uri, $Body, [string]$ContentType, [hashtable]$Headers, [string]$OutputType) }
+                $script:IaMgFeatures = $null
+                $script:IaRetryBaseMs = 1
+                $script:IaMaxRetry = 4
+                Clear-IaCallLog
+            }
+        }
+
+        It 'retries a throttled call then returns the success payload' {
+            InModuleScope JustGraphIT {
+                Mock Start-Sleep {}
+                $script:__retryN = 0
+                Mock Invoke-MgGraphRequest {
+                    $script:__retryN++
+                    if ($script:__retryN -lt 3) { throw 'Response status code 429 (Too Many Requests)' }
+                    [pscustomobject]@{ value = @(1, 2) }
+                }
+                $r = Invoke-IaRequest -Method GET -Uri 'https://graph.microsoft.com/beta/users'
+                @($r.value).Count | Should -Be 2
+                Should -Invoke Invoke-MgGraphRequest -Times 3 -Exactly
+                Should -Invoke Start-Sleep -Times 2 -Exactly
+            }
+        }
+
+        It 'does not retry a 404 — throws on the first attempt' {
+            InModuleScope JustGraphIT {
+                Mock Start-Sleep {}
+                Mock Invoke-MgGraphRequest { throw 'Response status code 404 (Not Found)' }
+                { Invoke-IaRequest -Method GET -Uri 'https://graph.microsoft.com/beta/x' } | Should -Throw
+                Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly
+            }
+        }
+
+        It 'does not retry a 500 on a write (POST)' {
+            InModuleScope JustGraphIT {
+                Mock Start-Sleep {}
+                Mock Invoke-MgGraphRequest { throw 'Response status code 500 (Internal Server Error)' }
+                { Invoke-IaRequest -Method POST -Uri 'https://graph.microsoft.com/beta/x' -Body @{ a = 1 } } | Should -Throw
+                Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly
+            }
+        }
+
+        It 'gives up after IaMaxRetry attempts on persistent throttling' {
+            InModuleScope JustGraphIT {
+                Mock Start-Sleep {}
+                Mock Invoke-MgGraphRequest { throw 'Response status code 503 (Service Unavailable)' }
+                { Invoke-IaRequest -Method GET -Uri 'https://graph.microsoft.com/beta/x' } | Should -Throw
+                Should -Invoke Invoke-MgGraphRequest -Times 5 -Exactly  # initial + 4 retries
+            }
+        }
+
+        It 'logs the transient retry then the success in the call log' {
+            InModuleScope JustGraphIT {
+                Mock Start-Sleep {}
+                $script:__retryN2 = 0
+                Mock Invoke-MgGraphRequest {
+                    $script:__retryN2++
+                    if ($script:__retryN2 -lt 2) { throw 'Response status code 429 (Too Many Requests)' }
+                    [pscustomobject]@{ value = @() }
+                }
+                Invoke-IaRequest -Method GET -Uri 'https://graph.microsoft.com/beta/users' | Out-Null
+                $log = Get-IaCallLogEntries
+                $log[0].Status | Should -Be 429
+                $log[0].Error  | Should -Match 'transient 429'
+            }
+        }
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 Describe 'Inventory, compare and copy (mocked Graph)' {
 
     BeforeEach {
