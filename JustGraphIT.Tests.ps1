@@ -3482,6 +3482,40 @@ Describe 'Security hardening (review fixes)' {
     }
 }
 
+Describe 'Entra deleted-items recycle bin (beta)' {
+    It 'Get-EntraDeletedItem -Type User queries the user cast and projects DaysLeft' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'u-1'; displayName = 'Gone User'; userPrincipalName = 'gone@x.com'; deletedDateTime = ([DateTime]::UtcNow.AddDays(-5).ToString('o')) }) }
+            $rows = @(Get-EntraDeletedItem -Type User)
+            $script:p | Should -Match 'directory/deletedItems/microsoft\.graph\.user'
+            $rows[0].DisplayName | Should -Be 'Gone User'
+            $rows[0].Identifier  | Should -Be 'gone@x.com'
+            $rows[0].DaysLeft    | Should -BeGreaterThan 20   # ~25 left of 30
+        }
+    }
+
+    It 'Restore-EntraDeletedItem POSTs to the restore action' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; [pscustomobject]@{ displayName = 'Gone User' } }
+            Restore-EntraDeletedItem -Id '11111111-1111-1111-1111-111111111111' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'POST'
+            $script:u | Should -Match 'directory/deletedItems/11111111-1111-1111-1111-111111111111/restore$'
+        }
+    }
+
+    It 'Remove-EntraDeletedItem permanently DELETEs from the recycle bin' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraDeletedItem -Id '22222222-2222-2222-2222-222222222222' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'directory/deletedItems/22222222-2222-2222-2222-222222222222$'
+        }
+    }
+}
+
 Describe 'Entra Custom Roles blade (beta)' {
     It 'Get-EntraRoleDefinition projects built-in vs custom and action count' {
         InModuleScope JustGraphIT {
