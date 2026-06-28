@@ -144,7 +144,7 @@ function ConvertTo-IaAppObject {
         '#microsoft.graph.microsoftStoreForBusinessApp'  = 'Store'
     }
 
-    $odataType = $App.'@odata.type'
+    $odataType = [string]$App.'@odata.type'   # [string] so a null type can't throw on the map index
     $appType   = $typeMap[$odataType]
 
     if (-not $appType) {

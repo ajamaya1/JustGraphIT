@@ -92,7 +92,7 @@ function Get-IntuneAppProtectionPolicy {
 
 function ConvertTo-IaAppProtectionObject {
     param($Policy, $Platform, $ODataMap)
-    $derivedPlatform = $ODataMap[$Policy.'@odata.type'] ?? $Platform
+    $derivedPlatform = $ODataMap["$($Policy.'@odata.type')"] ?? $Platform   # [string] key so a null type can't throw
     [pscustomobject][ordered]@{
         Id          = $Policy.id
         Name        = $Policy.displayName

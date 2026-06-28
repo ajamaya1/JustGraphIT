@@ -68,7 +68,9 @@ function ConvertTo-IaCompliancePolicyObject {
         '#microsoft.graph.androidDeviceOwnerCompliancePolicy'          = 'AndroidDeviceOwner'
         '#microsoft.graph.aospDeviceOwnerCompliancePolicy'             = 'AndroidAOSP'
     }
-    $odataType = $Policy.'@odata.type'
+    # Coerce to string so a missing/null @odata.type can't throw on the hashtable index
+    # ($hashtable[$null] is an error; $hashtable[''] is just a miss).
+    $odataType = [string]$Policy.'@odata.type'
     $platform  = $platformMap[$odataType] ?? ($odataType -replace '#microsoft.graph.', '' -replace 'CompliancePolicy', '')
 
     [pscustomobject][ordered]@{

@@ -57,15 +57,18 @@ function Get-IntuneApprovalRequest {
         $appName = $r.approver.userPrincipalName
         if (-not $appName) { $appName = $r.approver.user.displayName }
         if (-not $appName) { $appName = $r.approver.displayName }
+        # operationApprovalRequest (verified vs beta CSDL): the change type is the
+        # collection `requiredOperationApprovalPolicyTypes`, and there is no
+        # completedDateTime — lastModifiedDateTime tracks the latest state change.
         $row = [pscustomobject]@{
-            Requested     = ($r.requestDateTime ?? $r.createdDateTime)
+            Requested     = $r.requestDateTime
             Requestor     = $reqName
-            Type          = $r.operationApprovalPolicyType
+            Type          = (@($r.requiredOperationApprovalPolicyTypes) -join ', ')
             Status        = $r.status
             Approver      = $appName
             Justification = $r.requestJustification
             Expires       = $r.expirationDateTime
-            Completed     = $r.completedDateTime
+            Completed     = $r.lastModifiedDateTime
         }
         if ($Status -and $row.Status -ne $Status) { continue }
         if ($Type -and $row.Type -ne $Type) { continue }
