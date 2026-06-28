@@ -189,7 +189,7 @@ function Add-EntraGroupMemberBulk {
     .PARAMETER MemberId
         One or more directory object ids to add.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory, Position = 0)][string]$Group,
         [Parameter(Mandatory, Position = 1)][string[]]$MemberId
@@ -205,7 +205,7 @@ function Add-EntraGroupMemberBulk {
             $added++
         } catch {
             # already-a-member is reported as a 400 by Graph — treat as success, not failure
-            if ($_.Exception.Message -match 'already exist|references already exist|added object references already exist') { $added++ }
+            if ($_.Exception.Message -match 'added object references already exist|references already exist') { $added++ }
             else { $failed.Add([pscustomobject]@{ Id = $id; Error = $_.Exception.Message }) }
         }
     }
@@ -267,7 +267,7 @@ function Set-EntraGroupLicense {
         resolved against subscribedSkus. Members of the group are then (de)licensed
         automatically by Entra. Members need a usageLocation for assignment to apply.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([Parameter(Mandatory, Position = 0)][string]$Group, [string[]]$AddSku, [string[]]$RemoveSku)
     $gid  = Resolve-EntraGroupId -Group $Group
     $add  = @(Resolve-EntraSkuId -Sku $AddSku | ForEach-Object { @{ skuId = $_ } })

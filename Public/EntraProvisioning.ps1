@@ -101,7 +101,13 @@ function New-EntraTeam {
     $team = $null; $lastErr = $null
     foreach ($try in 1..6) {
         try { $team = Invoke-IaRequest -Method PUT -Uri (Resolve-IaUri -Path "groups/$($group.id)/team") -Body $teamBody; break }
-        catch { $lastErr = $_; Start-Sleep -Seconds 5 }
+        catch {
+            $lastErr = $_
+            # only 404 means "group not replicated yet" — anything else (403/400) is
+            # permanent, so stop wasting 30s retrying it.
+            if ((Get-IaErrorStatus $_) -ne 404) { break }
+            if ($try -lt 6) { Start-Sleep -Seconds 5 }
+        }
     }
     if (-not $team) {
         Write-Warning "Group '$Name' created ($($group.id)) but teamify is still pending ($($lastErr.Exception.Message)). It usually completes within a minute — re-run or check Teams."
