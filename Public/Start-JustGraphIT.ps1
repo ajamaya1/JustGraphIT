@@ -819,7 +819,7 @@ function Invoke-IaTuiElevate {
     $durPick = Read-IaMenu -Title 'Duration' -Color $Accent -Choices @('30m','1h','2h','4h','8h','✎ Custom…')
     $dur     = if ($durPick -eq '✎ Custom…') { Read-IaText -Question 'Duration (e.g. 2h, 30m, 8h)' -DefaultAnswer '2h' } else { $durPick }
     if ([string]::IsNullOrWhiteSpace($dur)) { $dur = '2h' }
-    $confirm = Read-IaMenu -Title "Activate [$Accent]$role[/] for $dur?" `
+    $confirm = Read-IaMenu -Title "Activate [$Accent]$role[/] for ${dur}?" `
         -Choices @('Yes, activate now', 'Cancel') -Color $Accent
     if ($confirm -notlike 'Yes*') { Write-IaHost '[grey]Cancelled.[/]'; return }
 
@@ -1537,7 +1537,7 @@ function Invoke-IaTuiDeviceAct {
         if ([string]::IsNullOrWhiteSpace($nn)) { return }
         $extra.NewName = $nn
     }
-    if (-not (Read-IaConfirm "Send '$Action' to $Device?")) { return }
+    if (-not (Read-IaConfirm "Send '$Action' to ${Device}?")) { return }
     try {
         Invoke-IaStatus -Spinner Dots -Title "Sending $Action…" -Color $Accent -ScriptBlock {
             Invoke-IntuneDeviceAction -Device $Device -Action $Action @extra -Confirm:$false
@@ -1936,9 +1936,9 @@ function Invoke-IaTuiEntraGroupCard {
             switch -Wildcard ($a) {
                 'Members'  { Invoke-IaTuiReportView -Accent $Accent -Title "Members · $Name" -Stem 'grp-members' -Loader { Get-EntraGroupMember -Group $Group } }
                 'Owners'   { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $Name" -Stem 'grp-owners' -Loader { Get-EntraGroupOwner -Group $Group } }
-                'Add member'    { $u = Select-IaUser -Accent $Accent -Title 'Add which user?'; if ($u -and (Read-IaConfirm "Add $u to $Name?")) { Add-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
-                'Remove member' { $u = Select-IaUser -Accent $Accent -Title 'Remove which user?'; if ($u -and (Read-IaConfirm "[red]Remove $u from $Name?[/]")) { Remove-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null } }
-                'Add owner'     { $u = Select-IaUser -Accent $Accent -Title 'Add which owner?'; if ($u -and (Read-IaConfirm "Make $u an owner of $Name?")) { Add-EntraGroupOwner -Group $Group -Owner $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                'Add member'    { $u = Select-IaUser -Accent $Accent -Title 'Add which user?'; if ($u -and (Read-IaConfirm "Add $u to ${Name}?")) { Add-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                'Remove member' { $u = Select-IaUser -Accent $Accent -Title 'Remove which user?'; if ($u -and (Read-IaConfirm "[red]Remove $u from ${Name}?[/]")) { Remove-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null } }
+                'Add owner'     { $u = Select-IaUser -Accent $Accent -Title 'Add which owner?'; if ($u -and (Read-IaConfirm "Make $u an owner of ${Name}?")) { Add-EntraGroupOwner -Group $Group -Owner $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
                 'Update*' {
                     $nn = Read-IaText -Question 'New display name (blank = keep)'
                     $dd = Read-IaText -Question 'New description (blank = keep)'
@@ -1978,7 +1978,7 @@ function Invoke-IaTuiEntraCA {
         $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Conditional Access ($($disp.Count)) · Enter = change state" -Stem 'entra-ca'
         if (-not $picked) { return }
         $st = Read-IaMenu -Title "Set '$($picked.Name)' to" -Color $Accent -Choices @('enabled', 'disabled', 'reportOnly', 'Cancel')
-        if ($st -in 'enabled', 'disabled', 'reportOnly' -and (Read-IaConfirm "Set '$($picked.Name)' → $st?")) {
+        if ($st -in 'enabled', 'disabled', 'reportOnly' -and (Read-IaConfirm "Set '$($picked.Name)' → ${st}?")) {
             try { Set-EntraConditionalAccessState -Id $picked.Id -State $st -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Done.[/]" }
             catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
             Read-IaPause | Out-Null
@@ -2028,10 +2028,10 @@ function Invoke-IaTuiUserActions {
         if (-not $act -or $act -eq 'Back') { return }
         try {
             switch -Wildcard ($act) {
-                'Enable account'  { if (Read-IaConfirm "Enable $Upn?")          { Set-EntraUser -User $Upn -AccountEnabled $true  -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]" } }
-                'Disable account' { if (Read-IaConfirm "[red]Disable $Upn?[/]")  { Set-EntraUser -User $Upn -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]" } }
+                'Enable account'  { if (Read-IaConfirm "Enable ${Upn}?")          { Set-EntraUser -User $Upn -AccountEnabled $true  -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]" } }
+                'Disable account' { if (Read-IaConfirm "[red]Disable ${Upn}?[/]")  { Set-EntraUser -User $Upn -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]" } }
                 'Reset password*' {
-                    if (Read-IaConfirm "Reset password for $Upn?") {
+                    if (Read-IaConfirm "Reset password for ${Upn}?") {
                         $r = Reset-EntraUserPassword -User $Upn -Confirm:$false
                         Write-IaHost "[$Accent]✓ Temporary password:[/] [white]$($r.TempPassword)[/]  [grey](must change at next sign-in)[/]"
                     }
@@ -2563,7 +2563,7 @@ function Invoke-IaTuiReports {
                                 $actPick = Read-IaMenu -Title "Action on $devName" -Color $Accent -Choices @($actLabels.Keys)
                                 $action  = if ($actPick) { $actLabels[$actPick] } else { $null }
                                 if ($action) {
-                                    if (Read-IaConfirm "Send '$actPick' to $devName?") {
+                                    if (Read-IaConfirm "Send '$actPick' to ${devName}?") {
                                         try {
                                             Invoke-IntuneDeviceAction -Device $devName -Action $action -Confirm:$false | Out-Null
                                             Write-IaHost "[$Accent]✓ $actPick sent to $devName.[/]"
@@ -3014,7 +3014,7 @@ function Invoke-IaTuiReportBuilder {
                 if ($func -eq 'Count only' -or -not $func) {
                     $recipe.Agg = @{ Func = 'Count'; Prop = $null }
                 } else {
-                    $mProp = Read-IaMenu -Title "Which numeric property to $func?" -Color $Accent -PageSize 20 -Choices $props
+                    $mProp = Read-IaMenu -Title "Which numeric property to ${func}?" -Color $Accent -PageSize 20 -Choices $props
                     $fmap = @{ 'Sum'='Sum'; 'Average'='Avg'; 'Min'='Min'; 'Max'='Max' }
                     $recipe.Agg = @{ Func = $fmap[$func]; Prop = $mProp }
                 }
