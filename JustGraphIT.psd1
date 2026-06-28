@@ -246,6 +246,12 @@
         'Set-EntraAuthorizationPolicy',
         'Get-EntraSecurityDefault',
         'Set-EntraSecurityDefault',
+        # --- custom roles (unified RBAC role definitions) ---
+        'Get-EntraRoleDefinition',
+        'Get-EntraRoleAction',
+        'New-EntraRoleDefinition',
+        'Set-EntraRoleDefinition',
+        'Remove-EntraRoleDefinition',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',

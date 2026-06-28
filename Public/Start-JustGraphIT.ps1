@@ -2539,14 +2539,63 @@ function Select-IaDirectoryRole {
     if ($pick) { $pick.Role } else { $null }
 }
 
+function Invoke-IaTuiEntraCustomRoles {
+    # Custom directory roles — list every role definition, browse the action catalogue,
+    # and create / edit / delete custom (non-built-in) roles.
+    param([string]$Accent)
+    while ($true) {
+        $op = Read-IaMenu -Title 'Custom roles' -Color $Accent -Choices @('List all role definitions', 'Browse available actions', 'Create a custom role', 'Edit / delete a custom role', 'Back')
+        if (-not $op -or $op -eq 'Back') { return }
+        try {
+            switch -Wildcard ($op) {
+                'List all*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Role definitions' -Stem 'entra-roledefs' -Loader { Get-EntraRoleDefinition } }
+                'Browse available*' {
+                    $like = Read-IaText -Question 'Filter actions by text (blank = all)'
+                    if ($like) { Invoke-IaTuiReportView -Accent $Accent -Title "Resource actions · '$like'" -Stem 'entra-roleactions' -Loader { Get-EntraRoleAction -Like $like } }
+                    else       { Invoke-IaTuiReportView -Accent $Accent -Title 'Directory resource actions' -Stem 'entra-roleactions' -Loader { Get-EntraRoleAction } }
+                }
+                'Create a custom*' {
+                    $nm = Read-IaText -Question 'Custom role name'
+                    if ([string]::IsNullOrWhiteSpace($nm)) { continue }
+                    $desc = Read-IaText -Question 'Description (blank = none)'
+                    $acts = @(Invoke-IaStatus -Spinner Dots -Title 'Loading available actions…' -ScriptBlock { Get-EntraRoleAction })
+                    if (-not $acts) { Write-IaHost '[yellow]Could not load the action catalogue.[/]'; Read-IaPause | Out-Null; continue }
+                    $picked = Read-IaMultiMenu -Title "Allowed actions for '$nm'" -Choices (@($acts | ForEach-Object Action)) -Color $Accent -PageSize 18
+                    if (-not $picked) { Write-IaHost '[yellow]No actions selected — a custom role needs at least one.[/]'; Read-IaPause | Out-Null; continue }
+                    if (Read-IaConfirm "Create custom role '$nm' with $($picked.Count) action(s)?") {
+                        $p = @{ Name = $nm; AllowedResourceAction = @($picked); Confirm = $false }; if ($desc) { $p.Description = $desc }
+                        $r = New-EntraRoleDefinition @p
+                        Write-IaHost "[$Accent]✓ Created[/] '$($r.Name)' ($($r.Id))"; Read-IaPause | Out-Null
+                    }
+                }
+                'Edit / delete*' {
+                    $defs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading custom roles…' -ScriptBlock { Get-EntraRoleDefinition -CustomOnly })
+                    if (-not $defs) { Write-IaHost '[yellow]No custom roles in this tenant.[/]'; Read-IaPause | Out-Null; continue }
+                    $dd = @($defs | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Enabled = $_.Enabled; Actions = $_.Actions; Id = $_.Id } })
+                    $pk = Read-IaTableInteractive -Data $dd -Color $Accent -Selectable -Title "Custom roles ($($dd.Count)) · Enter = manage" -Stem 'entra-customrole-pick'
+                    if (-not $pk) { continue }
+                    $act = Read-IaMenu -Title "$($pk.DisplayName)" -Color $Accent -Choices @('Rename', 'Enable', 'Disable', 'Delete', 'Cancel')
+                    switch ($act) {
+                        'Rename'  { $nn = Read-IaText -Question 'New name'; if ($nn -and (Read-IaConfirm "Rename to '$nn'?")) { Set-EntraRoleDefinition -Role $pk.Id -DisplayName $nn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Renamed.[/]"; Read-IaPause | Out-Null } }
+                        'Enable'  { if (Read-IaConfirm "Enable '$($pk.DisplayName)'?")  { Set-EntraRoleDefinition -Role $pk.Id -Enabled $true  -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]";  Read-IaPause | Out-Null } }
+                        'Disable' { if (Read-IaConfirm "Disable '$($pk.DisplayName)'?") { Set-EntraRoleDefinition -Role $pk.Id -Enabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]"; Read-IaPause | Out-Null } }
+                        'Delete'  { if (Read-IaConfirm "[red]Delete custom role '$($pk.DisplayName)'?[/]") { Remove-EntraRoleDefinition -Role $pk.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null } }
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
 function Invoke-IaTuiEntraRoles {
     # Directory role assignments — view / assign (permanent) / remove.
     param([string]$Accent)
     while ($true) {
-        $m = Read-IaMenu -Title 'Directory roles' -Color $Accent -Choices @('View role assignments', 'Assign a role to a user', 'Remove a role assignment', 'Back')
+        $m = Read-IaMenu -Title 'Directory roles' -Color $Accent -Choices @('View role assignments', 'Assign a role to a user', 'Remove a role assignment', 'Custom roles (create / edit / delete)', 'Back')
         if (-not $m -or $m -eq 'Back') { return }
         try {
             switch -Wildcard ($m) {
+                'Custom roles*' { Invoke-IaTuiEntraCustomRoles -Accent $Accent }
                 'View*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
                 'Assign*' {
                     $u = Select-IaUser -Accent $Accent -Title 'Assign a role to which user?'
