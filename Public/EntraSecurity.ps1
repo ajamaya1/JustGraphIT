@@ -12,7 +12,7 @@ function Get-EntraSecureScore {
     if ($Raw) { return $rows }
     if ($Detailed -and $rows.Count) {
         return @($rows[0].controlScores | ForEach-Object {
-            [pscustomobject][ordered]@{ Control = $_.controlName; Category = $_.controlCategory; Score = $_.score; Implementation = $_.implementationStatus; Description = $_.description }
+            [pscustomobject][ordered]@{ Control = $_.controlName; Category = $_.controlCategory; Score = $_.score; Description = $_.description }
         })
     }
     @($rows | ForEach-Object {

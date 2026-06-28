@@ -50,7 +50,7 @@ function Get-EntraUser {
     $mgr = $null
     try { $mgr = (Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "users/$id/manager?`$select=displayName,userPrincipalName")).userPrincipalName } catch { }
     $grpCount = $null
-    try { $grpCount = (Get-IaCount "users/$id/transitiveMemberOf/microsoft.graph.group") } catch { }
+    try { $grpCount = (Get-IaCount "users/$id/transitiveMemberOf/microsoft.graph.group/`$count") } catch { }
 
     $base = ConvertTo-IaEntraUser $obj
     $base | Add-Member -NotePropertyName Licenses    -NotePropertyValue ($lic -join ', ') -Force
