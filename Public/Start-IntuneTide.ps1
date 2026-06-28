@@ -2520,9 +2520,12 @@ function Invoke-IaTuiCloudPC {
                 'Frontline*'    { 'Frontline' }
                 'Inaccessible*' { 'Inaccessible' }
             }
-            Invoke-IaStatus -Spinner Dots -Title "Running $rpt report…" -ScriptBlock {
+            if (-not $rptName) { return }
+            $rows = @(Invoke-IaStatus -Spinner Dots -Title "Running $rpt report…" -ScriptBlock {
                 Get-IntuneCloudPCReport -Report $rptName
-            } | Select-Object -First 100 | Format-IaTable -Color $Accent
+            } | Select-Object -First 100)
+            if (-not $rows) { Write-IaHost '[yellow]No data returned for this report.[/]'; Read-IaPause | Out-Null }
+            else { Read-IaTablePause -Data $rows -Stem "cloudpc-report-$rptName" -Color $Accent -Title "Cloud PC · $rpt ($($rows.Count))" }
         }
         default { return }
     }
