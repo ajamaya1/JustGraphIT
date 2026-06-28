@@ -23,7 +23,7 @@ function New-EntraConditionalAccessPolicy {
     param(
         [Parameter(Mandatory, Position = 0)][string]$Name,
         [ValidateSet('enabled', 'disabled', 'enabledForReportingButNotEnforced')][string]$State = 'enabledForReportingButNotEnforced',
-        [string[]]$IncludeUsers = @('All'),
+        [string[]]$IncludeUsers,
         [string[]]$ExcludeUsers,
         [string[]]$IncludeGroups,
         [string[]]$ExcludeGroups,
@@ -44,7 +44,12 @@ function New-EntraConditionalAccessPolicy {
         $body = $BodyObject
         $body.displayName = $Name
     } else {
-        $users = [ordered]@{ includeUsers = @($IncludeUsers) }
+        # CA unions includeUsers + includeGroups, so DON'T force includeUsers='All'
+        # when the operator scoped by group — that would silently hit the whole tenant.
+        $incUsers = if ($PSBoundParameters.ContainsKey('IncludeUsers')) { @($IncludeUsers) }
+                    elseif ($IncludeGroups) { @('None') }
+                    else { @('All') }
+        $users = [ordered]@{ includeUsers = $incUsers }
         if ($ExcludeUsers)  { $users.excludeUsers  = @($ExcludeUsers) }
         if ($IncludeGroups) { $users.includeGroups = @($IncludeGroups) }
         if ($ExcludeGroups) { $users.excludeGroups = @($ExcludeGroups) }
@@ -65,6 +70,11 @@ function New-EntraConditionalAccessPolicy {
         if ($BlockAccess)            { $controls = @('block') }
         $body = [ordered]@{ displayName = $Name; state = $State; conditions = $conditions }
         if ($controls) { $body.grantControls = [ordered]@{ operator = $GrantOperator; builtInControls = @($controls) } }
+        # break-glass guard: an enabled block-all policy with no exclusions locks
+        # everyone out — including you. Warn loudly (report-only is the safe default).
+        if ($State -eq 'enabled' -and $BlockAccess -and ($incUsers -contains 'All') -and -not ($ExcludeUsers -or $ExcludeGroups)) {
+            Write-Warning "This policy BLOCKS all users (including you) with no exclusion. Add -ExcludeUsers/-ExcludeGroups for a break-glass account, or use -State enabledForReportingButNotEnforced first."
+        }
     }
     if ($PSCmdlet.ShouldProcess($Name, "Create Conditional Access policy (state=$State)")) {
         $p = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "identity/conditionalAccess/policies") -Body $body

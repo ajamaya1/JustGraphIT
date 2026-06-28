@@ -2881,6 +2881,34 @@ Describe 'Entra write actions — permissions, consent, provisioning (beta)' {
         }
     }
 
+    It 'Resolve-EntraResourceApi throws on an ambiguous name rather than silently picking one' {
+        InModuleScope JustGraphIT {
+            # two SPs share a display name; consenting against the wrong one is a security
+            # footgun, so a bare name must error instead of guessing.
+            Mock Get-IaCollection {
+                @(
+                    [pscustomobject]@{ id = 'sp-a'; appId = 'app-a'; displayName = 'Contoso API'; appRoles = @(); oauth2PermissionScopes = @() }
+                    [pscustomobject]@{ id = 'sp-b'; appId = 'app-b'; displayName = 'Contoso API'; appRoles = @(); oauth2PermissionScopes = @() }
+                )
+            }
+            { Resolve-EntraResourceApi -Resource 'Contoso API' } | Should -Throw -ExpectedMessage '*Multiple service principals*'
+        }
+    }
+
+    It 'Resolve-EntraResourceApi resolves a well-known alias to the Graph SP without ambiguity' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection {
+                $script:p = $Path
+                @([pscustomobject]@{ id = 'graphsp'; appId = '00000003-0000-0000-c000-000000000000'; displayName = 'Microsoft Graph'; appRoles = @(); oauth2PermissionScopes = @() })
+            }
+            $sp = Resolve-EntraResourceApi -Resource 'Graph'
+            $sp.id | Should -Be 'graphsp'
+            # alias maps to the appId filter, never a displayName guess
+            $script:p | Should -Match "appId eq '00000003-0000-0000-c000-000000000000'"
+        }
+    }
+
     It 'Grant-EntraAdminConsent creates an appRoleAssignment (Role) and an AllPrincipals grant (Scope)' {
         InModuleScope JustGraphIT {
             $script:posts = [System.Collections.Generic.List[object]]::new()
@@ -3131,6 +3159,36 @@ Describe 'Entra Conditional Access authoring (beta)' {
         }
     }
 
+    It 'New-EntraConditionalAccessPolicy with -IncludeGroups only sets includeUsers=None (no silent tenant-wide union)' {
+        InModuleScope JustGraphIT {
+            $script:b = $null
+            Mock Invoke-IaRequest { $script:b = $Body; [pscustomobject]@{ id = 'ca-3'; displayName = 'Grp'; state = 'enabledForReportingButNotEnforced' } }
+            New-EntraConditionalAccessPolicy -Name 'Grp' -IncludeGroups 'g1' -RequireMfa -Confirm:$false | Out-Null
+            # CA unions includeUsers + includeGroups; scoping by group must NOT pull in 'All' users.
+            @($script:b.conditions.users.includeUsers)  | Should -Be @('None')
+            @($script:b.conditions.users.includeGroups) | Should -Contain 'g1'
+        }
+    }
+
+    It 'New-EntraConditionalAccessPolicy with no user/group scoping defaults includeUsers=All' {
+        InModuleScope JustGraphIT {
+            $script:b = $null
+            Mock Invoke-IaRequest { $script:b = $Body; [pscustomobject]@{ id = 'ca-4'; displayName = 'AllUsers'; state = 'enabledForReportingButNotEnforced' } }
+            New-EntraConditionalAccessPolicy -Name 'AllUsers' -RequireMfa -Confirm:$false | Out-Null
+            @($script:b.conditions.users.includeUsers) | Should -Be @('All')
+        }
+    }
+
+    It 'New-EntraConditionalAccessPolicy honors an explicit -IncludeUsers even alongside -IncludeGroups' {
+        InModuleScope JustGraphIT {
+            $script:b = $null
+            Mock Invoke-IaRequest { $script:b = $Body; [pscustomobject]@{ id = 'ca-5'; displayName = 'Both'; state = 'enabledForReportingButNotEnforced' } }
+            New-EntraConditionalAccessPolicy -Name 'Both' -IncludeUsers 'u-1' -IncludeGroups 'g1' -RequireMfa -Confirm:$false | Out-Null
+            @($script:b.conditions.users.includeUsers)  | Should -Be @('u-1')
+            @($script:b.conditions.users.includeGroups) | Should -Contain 'g1'
+        }
+    }
+
     It 'Remove-EntraConditionalAccessPolicy resolves the name then DELETEs' {
         InModuleScope JustGraphIT {
             Mock Get-IaCollection { @([pscustomobject]@{ id = 'ca-9'; displayName = 'Old policy' }) }
@@ -3166,6 +3224,81 @@ Describe 'Entra Conditional Access authoring (beta)' {
             ($rows | Where-Object Name -eq 'Corp').Detail    | Should -Be '10.0.0.0/8'
             ($rows | Where-Object Name -eq 'Allowed').Detail | Should -Be 'US, CA'
             ($rows | Where-Object Name -eq 'Corp').Kind      | Should -Be 'ipNamedLocation'
+        }
+    }
+}
+
+Describe 'TUI write-menu smoke (new wiring)' {
+    It 'Invoke-IaTuiEntraCACreate assembles an All-users / MFA / report-only policy and calls the cmdlet' {
+        InModuleScope JustGraphIT {
+            $script:ca_iu = 'unset'; $script:ca_state = 'unset'; $script:ca_mfa = $false; $script:ca_called = $false
+            Mock Read-IaText { 'Test CA' }                       # policy name
+            Mock Read-IaMenu {
+                switch -Wildcard ($Title) {
+                    'Who*'     { 'All users' }
+                    'Grant*'   { 'Require MFA' }
+                    'Initial*' { 'Report-only (recommended)' }
+                    default    { 'Cancel' }
+                }
+            }
+            Mock Read-IaConfirm { $true }                        # no break-glass group (Select-IaGroup → null), then final confirm
+            Mock Select-IaGroup { $null }
+            Mock Read-IaPause {}
+            Mock Write-IaHost {}
+            Mock New-EntraConditionalAccessPolicy {
+                $script:ca_called = $true; $script:ca_iu = $IncludeUsers; $script:ca_state = $State; $script:ca_mfa = [bool]$RequireMfa
+                [pscustomobject]@{ Name = $Name; State = $State; Id = 'ca-x' }
+            }
+            Invoke-IaTuiEntraCACreate -Accent 'cyan'
+            $script:ca_called | Should -BeTrue
+            @($script:ca_iu)  | Should -Be @('All')
+            $script:ca_mfa    | Should -BeTrue
+            $script:ca_state  | Should -Be 'enabledForReportingButNotEnforced'
+        }
+    }
+
+    It 'Invoke-IaTuiEntraCACreate scoped to a group does NOT pass IncludeUsers (avoids tenant-wide union)' {
+        InModuleScope JustGraphIT {
+            $script:ca_ig = 'unset'; $script:ca_hasIU = $true; $script:ca_called = $false
+            Mock Read-IaText { 'Grp CA' }
+            Mock Read-IaMenu {
+                switch -Wildcard ($Title) {
+                    'Who*'     { 'A specific group' }
+                    'Grant*'   { 'Require MFA' }
+                    'Initial*' { 'Report-only (recommended)' }
+                    default    { 'Cancel' }
+                }
+            }
+            Mock Read-IaConfirm { if ($Message -like 'Exclude*') { $false } else { $true } }
+            Mock Select-IaGroup { [pscustomobject]@{ Id = 'g-1'; DisplayName = 'Admins' } }
+            Mock Read-IaPause {}
+            Mock Write-IaHost {}
+            Mock New-EntraConditionalAccessPolicy {
+                $script:ca_called = $true; $script:ca_ig = $IncludeGroups; $script:ca_hasIU = $PSBoundParameters.ContainsKey('IncludeUsers')
+                [pscustomobject]@{ Name = $Name; State = $State; Id = 'ca-y' }
+            }
+            Invoke-IaTuiEntraCACreate -Accent 'cyan'
+            $script:ca_called  | Should -BeTrue
+            @($script:ca_ig)   | Should -Be @('g-1')
+            $script:ca_hasIU   | Should -BeFalse
+        }
+    }
+
+    It 'new write menus back out cleanly on Back (no runtime errors)' {
+        InModuleScope JustGraphIT {
+            Mock Read-IaMenu { 'Back' }
+            Mock Read-IaSelection { $null }
+            Mock Read-IaTableInteractive { $null }
+            Mock Read-IaTablePause {}
+            Mock Read-IaText { '' }
+            Mock Read-IaConfirm { $false }
+            Mock Read-IaPause {}
+            Mock Write-IaHost {}
+            Mock Write-IaTuiHeader {}
+            Mock Invoke-IaStatus { $null }
+            foreach ($fn in 'Invoke-IaTuiEntraCA', 'Invoke-IaTuiAssignmentFilters', 'Invoke-IaTuiLegacyConfig', 'Invoke-IaTuiEntraNamedLocation') {
+                { & $fn -Accent 'cyan' } | Should -Not -Throw -Because "$fn must enter and exit its menu loop cleanly"
+            }
         }
     }
 }

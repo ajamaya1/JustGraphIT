@@ -400,6 +400,17 @@ Anything you'd normally open the portal for, from the command line:
 
 **Query → group:** the main-menu *"Build a group from a query"* flow filters a population — devices not synced in *N* days (`Get-IntuneStaleDevice`), users by display-name prefix, or inactive users — then bulk-adds the set to a new or existing group. Same for any `Get-EntraUser -Filter "startswith(displayName,'EX')"` result.
 
+**All of the above is reachable from the menus**, not just the CLI. Under **Identity · Entra**:
+
+- *Applications* → pick an app registration → add/remove API permissions, grant admin consent, client secrets, redirect URIs, owners, rename/delete, create its enterprise app.
+- *Enterprise apps* → pick a service principal → see exactly what it can do, then **revoke a delegated grant** or an **application permission**.
+- *Groups* → group card → members, **owners (add/remove)**, group-based licensing, update, delete; plus **Create a Team** and **Manage a Team** (channels · members).
+- *Conditional Access* → **create** a policy (report-only by default), change state, **rename**, delete; **named locations** (IP/country) create & delete.
+- *Directory roles* → assign/remove; *PIM* → activate your own eligible role, make a user eligible, **remove eligibility**.
+- *Lifecycle* → invite a guest; inactive-user & guest reports.
+
+On the Intune side the menus cover browse / assign / **delete** for apps, configuration, compliance, scripts, remediations, update rings (now **create / edit / delete**), feature & driver update profiles, **assignment filters** (create/delete), and legacy device-config + ADMX profiles. Authoring policies whose definition is a full settings-catalog / compliance-rule / script body (`New-IntuneConfigurationPolicy`, `New-IntuneCompliancePolicy`, `New-IntuneScript`, `New-IntuneRemediation`, `New-IntuneAdminTemplate`, and the matching `Set-*` patches) stays a **CLI-first** operation by design — those take structured bodies a menu can't sensibly capture — but everything they create is fully browsable, assignable and deletable from the TUI.
+
 </details>
 
 ## Project structure
@@ -475,7 +486,7 @@ dependency is ever introduced.
 Invoke-Pester ./JustGraphIT/JustGraphIT.Tests.ps1
 ```
 
-149 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam).
+281 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps and TUI write-menu smoke tests.
 
 ## Roadmap
 

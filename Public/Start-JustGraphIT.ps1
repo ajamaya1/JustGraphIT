@@ -844,6 +844,7 @@ function Invoke-IaTuiApps {
             'Filter by type (Win32 / Store / iOS / Android / macOS)',
             'App details (any type · all fields)',
             'Assign app to groups',
+            'Delete an app',
             'Back'
         )
         switch -Wildcard ($pick) {
@@ -944,6 +945,18 @@ function Invoke-IaTuiApps {
                 Write-IaHost "[$Accent]Done.[/]"
                 Read-IaPause | Out-Null
             }
+            'Delete an app' {
+                $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app to delete?' -AllowType
+                if (-not $app) { break }
+                $appName = $app.Id
+                Write-IaHost '[grey]Deleting an app also removes all of its group assignments (irreversible).[/]'
+                if (Read-IaConfirm "[red]Delete app '$($app.Name)'?[/]") {
+                    Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock {
+                        Remove-IntuneApp -Id $appName -Confirm:$false
+                    }
+                    Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null
+                }
+            }
             'Back' { return }
         }
     }
@@ -1020,10 +1033,13 @@ function Invoke-IaTuiWindowsUpdate {
             'Patch report (quality · feature update status)',
             'List update rings',
             'Create update ring',
+            'Edit update ring',
             'Delete update ring',
             'List feature update profiles',
             'Create feature update profile',
+            'Delete feature update profile',
             'List driver update profiles',
+            'Delete driver update profile',
             'Back'
         )
         switch -Wildcard ($pick) {
@@ -1047,6 +1063,26 @@ function Invoke-IaTuiWindowsUpdate {
                 }
                 Write-IaHost "[$Accent]Created:[/] $($script:_ring.Name) ($($script:_ring.Id))"
                 Read-IaPause | Out-Null
+            }
+            'Edit update ring' {
+                $ring = Select-IaInventoryItem -Accent $Accent -ResourceType 'windowsUpdateRings' -Title 'Which update ring to edit?' -AllowType
+                if (-not $ring) { break }
+                $rid = $ring.Id
+                $nn  = Read-IaText -Question 'New name (blank = keep)'
+                $qd  = Read-IaText -Question 'Quality deferral days 0-30 (blank = keep)'
+                $fd  = Read-IaText -Question 'Feature deferral days 0-365 (blank = keep)'
+                $pause = Read-IaMenu -Title 'Pause updates?' -Color $Accent -Choices @('No change', 'Pause quality + feature', 'Resume quality + feature')
+                $p = @{ Id = $rid; Confirm = $false }
+                if ($nn) { $p.NewName = $nn }
+                if ($qd -match '^\d+$') { $p.QualityDeferralDays = [int]$qd }
+                if ($fd -match '^\d+$') { $p.FeatureDeferralDays = [int]$fd }
+                if ($pause -like 'Pause*')  { $p.PauseQualityUpdates = $true;  $p.PauseFeatureUpdates = $true }
+                if ($pause -like 'Resume*') { $p.PauseQualityUpdates = $false; $p.PauseFeatureUpdates = $false }
+                if ($p.Count -le 2) { Write-IaHost '[yellow]Nothing to change.[/]'; Read-IaPause | Out-Null; break }
+                if (Read-IaConfirm "Update ring '$($ring.Name)'?") {
+                    Invoke-IaStatus -Spinner 'Dots2' -Title 'Updating…' -Color $Accent -ScriptBlock { Set-IntuneUpdateRing @p }
+                    Write-IaHost "[$Accent]✓ Updated.[/]"; Read-IaPause | Out-Null
+                }
             }
             'Delete update ring' {
                 $ring = Select-IaInventoryItem -Accent $Accent -ResourceType 'windowsUpdateRings' -Title 'Which update ring to delete?' -AllowType
@@ -1080,6 +1116,15 @@ function Invoke-IaTuiWindowsUpdate {
                 Write-IaHost "[$Accent]Created:[/] $($script:_fup.Name)"
                 Read-IaPause | Out-Null
             }
+            'Delete feature update*' {
+                $fup = Select-IaInventoryItem -Accent $Accent -ResourceType 'windowsFeatureUpdateProfiles' -Title 'Which feature update profile to delete?' -AllowType
+                if (-not $fup) { break }
+                $name = $fup.Id
+                if ((Read-IaMenu -Title "[red]Delete '$($fup.Name)'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')) -eq 'Yes, delete') {
+                    Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock { Remove-IntuneFeatureUpdate -Id $name -Confirm:$false }
+                    Write-IaHost "[$Accent]Deleted.[/]"
+                }
+            }
             'List driver update*' {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_dups = @(Get-IntuneDriverUpdate)
@@ -1087,6 +1132,15 @@ function Invoke-IaTuiWindowsUpdate {
                 $rows = $script:_dups | ForEach-Object { [ordered]@{ Name = $_.Name; ApprovalType = $_.ApprovalType; Deferral = $_.DeploymentDeferralInDays; Modified = $_.Modified } }
                 Format-IaTable -Data $rows -Accent $Accent -Title 'Driver Update Profiles'
                 Read-IaPause | Out-Null
+            }
+            'Delete driver update*' {
+                $dup = Select-IaInventoryItem -Accent $Accent -ResourceType 'windowsDriverUpdateProfiles' -Title 'Which driver update profile to delete?' -AllowType
+                if (-not $dup) { break }
+                $name = $dup.Id
+                if ((Read-IaMenu -Title "[red]Delete '$($dup.Name)'?[/]" -Color $Accent -Choices @('Yes, delete','Cancel')) -eq 'Yes, delete') {
+                    Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock { Remove-IntuneDriverUpdate -Id $name -Confirm:$false }
+                    Write-IaHost "[$Accent]Deleted.[/]"
+                }
             }
             'Back' { return }
         }
@@ -1260,16 +1314,111 @@ function Invoke-IaTuiPolicies {
             'Compliance policies',
             'Scripts (Windows PowerShell · macOS shell)',
             'Remediations (device health scripts)',
+            'Assignment filters (browse · create · delete)',
+            'Other profiles (legacy device configs · ADMX templates)',
             'Back'
         )
 
         switch -Wildcard ($pick) {
-            'Configuration*' { Invoke-IaTuiConfigPolicies  -Accent $Accent }
-            'Compliance*'    { Invoke-IaTuiCompliancePol   -Accent $Accent }
-            'Scripts*'       { Invoke-IaTuiScripts         -Accent $Accent }
-            'Remediations*'  { Invoke-IaTuiRemediations    -Accent $Accent }
-            'Back'           { return }
+            'Configuration*'      { Invoke-IaTuiConfigPolicies  -Accent $Accent }
+            'Compliance*'         { Invoke-IaTuiCompliancePol   -Accent $Accent }
+            'Scripts*'            { Invoke-IaTuiScripts         -Accent $Accent }
+            'Remediations*'       { Invoke-IaTuiRemediations    -Accent $Accent }
+            'Assignment filters*' { Invoke-IaTuiAssignmentFilters -Accent $Accent }
+            'Other profiles*'     { Invoke-IaTuiLegacyConfig    -Accent $Accent }
+            'Back'                { return }
         }
+    }
+}
+
+function Invoke-IaTuiLegacyConfig {
+    # Legacy/sibling configuration profile types that aren't Settings Catalog:
+    # classic device configuration profiles and ADMX (administrative templates).
+    # Authoring these needs structured bodies (CLI cmdlets); the TUI browses & deletes.
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Other config profiles' -Sub 'legacy device configs · ADMX templates' -Accent $Accent
+    while ($true) {
+        $action = Read-IaMenu -Title 'Other config profiles' -Color $Accent -Choices @(
+            'List legacy device config profiles', 'Delete a legacy device config profile',
+            'List admin templates (ADMX)', 'Delete an admin template (ADMX)', 'Back')
+        if (-not $action -or $action -eq 'Back') { return }
+        try {
+            switch -Wildcard ($action) {
+                'List legacy*' {
+                    $dc = @(Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock { Get-IntuneDeviceConfiguration })
+                    if (-not $dc) { Write-IaHost '[yellow]No legacy device configuration profiles.[/]'; Read-IaPause | Out-Null; continue }
+                    $rows = @($dc | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Type = $_.Type; Platform = $_.Platform; Modified = $_.Modified } })
+                    Read-IaTablePause -Data $rows -Color $Accent -Title "Legacy device configs ($($rows.Count))" -Stem 'intune-legacy-dc' | Out-Null
+                }
+                'Delete a legacy*' {
+                    $dc = Select-IaInventoryItem -Accent $Accent -ResourceType 'deviceConfigurations' -Title 'Which legacy device config to delete?' -AllowType
+                    if (-not $dc) { continue }
+                    $name = $dc.Id
+                    if ((Read-IaMenu -Title "[red]Delete '$($dc.Name)'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')) -eq 'Yes, delete') {
+                        Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock { Remove-IntuneDeviceConfiguration -Id $name -Confirm:$false }
+                        Write-IaHost "[$Accent]Deleted.[/]"
+                    }
+                }
+                'List admin templates*' {
+                    $at = @(Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock { Get-IntuneAdminTemplate })
+                    if (-not $at) { Write-IaHost '[yellow]No admin templates.[/]'; Read-IaPause | Out-Null; continue }
+                    $rows = @($at | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Description = $_.Description; Modified = $_.Modified } })
+                    Read-IaTablePause -Data $rows -Color $Accent -Title "Admin templates / ADMX ($($rows.Count))" -Stem 'intune-admx' | Out-Null
+                }
+                'Delete an admin template*' {
+                    $at = Select-IaInventoryItem -Accent $Accent -ResourceType 'groupPolicyConfigurations' -Title 'Which admin template to delete?' -AllowType
+                    if (-not $at) { continue }
+                    $name = $at.Id
+                    if ((Read-IaMenu -Title "[red]Delete '$($at.Name)'?[/]" -Color $Accent -Choices @('Yes, delete', 'Cancel')) -eq 'Yes, delete') {
+                        Invoke-IaStatus -Spinner 'Dots2' -Title 'Deleting…' -Color $Accent -ScriptBlock { Remove-IntuneAdminTemplate -Id $name -Confirm:$false }
+                        Write-IaHost "[$Accent]Deleted.[/]"
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
+function Invoke-IaTuiAssignmentFilters {
+    # Assignment filters — browse, create (name · platform · rule), delete. The rule is
+    # a filter expression, e.g. (device.deviceOwnership -eq "Corporate").
+    param([string]$Accent)
+    Write-IaTuiHeader -Screen 'Assignment Filters' -Sub 'device & app assignment scoping' -Accent $Accent
+    while ($true) {
+        $action = Read-IaMenu -Title 'Assignment filters' -Color $Accent -Choices @('List all', 'Create a filter', 'Delete a filter', 'Back')
+        if (-not $action -or $action -eq 'Back') { return }
+        try {
+            switch -Wildcard ($action) {
+                'List all' {
+                    $fl = @(Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading filters…' -Color $Accent -ScriptBlock { Get-IntuneAssignmentFilter })
+                    if (-not $fl) { Write-IaHost '[yellow]No assignment filters.[/]'; Read-IaPause | Out-Null; continue }
+                    $rows = @($fl | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Platform = $_.Platform; Rule = $_.Rule; Modified = $_.Modified } })
+                    Read-IaTablePause -Data $rows -Color $Accent -Title "Assignment filters ($($rows.Count))" -Stem 'intune-filters' | Out-Null
+                }
+                'Create a filter' {
+                    $nm = Read-IaText -Question 'Filter name'
+                    if ([string]::IsNullOrWhiteSpace($nm)) { continue }
+                    $plat = Read-IaMenu -Title 'Platform' -Color $Accent -Choices @('windows10AndLater', 'iOS', 'macOS', 'androidForWork', 'android', 'linux')
+                    if (-not $plat) { continue }
+                    $rule = Read-IaText -Question 'Rule (e.g. (device.deviceOwnership -eq "Corporate"))'
+                    if ([string]::IsNullOrWhiteSpace($rule)) { Write-IaHost '[yellow]A rule is required.[/]'; Read-IaPause | Out-Null; continue }
+                    if (Read-IaConfirm "Create $plat filter '$nm'?") {
+                        $r = New-IntuneAssignmentFilter -Name $nm -Platform $plat -Rule $rule -Confirm:$false
+                        Write-IaHost "[$Accent]✓ Created[/] '$($r.Name)' ($($r.Id))"; Read-IaPause | Out-Null
+                    }
+                }
+                'Delete a filter' {
+                    $fl = @(Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading filters…' -Color $Accent -ScriptBlock { Get-IntuneAssignmentFilter })
+                    if (-not $fl) { Write-IaHost '[yellow]No assignment filters.[/]'; Read-IaPause | Out-Null; continue }
+                    $fd = @($fl | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Platform = $_.Platform; Rule = $_.Rule; Id = $_.Id } })
+                    $fp = Read-IaTableInteractive -Data $fd -Color $Accent -Selectable -Title "Assignment filters ($($fd.Count)) · Enter = delete" -Stem 'intune-filter-rm'
+                    if ($fp -and (Read-IaConfirm "[red]Delete filter '$($fp.Name)'? Any assignment using it will be affected.[/]")) {
+                        Remove-IntuneAssignmentFilter -Id $fp.Id -Confirm:$false | Out-Null
+                        Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1838,7 +1987,7 @@ function Invoke-IaTuiEntra {
             'Groups — list / create / manage',
             'Licenses — tenant SKUs',
             'Sign-ins',
-            'Conditional Access — policies & state',
+            'Conditional Access — policies · create · named locations',
             'Risky users (Identity Protection)',
             'Applications — registrations (secret/cert expiry)',
             'Enterprise apps (service principals)',
@@ -1860,7 +2009,7 @@ function Invoke-IaTuiEntra {
                 'Conditional Access*' { Invoke-IaTuiEntraCA -Accent $Accent }
                 'Risky users*'        { Invoke-IaTuiEntraRisky -Accent $Accent }
                 'Applications*'       { Invoke-IaTuiEntraApps -Accent $Accent }
-                'Enterprise apps*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps' -Stem 'entra-entapps' -Loader { Get-EntraEnterpriseApp } }
+                'Enterprise apps*'    { Invoke-IaTuiEntraEnterpriseApp -Accent $Accent }
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
                 'Lifecycle*' {
                     $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Invite a guest user', 'Back')
@@ -1960,6 +2109,55 @@ function Invoke-IaTuiEntraConsentAudit {
             try {
                 Remove-EntraAppRoleAssignment -ServicePrincipal $picked.AppId -AssignmentId $picked.GrantId -Confirm:$false | Out-Null
                 Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
+            } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        }
+    }
+}
+
+function Invoke-IaTuiEntraEnterpriseApp {
+    # Enterprise apps (service principals) — browse, see exactly what each app can do
+    # (delegated + application permissions), and revoke a grant. The portal's
+    # "Enterprise applications → Permissions" blade, from the CLI.
+    param([string]$Accent)
+    $sps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading enterprise apps…' -ScriptBlock { Get-EntraEnterpriseApp })
+    if (-not $sps) { Write-IaHost '[yellow]No enterprise apps (service principals).[/]'; Read-IaPause | Out-Null; return }
+    $disp = @($sps | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; AppId = $_.AppId; Id = $_.Id } })
+    while ($true) {
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Enterprise apps ($($disp.Count)) · Enter = manage" -Stem 'entra-entapp-pick'
+        if (-not $picked) { return }
+        $spId = $picked.Id; $spName = $picked.DisplayName
+        while ($true) {
+            $act = Read-IaMenu -Title "Enterprise app · $spName" -Color $Accent -Choices @(
+                'View permissions (what it can do)', 'Revoke a delegated grant', 'Revoke an application permission', 'Back')
+            if (-not $act -or $act -eq 'Back') { break }
+            try {
+                switch -Wildcard ($act) {
+                    'View permissions*' {
+                        Invoke-IaTuiReportView -Accent $Accent -Title "Permissions · $spName" -Stem 'entapp-perms' -Loader { Get-EntraAppPermission -App $spId }
+                    }
+                    'Revoke a delegated*' {
+                        $raw = Invoke-IaStatus -Spinner Dots -Title 'Loading delegated grants…' -ScriptBlock { Get-EntraAppPermission -App $spId -Raw }
+                        $grants = @($raw.Delegated)
+                        if (-not $grants) { Write-IaHost '[yellow]No delegated grants.[/]'; Read-IaPause | Out-Null; continue }
+                        $gd = @($grants | ForEach-Object { [pscustomobject][ordered]@{ Consent = $(if ($_.consentType -eq 'AllPrincipals') { 'Admin (all users)' } else { 'User' }); Scopes = ("$($_.scope)").Trim(); GrantId = $_.id } })
+                        $gp = Read-IaTableInteractive -Data $gd -Color $Accent -Selectable -Title "Delegated grants ($($gd.Count)) · Enter = revoke" -Stem 'entapp-grant-rm'
+                        if ($gp -and (Read-IaConfirm "[red]Revoke this delegated grant ($($gp.Scopes)) from ${spName}?[/]")) {
+                            Remove-EntraOAuth2Grant -GrantId $gp.GrantId -Confirm:$false | Out-Null
+                            Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
+                        }
+                    }
+                    'Revoke an application*' {
+                        $raw = Invoke-IaStatus -Spinner Dots -Title 'Loading application permissions…' -ScriptBlock { Get-EntraAppPermission -App $spId -Raw }
+                        $assigns = @($raw.Application)
+                        if (-not $assigns) { Write-IaHost '[yellow]No application permissions.[/]'; Read-IaPause | Out-Null; continue }
+                        $ad = @($assigns | ForEach-Object { [pscustomobject][ordered]@{ Resource = $_.resourceDisplayName; AppRoleId = $_.appRoleId; AssignmentId = $_.id } })
+                        $ap = Read-IaTableInteractive -Data $ad -Color $Accent -Selectable -Title "Application permissions ($($ad.Count)) · Enter = revoke" -Stem 'entapp-approle-rm'
+                        if ($ap -and (Read-IaConfirm "[red]Revoke this application permission ($($ap.Resource)) from ${spName}?[/]")) {
+                            Remove-EntraAppRoleAssignment -ServicePrincipal $spId -AssignmentId $ap.AssignmentId -Confirm:$false | Out-Null
+                            Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
+                        }
+                    }
+                }
             } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
         }
     }
@@ -2185,9 +2383,9 @@ function Invoke-IaTuiEntraPim {
     # PIM — view eligible/active, activate one of YOUR eligible roles, or make a user eligible.
     param([string]$Accent)
     while ($true) {
-        $m = Read-IaMenu -Title 'PIM (Privileged Identity Management)' -Color $Accent -PageSize 7 -Choices @(
+        $m = Read-IaMenu -Title 'PIM (Privileged Identity Management)' -Color $Accent -PageSize 8 -Choices @(
             'Eligible roles (tenant)', 'Active roles (tenant)', 'Activate one of MY eligible roles',
-            'Make a user eligible for a role', 'Back')
+            'Make a user eligible for a role', "Remove a user's eligibility", 'Back')
         if (-not $m -or $m -eq 'Back') { return }
         try {
             switch -Wildcard ($m) {
@@ -2217,6 +2415,16 @@ function Invoke-IaTuiEntraPim {
                     if (Read-IaConfirm "[red]Make $u eligible for '$role' ($durC)?[/]") {
                         New-EntraPimEligibility @p | Out-Null
                         Write-IaHost "[$Accent]✓ Eligibility granted.[/]"; Read-IaPause | Out-Null
+                    }
+                }
+                "Remove a user's*" {
+                    $elig = @(Invoke-IaStatus -Spinner Dots -Title 'Loading eligibilities…' -ScriptBlock { Get-EntraPimEligibility -Raw })
+                    if (-not $elig) { Write-IaHost '[yellow]No PIM eligibilities.[/]'; Read-IaPause | Out-Null; continue }
+                    $ed = @($elig | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.roleDefinition.displayName; Principal = ($_.principal.displayName ?? $_.principal.userPrincipalName); Type = ($_.principal.'@odata.type' -replace '#microsoft\.graph\.', ''); PrincipalId = $_.principal.id } })
+                    $ep = Read-IaTableInteractive -Data $ed -Color $Accent -Selectable -Title "PIM eligibilities ($($ed.Count)) · Enter = remove" -Stem 'pim-elig-rm'
+                    if ($ep -and (Read-IaConfirm "[red]Remove $($ep.Principal)'s eligibility for '$($ep.Role)'?[/]")) {
+                        Remove-EntraPimEligibility -User $ep.PrincipalId -Role $ep.Role -Confirm:$false | Out-Null
+                        Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null
                     }
                 }
             }
@@ -2416,8 +2624,8 @@ function Invoke-IaTuiEntraGroups {
 function Invoke-IaTuiEntraGroupCard {
     param([string]$Accent, [string]$Group, [string]$Name)
     while ($true) {
-        $a = Read-IaMenu -Title "Group · $Name" -Color $Accent -PageSize 11 -Choices @(
-            'Members', 'Owners', 'Add member', 'Remove member', 'Add owner', 'License (group-based)', 'Update (name/description/rule)', 'Delete group', 'Back')
+        $a = Read-IaMenu -Title "Group · $Name" -Color $Accent -PageSize 12 -Choices @(
+            'Members', 'Owners', 'Add member', 'Remove member', 'Add owner', 'Remove owner', 'License (group-based)', 'Update (name/description/rule)', 'Delete group', 'Back')
         if (-not $a -or $a -eq 'Back') { return }
         try {
             switch -Wildcard ($a) {
@@ -2441,6 +2649,13 @@ function Invoke-IaTuiEntraGroupCard {
                 'Add member'    { $u = Select-IaUser -Accent $Accent -Title 'Add which user?'; if ($u -and (Read-IaConfirm "Add $u to ${Name}?")) { Add-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
                 'Remove member' { $u = Select-IaUser -Accent $Accent -Title 'Remove which user?'; if ($u -and (Read-IaConfirm "[red]Remove $u from ${Name}?[/]")) { Remove-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null } }
                 'Add owner'     { $u = Select-IaUser -Accent $Accent -Title 'Add which owner?'; if ($u -and (Read-IaConfirm "Make $u an owner of ${Name}?")) { Add-EntraGroupOwner -Group $Group -Owner $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
+                'Remove owner'  {
+                    $owners = @(Invoke-IaStatus -Spinner Dots -Title 'Loading owners…' -ScriptBlock { Get-EntraGroupOwner -Group $Group })
+                    if (-not $owners) { Write-IaHost '[yellow]No owners.[/]'; Read-IaPause | Out-Null; continue }
+                    $od = @($owners | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; UPN = $_.UPN; Id = $_.Id } })
+                    $po = Read-IaTableInteractive -Data $od -Color $Accent -Selectable -Title "Owners ($($od.Count)) · Enter = remove" -Stem 'grp-owner-rm'
+                    if ($po -and (Read-IaConfirm "[red]Remove owner $($po.Name) from ${Name}?[/]")) { Remove-EntraGroupOwner -Group $Group -Owner $po.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null }
+                }
                 'Update*' {
                     $nn = Read-IaText -Question 'New display name (blank = keep)'
                     $dd = Read-IaText -Question 'New description (blank = keep)'
@@ -2472,20 +2687,143 @@ function Invoke-IaTuiEntraCreateGroup {
 }
 
 function Invoke-IaTuiEntraCA {
+    # Conditional Access hub — manage existing policies, author a new one, or manage
+    # named locations. Authoring defaults to report-only so nothing locks the tenant.
+    param([string]$Accent)
+    while ($true) {
+        $m = Read-IaMenu -Title 'Conditional Access' -Color $Accent -Choices @(
+            'Policies — view / change state / delete', 'Create a policy', 'Named locations', 'Back')
+        if (-not $m -or $m -eq 'Back') { return }
+        switch -Wildcard ($m) {
+            'Policies*'  { Invoke-IaTuiEntraCAPolicies -Accent $Accent }
+            'Create*'    { Invoke-IaTuiEntraCACreate -Accent $Accent }
+            'Named*'     { Invoke-IaTuiEntraNamedLocation -Accent $Accent }
+        }
+    }
+}
+
+function Invoke-IaTuiEntraCAPolicies {
+    # List CA policies → change state or delete the picked one.
     param([string]$Accent)
     $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Loading CA policies…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
     if (-not $pols) { Write-IaHost '[yellow]No Conditional Access policies (or Policy.Read.All not consented).[/]'; Read-IaPause | Out-Null; return }
     while ($true) {
         $disp = @($pols | ForEach-Object { $sc = switch ($_.State) { 'enabled' { $Accent } 'disabled' { 'grey' } default { 'yellow' } }; [pscustomobject][ordered]@{ Name = $_.Name; State = "[$sc]$($_.State)[/]"; Controls = $_.Controls; Id = $_.Id } })
-        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Conditional Access ($($disp.Count)) · Enter = change state" -Stem 'entra-ca'
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Conditional Access ($($disp.Count)) · Enter = act" -Stem 'entra-ca'
         if (-not $picked) { return }
-        $st = Read-IaMenu -Title "Set '$($picked.Name)' to" -Color $Accent -Choices @('enabled', 'disabled', 'reportOnly', 'Cancel')
-        if ($st -in 'enabled', 'disabled', 'reportOnly' -and (Read-IaConfirm "Set '$($picked.Name)' → ${st}?")) {
-            try { Set-EntraConditionalAccessState -Id $picked.Id -State $st -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Done.[/]" }
-            catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
-            Read-IaPause | Out-Null
-            $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+        $act = Read-IaMenu -Title "$($picked.Name)" -Color $Accent -Choices @('Change state', 'Rename policy', 'Delete policy', 'Cancel')
+        try {
+            if ($act -eq 'Change state') {
+                $st = Read-IaMenu -Title "Set '$($picked.Name)' to" -Color $Accent -Choices @('enabled', 'disabled', 'reportOnly', 'Cancel')
+                if ($st -in 'enabled', 'disabled', 'reportOnly' -and (Read-IaConfirm "Set '$($picked.Name)' → ${st}?")) {
+                    Set-EntraConditionalAccessState -Id $picked.Id -State $st -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Done.[/]"; Read-IaPause | Out-Null
+                    $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+                }
+            } elseif ($act -eq 'Rename policy') {
+                $nn = Read-IaText -Question 'New policy name'
+                if ($nn -and (Read-IaConfirm "Rename '$($picked.Name)' to '$nn'?")) {
+                    Set-EntraConditionalAccessPolicy -Policy $picked.Id -DisplayName $nn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Renamed.[/]"; Read-IaPause | Out-Null
+                    $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+                }
+            } elseif ($act -eq 'Delete policy') {
+                if (Read-IaConfirm "[red]Delete CA policy '$($picked.Name)'? This cannot be undone.[/]") {
+                    Remove-EntraConditionalAccessPolicy -Policy $picked.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null
+                    $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+                    if (-not $pols) { return }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
+function Invoke-IaTuiEntraCACreate {
+    # Author a CA policy from the common knobs. Report-only is the default state so a
+    # new policy never enforces (or locks anyone out) until you deliberately enable it.
+    param([string]$Accent)
+    $name = Read-IaText -Question 'Policy display name'
+    if ([string]::IsNullOrWhiteSpace($name)) { return }
+    $p = @{ Name = $name; Confirm = $false }
+    try {
+        $scope = Read-IaMenu -Title 'Who does it apply to?' -Color $Accent -Choices @('All users', 'A specific group', 'Guests / external users', 'Cancel')
+        if (-not $scope -or $scope -eq 'Cancel') { return }
+        switch -Wildcard ($scope) {
+            'All users'  { $p.IncludeUsers = @('All') }
+            'A specific*' {
+                $g = Select-IaGroup -Accent $Accent -Title 'Apply to which group?'
+                if (-not $g) { return }
+                $p.IncludeGroups = @($g.Id)   # leaving IncludeUsers unset → includeUsers='None' (no tenant-wide union)
+            }
+            'Guests*'    { $p.IncludeUsers = @('GuestsOrExternalUsers') }
         }
+        # Optional break-glass exclusion — strongly encouraged for an enforced policy.
+        if (Read-IaConfirm 'Exclude a break-glass / emergency-access group?') {
+            $exg = Select-IaGroup -Accent $Accent -Title 'Exclude which group?'
+            if ($exg) { $p.ExcludeGroups = @($exg.Id) }
+        }
+        $grant = Read-IaMenu -Title 'Grant control' -Color $Accent -Choices @('Require MFA', 'Require compliant device', 'Block access', 'Cancel')
+        if (-not $grant -or $grant -eq 'Cancel') { return }
+        switch -Wildcard ($grant) {
+            'Require MFA'       { $p.RequireMfa = $true }
+            'Require compliant*' { $p.RequireCompliantDevice = $true }
+            'Block access'      { $p.BlockAccess = $true }
+        }
+        $stC = Read-IaMenu -Title 'Initial state' -Color $Accent -Choices @('Report-only (recommended)', 'Enabled (enforce now)', 'Disabled', 'Cancel')
+        if (-not $stC -or $stC -eq 'Cancel') { return }
+        $p.State = switch -Wildcard ($stC) { 'Enabled*' { 'enabled' } 'Disabled' { 'disabled' } default { 'enabledForReportingButNotEnforced' } }
+
+        $summary = "Create CA policy '$name' · $scope · $grant · state=$($p.State)?"
+        if ($p.State -eq 'enabled' -and $grant -eq 'Block access') { $summary = "[red]$summary[/]" }
+        if (-not (Read-IaConfirm $summary)) { return }
+        $r = New-EntraConditionalAccessPolicy @p
+        Write-IaHost "[$Accent]✓ Created[/] '$($r.Name)'  (state $($r.State), id $($r.Id))"
+    } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+    Read-IaPause | Out-Null
+}
+
+function Invoke-IaTuiEntraNamedLocation {
+    # Named locations — view / add an IP-range or country location / remove one.
+    param([string]$Accent)
+    while ($true) {
+        $m = Read-IaMenu -Title 'Named locations' -Color $Accent -Choices @(
+            'View named locations', 'Add an IP-range location', 'Add a country location', 'Remove a named location', 'Back')
+        if (-not $m -or $m -eq 'Back') { return }
+        try {
+            switch -Wildcard ($m) {
+                'View*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Named locations' -Stem 'entra-namedloc' -Loader { Get-EntraNamedLocation } }
+                'Add an IP*' {
+                    $nm = Read-IaText -Question 'Location name'
+                    if ([string]::IsNullOrWhiteSpace($nm)) { continue }
+                    $cidr = Read-IaText -Question 'CIDR range(s), comma- or space-separated (e.g. 203.0.113.0/24)'
+                    $ranges = @($cidr -split '[,\s]+' | Where-Object { $_ })
+                    if (-not $ranges) { Write-IaHost '[yellow]No CIDR range given.[/]'; Read-IaPause | Out-Null; continue }
+                    $trusted = Read-IaConfirm 'Mark as a trusted location?'
+                    if (Read-IaConfirm "Create IP location '$nm' with $($ranges.Count) range(s)?") {
+                        $r = New-EntraNamedLocation -Name $nm -IpRange $ranges -Trusted:$trusted -Confirm:$false
+                        Write-IaHost "[$Accent]✓ Created[/] '$($r.Name)' (id $($r.Id))"; Read-IaPause | Out-Null
+                    }
+                }
+                'Add a country*' {
+                    $nm = Read-IaText -Question 'Location name'
+                    if ([string]::IsNullOrWhiteSpace($nm)) { continue }
+                    $cc = Read-IaText -Question 'ISO country codes, comma- or space-separated (e.g. US, CA, GB)'
+                    $codes = @($cc -split '[,\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToUpper() })
+                    if (-not $codes) { Write-IaHost '[yellow]No country codes given.[/]'; Read-IaPause | Out-Null; continue }
+                    if (Read-IaConfirm "Create country location '$nm' with $($codes.Count) country/ies?") {
+                        $r = New-EntraNamedLocation -Name $nm -Country $codes -Confirm:$false
+                        Write-IaHost "[$Accent]✓ Created[/] '$($r.Name)' (id $($r.Id))"; Read-IaPause | Out-Null
+                    }
+                }
+                'Remove*' {
+                    $locs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading named locations…' -ScriptBlock { Get-EntraNamedLocation })
+                    if (-not $locs) { Write-IaHost '[yellow]No named locations.[/]'; Read-IaPause | Out-Null; continue }
+                    $ld = @($locs | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Kind = $_.Kind; Detail = $_.Detail; Id = $_.Id } })
+                    $lp = Read-IaTableInteractive -Data $ld -Color $Accent -Selectable -Title "Named locations ($($ld.Count)) · Enter = remove" -Stem 'entra-namedloc-rm'
+                    if ($lp -and (Read-IaConfirm "[red]Delete named location '$($lp.Name)'?[/]")) {
+                        Remove-EntraNamedLocation -Location $lp.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null
+                    }
+                }
+            }
+        } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 

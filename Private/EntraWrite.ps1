@@ -37,6 +37,9 @@ function Resolve-EntraResourceApi {
         $sp = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=$([uri]::EscapeDataString($f))&`$select=$sel"))
     }
     if (-not $sp) { throw "Resource API '$Resource' is not provisioned as a service principal in this tenant." }
+    # never silently pick the first of an ambiguous name — a collision could consent
+    # against the WRONG resource SP. (appId/GUID input is unambiguous.)
+    if (-not $appId -and @($sp).Count -gt 1) { throw "Multiple service principals named '$Resource'. Use the appId to disambiguate." }
     $sp[0]
 }
 
@@ -83,6 +86,7 @@ function ConvertTo-IaRequiredResourceAccess {
     # hashtables we can safely mutate before PATCHing it back.
     param($Existing)
     $out = [System.Collections.Generic.List[object]]::new()
+    if ($null -eq $Existing) { return , $out }   # @($null) iterates once with $r=$null → phantom bucket
     foreach ($r in @($Existing)) {
         $access = [System.Collections.Generic.List[object]]::new()
         foreach ($a in @($r.resourceAccess)) { [void]$access.Add([ordered]@{ id = [string]$a.id; type = [string]$a.type }) }
@@ -117,9 +121,10 @@ function Resolve-EntraSkuId {
 function Resolve-EntraDeviceObjectId {
     # Azure AD device id (managedDevice.azureADDeviceId / device.deviceId) → the Entra
     # device OBJECT id, which is what group membership and directory writes key on.
-    param([Parameter(Mandatory)][string]$AzureAdDeviceId)
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$AzureAdDeviceId)
     if ([string]::IsNullOrWhiteSpace($AzureAdDeviceId)) { return $null }
-    $d = @(Get-IaCollection (Resolve-IaUri -Path "devices?`$filter=deviceId eq '$AzureAdDeviceId'&`$select=id"))
+    $f = "deviceId eq '$(ConvertTo-IaODataValue $AzureAdDeviceId)'"
+    $d = @(Get-IaCollection (Resolve-IaUri -Path "devices?`$filter=$f&`$select=id"))
     if ($d) { [string]$d[0].id } else { $null }
 }
 
