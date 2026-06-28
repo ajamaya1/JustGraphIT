@@ -256,6 +256,9 @@
         'Get-EntraDeletedItem',
         'Restore-EntraDeletedItem',
         'Remove-EntraDeletedItem',
+        # --- device recovery secrets (BitLocker / Windows LAPS) ---
+        'Get-EntraBitLockerKey',
+        'Get-EntraLapsCredential',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',
