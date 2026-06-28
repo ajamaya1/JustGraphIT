@@ -50,7 +50,7 @@ function Get-IntuneCompliancePolicy {
 function Resolve-IaCompliancePolicyId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/deviceCompliancePolicies?`$filter=displayName eq '$encoded'&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No compliance policy found matching '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple policies match '$Value'. Provide a unique id." }

@@ -59,7 +59,7 @@ function Get-IntuneAdminTemplate {
 function Resolve-IaAdminTemplateId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/groupPolicyConfigurations?`$filter=displayName eq '$encoded'&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No administrative template found matching '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple templates match '$Value'. Provide a unique id." }

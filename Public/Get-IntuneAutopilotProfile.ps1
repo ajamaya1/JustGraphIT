@@ -45,7 +45,7 @@ function Get-IntuneAutopilotProfile {
 function Resolve-IaAutopilotProfileId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/windowsAutopilotDeploymentProfiles?`$filter=displayName eq '$encoded'&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No Autopilot deployment profile found matching '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple profiles match '$Value'. Provide a unique id." }

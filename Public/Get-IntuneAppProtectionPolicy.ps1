@@ -59,7 +59,7 @@ function Get-IntuneAppProtectionPolicy {
                     if (Test-IaGuid $Id) {
                         $p = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "$ep/$Id")
                     } else {
-                        $encoded = [uri]::EscapeDataString($Id)
+                        $encoded = ConvertTo-IaODataValue $Id
                         $found   = Get-IaCollection (Resolve-IaUri "${ep}?`$filter=displayName eq '$encoded'&`$select=id,displayName")
                         if (-not $found) { continue }
                         $p = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "$ep/$($found[0].id)")

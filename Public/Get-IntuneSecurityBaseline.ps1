@@ -124,7 +124,7 @@ function Resolve-IaSecurityPolicyId {
     }
 
     # Name-based lookup — new-style
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/configurationPolicies?`$filter=name eq '$encoded' and templateReference/templateFamily ne 'none'&`$expand=settings")
     if ($results.Count -gt 0) {
         if ($results.Count -gt 1) { throw "Multiple security policies match '$Value'. Provide a unique id." }

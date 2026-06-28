@@ -55,7 +55,7 @@ function Get-IntuneDriverUpdate {
 function Resolve-IaDriverUpdateId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/windowsDriverUpdateProfiles?`$filter=displayName eq '$encoded'&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No driver update profile found matching '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple profiles match '$Value'. Provide a unique id." }

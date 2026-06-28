@@ -49,7 +49,7 @@ function Get-IntuneUpdateRing {
 function Resolve-IaUpdateRingId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $filter  = "isOf('microsoft.graph.windowsUpdateForBusinessConfiguration') and displayName eq '$encoded'"
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/deviceConfigurations?`$filter=$([uri]::EscapeDataString($filter))&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No Windows Update ring found matching '$Value'." }

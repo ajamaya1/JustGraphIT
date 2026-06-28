@@ -41,6 +41,15 @@ function Resolve-IaUri {
     "$base/$($Path.TrimStart('/'))"
 }
 
+function ConvertTo-IaODataValue {
+    # Make a user value safe inside an OData string literal in a URL query. Two
+    # escapings, in order: double single-quotes (OData), then percent-encode (URL).
+    # So O'Brien → O''Brien → O%27%27Brien, which Graph URL-decodes to O''Brien and
+    # OData reads as O'Brien. Use as: "displayName eq '$(ConvertTo-IaODataValue $x)'".
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
+    [uri]::EscapeDataString($Value.Replace("'", "''"))
+}
+
 # ---- transient-failure handling: Graph throttles (429) and occasionally returns
 # 503/504; every call honors Retry-After and retries with exponential backoff so the
 # TUI doesn't die mid-page on a busy tenant.

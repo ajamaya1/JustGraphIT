@@ -92,7 +92,7 @@ function New-IntuneConfigurationPolicy {
 
         if ($AssignTo) {
             $groupId = if (Test-IaGuid $AssignTo) { $AssignTo } else {
-                (Get-IaCollection (Resolve-IaUri "groups?`$filter=displayName eq '$([uri]::EscapeDataString($AssignTo))'&`$select=id") | Select-Object -First 1).id
+                (Get-IaCollection (Resolve-IaUri "groups?`$filter=displayName eq '$(ConvertTo-IaODataValue $AssignTo)'&`$select=id") | Select-Object -First 1).id
             }
             if ($groupId) {
                 Invoke-IaRequest -Method POST -Uri (Resolve-IaUri "deviceManagement/configurationPolicies/$($created.id)/assign") -Body @{

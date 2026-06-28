@@ -44,7 +44,7 @@ function Get-IntuneConditionalAccess {
         if (Test-IaGuid $Id) {
             $policy = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "identity/conditionalAccess/policies/$Id" -V1)
         } else {
-            $encoded = [uri]::EscapeDataString($Id)
+            $encoded = ConvertTo-IaODataValue $Id
             $all     = Get-IaCollection (Resolve-IaUri "identity/conditionalAccess/policies?`$filter=displayName eq '$encoded'" -V1)
             $policy  = $all | Select-Object -First 1
             if (-not $policy) { throw "No Conditional Access policy found matching '$Id'." }

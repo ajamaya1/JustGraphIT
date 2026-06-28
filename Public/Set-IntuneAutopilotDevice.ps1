@@ -68,7 +68,7 @@ function Set-IntuneAutopilotDevice {
 function Resolve-IaAutopilotId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/windowsAutopilotDeviceIdentities?`$filter=serialNumber eq '$encoded'&`$select=id,serialNumber")
     if ($results.Count -eq 0) { throw "No Autopilot device found with serial number '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple Autopilot devices match serial number '$Value'. Provide a GUID." }
