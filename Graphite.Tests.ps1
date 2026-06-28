@@ -2373,3 +2373,55 @@ Describe 'Entra group cmdlets — beta endpoints and create bodies' {
         }
     }
 }
+
+Describe 'Entra access / apps / roles / security — beta endpoint paths' {
+    It 'Get-EntraSignIn → beta /auditLogs/signIns with a failures filter' {
+        InModuleScope Graphite {
+            $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
+            Get-EntraSignIn -FailuresOnly -Top 5 | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/auditLogs/signIns'
+        }
+    }
+    It 'Set-EntraConditionalAccessState maps reportOnly and PATCHes the beta policy' {
+        InModuleScope Graphite {
+            $script:u=$null;$script:b=$null;$script:m=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body;$script:m=$Method }
+            Set-EntraConditionalAccessState -Id 'p1' -State reportOnly -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/identity/conditionalAccess/policies/p1$'
+            $script:b.state | Should -Be 'enabledForReportingButNotEnforced'
+        }
+    }
+    It 'Set-EntraRiskyUser POSTs confirmCompromised with userIds (beta)' {
+        InModuleScope Graphite {
+            $script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
+            Set-EntraRiskyUser -UserId 'u1','u2' -Action Compromise -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/identityProtection/riskyUsers/confirmCompromised$'
+            $script:b.userIds | Should -Contain 'u1'
+        }
+    }
+    It 'Get-EntraManagedIdentity filters servicePrincipalType on beta /servicePrincipals' {
+        InModuleScope Graphite {
+            $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
+            Get-EntraManagedIdentity | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals'
+            $script:u | Should -Match 'ManagedIdentity'
+        }
+    }
+    It 'Get-EntraRoleAssignment expands principal on the beta roleManagement path' {
+        InModuleScope Graphite {
+            $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
+            Get-EntraRoleAssignment | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/roleManagement/directory/roleAssignments'
+            $script:u | Should -Match 'expand=principal'
+        }
+    }
+    It 'Get-EntraSecurityAlert reads beta /security/alerts_v2' {
+        InModuleScope Graphite {
+            $script:u=$null; Mock Get-IaCollection { $script:u = $Path; @() }
+            Get-EntraSecurityAlert -Severity high | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/security/alerts_v2'
+        }
+    }
+}

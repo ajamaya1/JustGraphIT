@@ -41,7 +41,18 @@ function Connect-Graphite {
             'Group.ReadWrite.All',
             'GroupMember.ReadWrite.All',
             'UserAuthenticationMethod.ReadWrite.All',
-            'Organization.Read.All'
+            'Organization.Read.All',
+            # --- Entra reporting / access / security ---
+            'AuditLog.Read.All',
+            'Policy.Read.All',
+            'Policy.ReadWrite.ConditionalAccess',
+            'IdentityRiskyUser.ReadWrite.All',
+            'IdentityRiskEvent.Read.All',
+            'Application.Read.All',
+            'RoleManagement.Read.Directory',
+            'SecurityEvents.Read.All',
+            'SecurityIncident.Read.All',
+            'Reports.Read.All'
         )
     )
 
