@@ -174,6 +174,27 @@
         'Add-EntraGroupOwner',
         'Remove-EntraGroupOwner',
         'Remove-EntraGroup',
+        # --- access & sign-ins (Phase 5) ---
+        'Get-EntraSignIn',
+        'Get-EntraConditionalAccessPolicy',
+        'Set-EntraConditionalAccessState',
+        'Get-EntraRiskyUser',
+        'Get-EntraRiskDetection',
+        'Set-EntraRiskyUser',
+        # --- applications & identities (Phase 4) ---
+        'Get-EntraAppRegistration',
+        'Get-EntraAppCredential',
+        'Get-EntraEnterpriseApp',
+        'Get-EntraManagedIdentity',
+        # --- directory roles & PIM ---
+        'Get-EntraDirectoryRole',
+        'Get-EntraRoleAssignment',
+        'Get-EntraPimEligibility',
+        'Get-EntraPimActive',
+        # --- security / XDR ---
+        'Get-EntraSecureScore',
+        'Get-EntraSecurityAlert',
+        'Get-EntraSecurityIncident',
         'Start-Graphite'
     )
     CmdletsToExport   = @()
