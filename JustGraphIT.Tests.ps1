@@ -3482,6 +3482,41 @@ Describe 'Security hardening (review fixes)' {
     }
 }
 
+Describe 'Entra device recovery secrets (beta)' {
+    It 'Get-EntraBitLockerKey -DeviceId filters and -Reveal fetches the key material' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'k-1'; deviceId = 'dev-1'; volumeType = 'operatingSystemVolume'; createdDateTime = '2025-01-01T00:00:00Z' }) }
+            Mock Invoke-IaRequest { [pscustomobject]@{ key = '123456-654321-abcdef' } }
+            $rows = @(Get-EntraBitLockerKey -DeviceId 'dev-1' -Reveal)
+            $script:p | Should -Match 'recoveryKeys\?'
+            $script:p | Should -Match 'deviceId%20eq'
+            $rows[0].RecoveryKey | Should -Be '123456-654321-abcdef'
+        }
+    }
+
+    It 'Get-EntraBitLockerKey without -Reveal does not fetch key material' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection { @([pscustomobject]@{ id = 'k-2'; deviceId = 'dev-2'; volumeType = 'fixedDataVolume'; createdDateTime = '2025-01-01T00:00:00Z' }) }
+            Mock Invoke-IaRequest { throw 'should not be called' }
+            $rows = @(Get-EntraBitLockerKey)
+            $rows[0].RecoveryKey | Should -Be '(use -Reveal)'
+            Should -Invoke Invoke-IaRequest -Times 0 -Exactly
+        }
+    }
+
+    It 'Get-EntraLapsCredential decodes the Base64 local-admin password' {
+        InModuleScope JustGraphIT {
+            $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes('P@ssw0rd!'))
+            Mock Invoke-IaRequest { [pscustomobject]@{ deviceName = 'PC1'; credentials = @([pscustomobject]@{ accountName = 'Administrator'; passwordBase64 = $b64; backupDateTime = '2026-01-01T00:00:00Z' }) } }
+            $rows = @(Get-EntraLapsCredential -DeviceId 'dev-9')
+            $rows[0].Account  | Should -Be 'Administrator'
+            $rows[0].Password | Should -Be 'P@ssw0rd!'
+            $rows[0].Device   | Should -Be 'PC1'
+        }
+    }
+}
+
 Describe 'Entra deleted-items recycle bin (beta)' {
     It 'Get-EntraDeletedItem -Type User queries the user cast and projects DaysLeft' {
         InModuleScope JustGraphIT {

@@ -2060,24 +2060,26 @@ function Invoke-IaTuiEntraDevices {
         'Stale*'    { { Get-EntraDevice -StaleDays 90 -Top 1000 } }
         default     { { Get-EntraDevice -Top 1000 } }
     }
-    $project = { param($list, $ac) @($list | ForEach-Object { $ec = if ($_.Enabled) { $ac } else { 'grey' }; [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Enabled = "[$ec]$($_.Enabled)[/]"; _Enabled = [bool]$_.Enabled; OS = $_.OS; Trust = $_.Trust; Compliant = $_.Compliant; DaysStale = $_.DaysStale; Id = $_.Id } }) }
+    $project = { param($list, $ac) @($list | ForEach-Object { $ec = if ($_.Enabled) { $ac } else { 'grey' }; [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Enabled = "[$ec]$($_.Enabled)[/]"; _Enabled = [bool]$_.Enabled; OS = $_.OS; Trust = $_.Trust; Compliant = $_.Compliant; DaysStale = $_.DaysStale; _DeviceId = $_.DeviceId; Id = $_.Id } }) }
     $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading Entra devices…' -ScriptBlock $loader)
     if (-not $devs) { Write-IaHost '[yellow]No matching devices.[/]'; Read-IaPause | Out-Null; return }
     $disp = @(& $project $devs $Accent)
     while ($true) {
-        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -HideColumns '_Enabled' -Title "Entra devices ($($disp.Count)) · Enter = manage" -Stem 'entra-devices'
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -HideColumns '_Enabled', '_DeviceId' -Title "Entra devices ($($disp.Count)) · Enter = manage" -Stem 'entra-devices'
         if (-not $picked) { return }
-        $devId = $picked.Id; $devName = $picked.DisplayName
+        $devId = $picked.Id; $devName = $picked.DisplayName; $aadDevId = $picked._DeviceId
         $toggle = if ($picked._Enabled) { 'Disable device' } else { 'Enable device' }
-        $act = Read-IaMenu -Title "Device · $devName" -Color $Accent -Choices @($toggle, 'View registered owners', 'Delete device object', 'Back')
+        $act = Read-IaMenu -Title "Device · $devName" -Color $Accent -PageSize 8 -Choices @($toggle, 'View registered owners', 'BitLocker recovery keys', 'LAPS local-admin password', 'Delete device object', 'Back')
         if (-not $act -or $act -eq 'Back') { continue }
         $changed = $false
         try {
             switch -Wildcard ($act) {
                 'Disable*' { if (Read-IaConfirm "[red]Disable '$devName'? It can't authenticate until re-enabled.[/]") { Set-EntraDevice -Device $devId -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]"; Read-IaPause | Out-Null; $changed = $true } }
                 'Enable*'  { if (Read-IaConfirm "Enable '$devName'?") { Set-EntraDevice -Device $devId -AccountEnabled $true -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]"; Read-IaPause | Out-Null; $changed = $true } }
-                'View*'    { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $devName" -Stem 'entra-dev-owners' -Loader { Get-EntraDeviceRegisteredOwner -Device $devId } }
-                'Delete*'  { if (Read-IaConfirm "[red]Delete the Entra device object '$devName'? It must re-register to return.[/]") { Remove-EntraDevice -Device $devId -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null; $changed = $true } }
+                'View*'      { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $devName" -Stem 'entra-dev-owners' -Loader { Get-EntraDeviceRegisteredOwner -Device $devId } }
+                'BitLocker*' { if (Read-IaConfirm "[red]Reveal BitLocker recovery key(s) for '$devName'? This is audited.[/]") { Invoke-IaTuiReportView -Accent $Accent -Title "BitLocker keys · $devName" -Stem 'entra-bitlocker' -Loader { Get-EntraBitLockerKey -DeviceId $aadDevId -Reveal } } }
+                'LAPS*'      { if (Read-IaConfirm "[red]Reveal the Windows LAPS local-admin password for '$devName'? This is audited.[/]") { Invoke-IaTuiReportView -Accent $Accent -Title "LAPS · $devName" -Stem 'entra-laps' -Loader { Get-EntraLapsCredential -DeviceId $aadDevId } } }
+                'Delete*'    { if (Read-IaConfirm "[red]Delete the Entra device object '$devName'? It must re-register to return.[/]") { Remove-EntraDevice -Device $devId -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null; $changed = $true } }
             }
         } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
         if ($changed) {
