@@ -87,6 +87,8 @@ function Get-IntuneDeviceDetail {
         UserPrincipalName   = $d.userPrincipalName
         # Sync
         LastSyncAt          = $d.lastSyncDateTime
+        # Full raw hardwareInformation (battery, TPM, storage, IPs, shared-device…)
+        Hardware            = $hw
     }
 
     if ($IncludeApps) {
