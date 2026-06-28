@@ -103,6 +103,17 @@ function Resolve-EntraRoleDefinitionId {
     throw "No directory role found matching '$Role'."
 }
 
+function Resolve-EntraSkuId {
+    # License SKU part number (e.g. ENTERPRISEPACK) or skuId → skuId, via the tenant's
+    # subscribedSkus. Shared by user- and group-based licensing.
+    param([string[]]$Sku)
+    $vals = @($Sku | Where-Object { $_ })
+    if (-not $vals) { return @() }
+    $skus = @(Get-IaCollection (Resolve-IaUri -Path "subscribedSkus?`$select=skuId,skuPartNumber"))
+    $map  = @{}; foreach ($s in $skus) { $map[$s.skuPartNumber] = $s.skuId; $map[$s.skuId] = $s.skuId }
+    @($vals | ForEach-Object { if ($map.ContainsKey($_)) { $map[$_] } else { throw "Unknown SKU '$_' (see Get-EntraLicense)." } })
+}
+
 function Resolve-EntraDeviceObjectId {
     # Azure AD device id (managedDevice.azureADDeviceId / device.deviceId) → the Entra
     # device OBJECT id, which is what group membership and directory writes key on.

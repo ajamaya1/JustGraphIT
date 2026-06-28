@@ -2393,11 +2393,26 @@ function Invoke-IaTuiEntraGroups {
 function Invoke-IaTuiEntraGroupCard {
     param([string]$Accent, [string]$Group, [string]$Name)
     while ($true) {
-        $a = Read-IaMenu -Title "Group · $Name" -Color $Accent -PageSize 10 -Choices @(
-            'Members', 'Owners', 'Add member', 'Remove member', 'Add owner', 'Update (name/description/rule)', 'Delete group', 'Back')
+        $a = Read-IaMenu -Title "Group · $Name" -Color $Accent -PageSize 11 -Choices @(
+            'Members', 'Owners', 'Add member', 'Remove member', 'Add owner', 'License (group-based)', 'Update (name/description/rule)', 'Delete group', 'Back')
         if (-not $a -or $a -eq 'Back') { return }
         try {
             switch -Wildcard ($a) {
+                'License*' {
+                    $op = Read-IaMenu -Title "Group licensing · $Name" -Color $Accent -Choices @('Assign a license', 'Remove a license', 'Back')
+                    if ($op -in 'Assign a license', 'Remove a license') {
+                        $skus = @(Invoke-IaStatus -Spinner Dots -Title 'Loading tenant SKUs…' -ScriptBlock { Get-EntraLicense })
+                        $sd = @($skus | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; SkuPartNumber = $_.SkuPartNumber; Available = $_.Available } })
+                        $sp = Read-IaTableInteractive -Data $sd -Color $Accent -Selectable -Title "Tenant SKUs ($($sd.Count)) · / search · Enter = pick" -Stem 'grp-lic-pick'
+                        if ($sp) {
+                            $verb = if ($op -like 'Assign*') { 'Assign' } else { 'Remove' }
+                            if (Read-IaConfirm "$verb '$($sp.SkuPartNumber)' on group ${Name}?") {
+                                $lp = @{ Group = $Group; Confirm = $false }; if ($op -like 'Assign*') { $lp.AddSku = $sp.SkuPartNumber } else { $lp.RemoveSku = $sp.SkuPartNumber }
+                                Set-EntraGroupLicense @lp | Out-Null; Write-IaHost "[$Accent]✓ Done — members will be (de)licensed by Entra.[/]"; Read-IaPause | Out-Null
+                            }
+                        }
+                    }
+                }
                 'Members'  { Invoke-IaTuiReportView -Accent $Accent -Title "Members · $Name" -Stem 'grp-members' -Loader { Get-EntraGroupMember -Group $Group } }
                 'Owners'   { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $Name" -Stem 'grp-owners' -Loader { Get-EntraGroupOwner -Group $Group } }
                 'Add member'    { $u = Select-IaUser -Accent $Accent -Title 'Add which user?'; if ($u -and (Read-IaConfirm "Add $u to ${Name}?")) { Add-EntraGroupMember -Group $Group -Member $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null } }
@@ -2486,6 +2501,7 @@ function Invoke-IaTuiUserActions {
             'Add to a group',
             'Remove from a group',
             'Assign / remove a license',
+            'Set / clear manager',
             'Update properties (job title · department · office)',
             'Back'
         )
@@ -2534,6 +2550,17 @@ function Invoke-IaTuiUserActions {
                                 Write-IaHost "[$Accent]✓ $mode $sku done.[/]"
                             }
                         }
+                    }
+                }
+                'Set / clear manager' {
+                    $cur = Invoke-IaStatus -Spinner Dots -Title 'Reading manager…' -ScriptBlock { Get-EntraUserManager -User $Upn }
+                    if ($cur) { Write-IaHost "[grey]Current manager:[/] $($cur.Manager) ($($cur.ManagerUPN))" }
+                    $op = Read-IaMenu -Title "Manager · $Upn" -Color $Accent -Choices @('Set a manager', 'Clear the manager', 'Cancel')
+                    if ($op -eq 'Set a manager') {
+                        $mgr = Select-IaUser -Accent $Accent -Title 'Who is the manager?'
+                        if ($mgr -and (Read-IaConfirm "Set $mgr as manager of ${Upn}?")) { Set-EntraUser -User $Upn -ManagerUser $mgr -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Manager set.[/]" }
+                    } elseif ($op -eq 'Clear the manager') {
+                        if (Read-IaConfirm "[red]Clear ${Upn}'s manager?[/]") { Remove-EntraUserManager -User $Upn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Manager cleared.[/]" }
                     }
                 }
                 'Update properties*' {
