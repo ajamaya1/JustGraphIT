@@ -259,6 +259,10 @@
         # --- device recovery secrets (BitLocker / Windows LAPS) ---
         'Get-EntraBitLockerKey',
         'Get-EntraLapsCredential',
+        # --- per-user authentication (MFA state, phone methods) ---
+        'Get-EntraUserMfaState',
+        'Set-EntraUserMfaState',
+        'Add-EntraUserPhoneMethod',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',
