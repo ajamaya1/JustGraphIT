@@ -62,7 +62,7 @@ function Get-IntuneRbacRole {
 function Resolve-IaRbacRoleId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/roleDefinitions?`$filter=displayName eq '$encoded'&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No RBAC role found matching '$Value'." }
     if ($results.Count -gt 1) { throw "Multiple RBAC roles match '$Value'. Provide a unique id." }

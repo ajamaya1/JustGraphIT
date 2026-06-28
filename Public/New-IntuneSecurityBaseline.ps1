@@ -83,7 +83,7 @@ function New-IntuneSecurityBaseline {
         $sourceId = if (Test-IaGuid $CopyFrom) {
             $CopyFrom
         } else {
-            $encoded = [uri]::EscapeDataString($CopyFrom)
+            $encoded = ConvertTo-IaODataValue $CopyFrom
             $hits = Get-IaCollection (Resolve-IaUri "deviceManagement/configurationPolicies?`$filter=name eq '$encoded' and templateReference/templateFamily ne 'none'&`$select=id,name")
             if ($hits.Count -eq 0) { throw "Clone source '$CopyFrom' not found." }
             if ($hits.Count -gt 1) { throw "Clone source '$CopyFrom' matches multiple policies. Provide a unique id." }

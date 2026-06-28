@@ -110,7 +110,7 @@ function Resolve-IaAppId {
 
     if (Test-IaGuid $Value) { return $Value }
 
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "deviceAppManagement/mobileApps?`$filter=displayName eq '$encoded'&`$select=id,displayName")
 
     if ($results.Count -eq 0) { throw "No app found matching '$Value'." }

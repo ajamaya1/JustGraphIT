@@ -51,7 +51,7 @@ function Get-IntuneESP {
 function Resolve-IaESPId {
     param([string]$Value)
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $filter  = "isOf('microsoft.graph.windows10EnrollmentCompletionPageConfiguration') and displayName eq '$encoded'"
     $results = Get-IaCollection (Resolve-IaUri "deviceManagement/deviceEnrollmentConfigurations?`$filter=$([uri]::EscapeDataString($filter))&`$select=id,displayName")
     if ($results.Count -eq 0) { throw "No ESP profile found matching '$Value'." }

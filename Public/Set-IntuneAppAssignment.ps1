@@ -155,7 +155,7 @@ function Resolve-IaGroupId {
 
     if (Test-IaGuid $Value) { return $Value }
 
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $results = Get-IaCollection (Resolve-IaUri "groups?`$filter=displayName eq '$encoded'&`$select=id,displayName")
 
     if ($results.Count -eq 0) { throw "No group found matching '$Value'." }

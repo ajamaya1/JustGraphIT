@@ -65,7 +65,7 @@ function Get-IntuneEnrollmentRestriction {
 function Resolve-IaEnrollmentRestrictionId {
     param([string]$Value, [string]$Type = 'All')
     if (Test-IaGuid $Value) { return $Value }
-    $encoded = [uri]::EscapeDataString($Value)
+    $encoded = ConvertTo-IaODataValue $Value
     $odataFilter = switch ($Type) {
         'PlatformRestriction' {
             "isOf('microsoft.graph.deviceEnrollmentPlatformRestrictionConfiguration') and displayName eq '$encoded'"

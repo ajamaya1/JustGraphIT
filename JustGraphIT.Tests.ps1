@@ -148,6 +148,47 @@ Describe 'Graph URI construction' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+Describe 'OData value quoting' {
+
+    It 'doubles a single quote then percent-encodes it (O''Brien round-trip)' {
+        InModuleScope JustGraphIT {
+            # O'Brien → O''Brien (OData) → O%27%27Brien (URL). Graph URL-decodes to
+            # O''Brien, OData unescapes to O'Brien — the search term we wanted.
+            ConvertTo-IaODataValue "O'Brien" | Should -Be 'O%27%27Brien'
+        }
+    }
+
+    It 'percent-encodes spaces and ampersands without doubling them' {
+        InModuleScope JustGraphIT {
+            ConvertTo-IaODataValue 'AT&T Field Techs' | Should -Be 'AT%26T%20Field%20Techs'
+        }
+    }
+
+    It 'leaves a plain value as a bare encoded token' {
+        InModuleScope JustGraphIT {
+            ConvertTo-IaODataValue 'Engineering' | Should -Be 'Engineering'
+        }
+    }
+
+    It 'handles an empty value' {
+        InModuleScope JustGraphIT {
+            ConvertTo-IaODataValue '' | Should -Be ''
+        }
+    }
+
+    It 'a name resolver embeds the doubled+encoded value in its filter' {
+        InModuleScope JustGraphIT {
+            $script:__capPath = $null
+            # Return via the comma operator so a single row stays an array (real
+            # Get-IaCollection does the same); otherwise .Count reads the hashtable keys.
+            Mock Get-IaCollection { $script:__capPath = $Path; , @([pscustomobject]@{ id = 'app1'; displayName = "Bob's Tool" }) }
+            Resolve-IaAppId -Value "Bob's Tool" | Should -Be 'app1'
+            $script:__capPath | Should -Match "displayName eq 'Bob%27%27s%20Tool'"
+        }
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 Describe 'GUID detection' {
 
     It 'accepts a valid GUID' {
