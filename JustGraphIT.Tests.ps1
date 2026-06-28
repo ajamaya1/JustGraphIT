@@ -3482,6 +3482,41 @@ Describe 'Security hardening (review fixes)' {
     }
 }
 
+Describe 'Entra per-user authentication (beta)' {
+    It 'Get-EntraUserMfaState reads authentication/requirements' {
+        InModuleScope JustGraphIT {
+            $script:u = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; [pscustomobject]@{ perUserMfaState = 'enforced' } }
+            $r = Get-EntraUserMfaState -User '11111111-1111-1111-1111-111111111111'
+            $script:u | Should -Match 'users/11111111-1111-1111-1111-111111111111/authentication/requirements$'
+            $r.PerUserMfaState | Should -Be 'enforced'
+        }
+    }
+
+    It 'Set-EntraUserMfaState PATCHes perUserMfaState' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; $script:b = $Body }
+            Set-EntraUserMfaState -User '11111111-1111-1111-1111-111111111111' -State disabled -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match 'authentication/requirements$'
+            $script:b.perUserMfaState | Should -Be 'disabled'
+        }
+    }
+
+    It 'Add-EntraUserPhoneMethod POSTs phoneNumber + phoneType' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'pm-1' } }
+            Add-EntraUserPhoneMethod -User '11111111-1111-1111-1111-111111111111' -PhoneNumber '+1 2065551234' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'POST'
+            $script:u | Should -Match 'authentication/phoneMethods$'
+            $script:b.phoneNumber | Should -Be '+1 2065551234'
+            $script:b.phoneType   | Should -Be 'mobile'
+        }
+    }
+}
+
 Describe 'Entra device recovery secrets (beta)' {
     It 'Get-EntraBitLockerKey -DeviceId filters and -Reveal fetches the key material' {
         InModuleScope JustGraphIT {

@@ -3132,6 +3132,8 @@ function Invoke-IaTuiUserActions {
             'Reset password (temp + force change)',
             'Revoke all sign-in sessions',
             'Reset MFA (delete strong methods)',
+            'Set per-user MFA state',
+            'Add a phone (MFA) method',
             'Issue Temporary Access Pass (passkey enrollment)',
             'Add to a group',
             'Remove from a group',
@@ -3153,6 +3155,18 @@ function Invoke-IaTuiUserActions {
                 }
                 'Revoke all*' { if (Read-IaConfirm "[red]Sign $Upn out of every session?[/]") { Revoke-EntraUserSession -User $Upn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Sessions revoked.[/]" } }
                 'Reset MFA*'  { if (Read-IaConfirm "[red]Delete $Upn's strong MFA methods (forces re-register)?[/]") { $r = Reset-EntraUserMfa -User $Upn -Confirm:$false; Write-IaHost "[$Accent]✓ Removed $($r.MethodsRemoved) method(s).[/]" } }
+                'Set per-user MFA*' {
+                    $cur = $null; try { $cur = (Get-EntraUserMfaState -User $Upn).PerUserMfaState } catch { }
+                    $st = Read-IaMenu -Title "Per-user MFA state ($(if ($cur) { "now: $cur" } else { 'unknown' }))" -Color $Accent -Choices @('disabled', 'enabled', 'enforced', 'Cancel')
+                    if ($st -in 'disabled', 'enabled', 'enforced' -and (Read-IaConfirm "[red]Set $Upn per-user MFA → ${st}?[/]")) { Set-EntraUserMfaState -User $Upn -State $st -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Set to $st.[/]" }
+                }
+                'Add a phone*' {
+                    $num = Read-IaText -Question 'Phone number (e.g. +1 2065551234)'
+                    if (-not [string]::IsNullOrWhiteSpace($num)) {
+                        $pt = Read-IaMenu -Title 'Phone type' -Color $Accent -Choices @('mobile', 'alternateMobile', 'office')
+                        if ($pt -and (Read-IaConfirm "Add $pt phone '$num' for ${Upn}?")) { Add-EntraUserPhoneMethod -User $Upn -PhoneNumber $num -PhoneType $pt -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]" }
+                    }
+                }
                 'Issue Temporary*' {
                     # A TAP is a redeemable credential that lets the holder enroll an MFA
                     # method / passkey — i.e. it can bootstrap account takeover. Gate it
