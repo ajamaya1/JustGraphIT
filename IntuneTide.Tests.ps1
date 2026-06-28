@@ -1206,8 +1206,8 @@ Describe 'Public cmdlets — Invoke-IntuneDeviceAction (CSDL-verified action ver
             $script:capBody.deviceName | Should -Be 'NEW-PC'
 
             Invoke-IntuneDeviceAction -Device 'LAPTOP-01' -Action CollectDiagnostics -Confirm:$false | Out-Null
-            $script:capUri                            | Should -Match '/managedDevices/md-1/createDeviceLogCollectionRequest$'   # NOT 'collectDiagnostics'
-            $script:capBody.templateType.templateType | Should -Be 'predefined'
+            $script:capUri               | Should -Match '/managedDevices/md-1/createDeviceLogCollectionRequest$'   # NOT 'collectDiagnostics'
+            $script:capBody.templateType | Should -Be 'predefined'   # plain enum string, NOT a nested object
         }
     }
 }

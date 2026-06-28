@@ -277,6 +277,50 @@ function Test-IaArrowSupport {
 # escape sequence  ESC [ < button ; col ; row  M/m  (M=press, m=release).
 $script:IaMouseOn  = "$($script:IaEsc)[?1000h$($script:IaEsc)[?1006h"
 $script:IaMouseOff = "$($script:IaEsc)[?1000l$($script:IaEsc)[?1006l"
+$script:IaWinPrevInMode = $null   # saved Windows console input mode, restored on mouse-off
+
+function Add-IaWinConsoleType {
+    # P/Invoke shim for the Windows console input mode (no-op everywhere else).
+    if ('IaTideNative.WinConsole' -as [type]) { return }
+    Add-Type -Namespace 'IaTideNative' -Name 'WinConsole' -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)] public static extern System.IntPtr GetStdHandle(int nStdHandle);
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetConsoleMode(System.IntPtr hConsoleHandle, out uint lpMode);
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetConsoleMode(System.IntPtr hConsoleHandle, uint dwMode);
+'@
+}
+
+function Start-IaMouse {
+    # Turn on SGR mouse reporting. On Windows the console input mode must also enable
+    # ENABLE_VIRTUAL_TERMINAL_INPUT (0x200) + ENABLE_MOUSE_INPUT (0x10) and clear
+    # ENABLE_QUICK_EDIT_MODE (0x40) or the mouse bytes never reach [Console]::ReadKey.
+    # The previous mode is saved and restored by Stop-IaMouse. Read-IaInputEvent
+    # decodes VT-encoded arrows/Enter so cooked-vs-VT delivery both work.
+    Write-IaRaw $script:IaMouseOn -NoNewline
+    if ($IsWindows) {
+        try {
+            Add-IaWinConsoleType
+            $h = [IaTideNative.WinConsole]::GetStdHandle(-10)   # STD_INPUT_HANDLE
+            $m = [uint32]0
+            if ([IaTideNative.WinConsole]::GetConsoleMode($h, [ref]$m)) {
+                $script:IaWinPrevInMode = $m
+                $new = ($m -bor 0x0080 -bor 0x0010 -bor 0x0200) -band (-bnot 0x0040)
+                [void][IaTideNative.WinConsole]::SetConsoleMode($h, [uint32]$new)
+            }
+        } catch { }
+    }
+}
+
+function Stop-IaMouse {
+    # Restore the saved Windows console mode and turn SGR mouse reporting off.
+    if ($IsWindows -and $null -ne $script:IaWinPrevInMode) {
+        try {
+            $h = [IaTideNative.WinConsole]::GetStdHandle(-10)
+            [void][IaTideNative.WinConsole]::SetConsoleMode($h, [uint32]$script:IaWinPrevInMode)
+        } catch { }
+        $script:IaWinPrevInMode = $null
+    }
+    Write-IaRaw $script:IaMouseOff -NoNewline
+}
 
 function Read-IaNextRawChar {
     # Read one more char of an in-flight escape sequence. Bytes of a mouse/CSI
@@ -292,6 +336,20 @@ function Read-IaNextRawChar {
     return $null
 }
 
+function Convert-IaCsiFinal {
+    # Map a CSI/SS3 final byte to the ConsoleKey it represents (arrows + Home/End).
+    param([char]$Ch)
+    switch ("$Ch") {
+        'A' { [ConsoleKey]::UpArrow }
+        'B' { [ConsoleKey]::DownArrow }
+        'C' { [ConsoleKey]::RightArrow }
+        'D' { [ConsoleKey]::LeftArrow }
+        'H' { [ConsoleKey]::Home }
+        'F' { [ConsoleKey]::End }
+        default { $null }
+    }
+}
+
 function Read-IaInputEvent {
     <#
     .SYNOPSIS
@@ -305,20 +363,51 @@ function Read-IaInputEvent {
     #>
     $k = [Console]::ReadKey($true)
     if ($k.Key -ne [ConsoleKey]::Escape) {
-        return @{ Type = 'key'; Key = $k.Key; KeyChar = $k.KeyChar }
+        # Under ENABLE_VIRTUAL_TERMINAL_INPUT (Windows mouse mode) some keys arrive as
+        # raw control chars with Key=0; map the ones the menus check so VT and cooked
+        # delivery behave identically.
+        $key = $k.Key
+        if ([int]$key -eq 0) {
+            switch ([int]$k.KeyChar) {
+                13 { $key = [ConsoleKey]::Enter }
+                10 { $key = [ConsoleKey]::Enter }
+                9  { $key = [ConsoleKey]::Tab }
+                8  { $key = [ConsoleKey]::Backspace }
+                127 { $key = [ConsoleKey]::Backspace }
+            }
+        }
+        return @{ Type = 'key'; Key = $key; KeyChar = $k.KeyChar }
     }
     # Distinguish a bare Esc from the start of a CSI/mouse sequence. Read the next
     # byte WITH a grace timeout — the rest of an escape sequence can lag a few ms over
     # a high-latency link, so an immediate KeyAvailable check would misread a click as
     # Esc. Nothing within the window ⇒ it really was an Esc keypress.
     $c1 = Read-IaNextRawChar
-    if ($null -eq $c1 -or $c1.KeyChar -ne '[') {
+    if ($null -eq $c1) {
+        return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 }
+    }
+    if ($c1.KeyChar -eq 'O') {
+        # SS3 (ESC O x): arrows in application-keypad mode.
+        $cs = Read-IaNextRawChar
+        if ($cs) { $kk = Convert-IaCsiFinal $cs.KeyChar; if ($kk) { return @{ Type = 'key'; Key = $kk; KeyChar = [char]0 } } }
+        return @{ Type = 'other' }
+    }
+    if ($c1.KeyChar -ne '[') {
         return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 }
     }
     $c2 = Read-IaNextRawChar
-    if ($null -eq $c2 -or $c2.KeyChar -ne '<') {
-        # Some other CSI sequence (.NET already decodes arrows/Fn keys, so this is
-        # rare); swallow whatever trails so it can't leak into the next read.
+    if ($null -eq $c2) { return @{ Type = 'key'; Key = [ConsoleKey]::Escape; KeyChar = [char]27 } }
+    if ($c2.KeyChar -ne '<') {
+        # CSI sequence .NET didn't cook — happens under ENABLE_VIRTUAL_TERMINAL_INPUT
+        # (the mode mouse needs on Windows). Decode the navigation keys the menus use.
+        $kk = Convert-IaCsiFinal $c2.KeyChar
+        if ($kk) { return @{ Type = 'key'; Key = $kk; KeyChar = [char]0 } }
+        if ($c2.KeyChar -eq '5' -or $c2.KeyChar -eq '6') {
+            $null = Read-IaNextRawChar   # consume trailing '~'
+            $kk = if ($c2.KeyChar -eq '5') { [ConsoleKey]::PageUp } else { [ConsoleKey]::PageDown }
+            return @{ Type = 'key'; Key = $kk; KeyChar = [char]0 }
+        }
+        # Unknown CSI — drain any trailing bytes so they can't leak into the next read.
         while ([Console]::KeyAvailable) { $null = [Console]::ReadKey($true) }
         return @{ Type = 'other' }
     }
@@ -858,7 +947,7 @@ function Read-IaMenuArrow {
     $firstChoiceRow = $headerLines.Count + $(if ($Title) { 1 } else { 0 }) + 2
 
     try {
-        Write-IaRaw ((Get-IaSeq '?25l') + $script:IaMouseOn) -NoNewline   # hide cursor + mouse on
+        Write-IaRaw (Get-IaSeq '?25l') -NoNewline; Start-IaMouse   # hide cursor + mouse on
         & $render
         while ($true) {
             $ev = Read-IaInputEvent
@@ -888,7 +977,7 @@ function Read-IaMenuArrow {
         }
     }
     finally {
-        Write-IaRaw $script:IaMouseOff -NoNewline   # mouse off (don't leave terminal tracking)
+        Stop-IaMouse   # mouse off + restore console mode (don't leave terminal tracking)
         # Blank the whole screen HERE, inside the menu's own render context where full
         # repaints take effect (a clear issued after this function returns can be
         # dropped by the host, leaving the menu visible under the next screen). Clear
@@ -991,7 +1080,7 @@ function Read-IaMultiMenuArrow {
     $firstChoiceRow = $(if ($Title) { 1 } else { 0 }) + 2
 
     try {
-        Write-IaRaw ((Get-IaSeq '?25l') + $script:IaMouseOn) -NoNewline
+        Write-IaRaw (Get-IaSeq '?25l') -NoNewline; Start-IaMouse
         & $render
         while ($true) {
             $ev = Read-IaInputEvent
@@ -1019,7 +1108,7 @@ function Read-IaMultiMenuArrow {
         }
     }
     finally {
-        Write-IaRaw $script:IaMouseOff -NoNewline
+        Stop-IaMouse
         # Blank the screen in the menu's own render context (see Read-IaMenuArrow).
         $bh = 50; try { $bh = [Console]::WindowHeight } catch { }
         if ($bh -lt 1) { $bh = 50 }
@@ -1391,7 +1480,7 @@ function Read-IaTableInteractive {
 
     # ── Main interactive loop ─────────────────────────────────────────────────
     try {
-        Write-IaRaw ((Get-IaSeq '?25l') + $script:IaMouseOn) -NoNewline    # hide cursor + mouse on
+        Write-IaRaw (Get-IaSeq '?25l') -NoNewline; Start-IaMouse    # hide cursor + mouse on
         & $renderFrame
 
         while ($true) {
@@ -1469,7 +1558,7 @@ function Read-IaTableInteractive {
         }
     }
     finally {
-        Write-IaRaw $script:IaMouseOff -NoNewline    # mouse off
+        Stop-IaMouse    # mouse off + restore console mode
         $bh = 50; try { $bh = [Console]::WindowHeight } catch { }
         Write-IaRaw ("$($script:IaEsc)[H" + ("$($script:IaEsc)[2K`n" * $bh) + "$($script:IaEsc)[H") -NoNewline
         Write-IaRaw (Get-IaSeq '?25h') -NoNewline    # show cursor

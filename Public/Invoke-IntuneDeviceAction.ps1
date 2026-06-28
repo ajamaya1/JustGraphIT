@@ -103,7 +103,7 @@ function Invoke-IntuneDeviceAction {
         'Rename'             { @{ deviceName = $NewName } }                         # setDeviceName(deviceName)
         'FreshStart'         { @{ keepUserData = [bool]$KeepUserData } }
         'DefenderScan'       { @{ quickScan = [bool]$QuickScan } }
-        'CollectDiagnostics' { @{ templateType = @{ templateType = 'predefined' } } }   # createDeviceLogCollectionRequest(templateType)
+        'CollectDiagnostics' { @{ templateType = 'predefined' } }   # createDeviceLogCollectionRequest(templateType)
         default              { @{} }
     }
 
