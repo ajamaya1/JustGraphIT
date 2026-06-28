@@ -1,0 +1,109 @@
+# Backup / restore / drift for assignments. A backup is a JSON snapshot of every
+# resource's full assignment set; restore re-applies a snapshot (via the /assign
+# action, which replaces the set); drift diffs current state against a snapshot.
+
+function ConvertTo-IaAssignmentSnapshot {
+    # Serialize one inventory item's assignments to a portable shape.
+    param([Parameter(Mandatory)][object]$Item)
+    [pscustomobject]@{
+        resourceType = $Item.ResourceType
+        id           = $Item.Id
+        name         = $Item.Name
+        area         = $Item.Area
+        assignments  = @($Item.Assignments | ForEach-Object {
+                [pscustomobject]@{
+                    kind         = $_.Target.Kind
+                    groupId      = $_.Target.GroupId
+                    groupName    = $_.Target.GroupName
+                    isExclude    = [bool]$_.Target.IsExclude
+                    filterId     = $_.Target.FilterId
+                    filterType   = $_.Target.FilterType
+                    odataType    = $_.Target.ODataType
+                    collectionId = $_.Target.CollectionId
+                    intent       = $_.Intent
+                    settings     = $_.Settings
+                    raw          = $_.Raw
+                }
+            })
+    }
+}
+
+function ConvertFrom-IaAssignmentSnapshot {
+    # Rebuild Assignment objects (with a Target) from a snapshot resource, so the
+    # write engine (Save-IaAssignments / ConvertTo-IaAssignmentBody) can re-post.
+    param([Parameter(Mandatory)][object]$SnapResource)
+    foreach ($a in $SnapResource.assignments) {
+        $t = [pscustomobject]@{
+            Kind         = $a.kind
+            IsExclude    = [bool]$a.isExclude
+            GroupId      = $a.groupId
+            GroupName    = $a.groupName
+            FilterId     = $a.filterId
+            FilterType   = if ($a.filterType) { $a.filterType } else { 'none' }
+            FilterName   = $null
+            CollectionId = $a.collectionId
+            ODataType    = $a.odataType
+        }
+        [pscustomobject]@{ Target = $t; Intent = $a.intent; Settings = $a.settings; Raw = $a.raw }
+    }
+}
+
+function Get-IaSnapshotTargetKeys {
+    # Match keys for a snapshot resource's targets (for drift/diff).
+    param([Parameter(Mandatory)][object]$SnapResource)
+    @(ConvertFrom-IaAssignmentSnapshot -SnapResource $SnapResource | ForEach-Object {
+            Get-IaTargetMatchKey -Target $_.Target
+        })
+}
+
+function Read-IaSnapshot {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path $Path)) { throw "Snapshot file not found: $Path" }
+    Get-Content -Path $Path -Raw | ConvertFrom-Json
+}
+
+function Get-IaTenantSlug {
+    # Short, filesystem-safe label derived from the signed-in account or tenant id.
+    # "user@contoso.onmicrosoft.com" → "contoso"
+    # "user@tailspin.com"           → "tailspin"
+    # Falls back to the first 8 chars of the tenant GUID, then empty string.
+    try {
+        $ctx = Get-MgContext -ErrorAction SilentlyContinue
+        if ($ctx) {
+            if ($ctx.Account) {
+                $domain = ($ctx.Account -split '@', 2)[-1]   # contoso.onmicrosoft.com
+                $slug   = ($domain -split '\.')[0]           # contoso
+                $safe   = $slug -replace '[^A-Za-z0-9\-]', ''
+                if ($safe) { return $safe }
+            }
+            if ($ctx.TenantId) { return $ctx.TenantId.Replace('-','').Substring(0,8) }
+        }
+    } catch { }
+    return ''
+}
+
+function Get-IaBackupName {
+    # Standard, sortable backup name so callers never have to invent one.
+    # e.g. justgraphit-assignments-contoso-2026-06-25-1430.json
+    param([string]$Prefix = 'justgraphit-assignments', [string]$Extension = 'json')
+    $stamp = (Get-Date).ToString('yyyy-MM-dd-HHmm')
+    $slug  = Get-IaTenantSlug
+    $name  = if ($slug) { "$Prefix-$slug-$stamp" } else { "$Prefix-$stamp" }
+    if ($Extension) { "$name.$Extension" } else { $name }
+}
+
+function Find-IaLatestBackup {
+    # Newest backup in a directory matching the standard naming scheme — used to
+    # pre-fill restore/drift prompts so the common case is one keypress.
+    param([string]$Directory = '.', [string]$Prefix = 'justgraphit-assignments', [string]$Extension = 'json')
+    Get-ChildItem -Path $Directory -Filter "$Prefix-*.$Extension" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+}
+
+function Find-IaLatestConfigBackup {
+    # Newest full-config backup *folder* (Backup-IntuneConfig output), to pre-fill
+    # the restore prompt.
+    param([string]$Directory = '.', [string]$Prefix = 'justgraphit-config')
+    Get-ChildItem -Path $Directory -Directory -Filter "$Prefix-*" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+}

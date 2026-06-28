@@ -1,0 +1,153 @@
+# Shared helpers for the Entra *write* surface (app-registration permissions,
+# admin consent, provisioning). Resolvers here turn friendly names into the GUIDs
+# and @odata.type bindings the Graph write endpoints expect. All beta.
+
+# Well-known first-party API appIds, so "Graph" / "SharePoint" etc. resolve without
+# the operator hunting GUIDs. Keys are lowercased + de-spaced for lookup.
+$script:IaWellKnownApi = @{
+    'graph'                = '00000003-0000-0000-c000-000000000000'  # Microsoft Graph
+    'microsoftgraph'       = '00000003-0000-0000-c000-000000000000'
+    'msgraph'              = '00000003-0000-0000-c000-000000000000'
+    'sharepoint'           = '00000003-0000-0ff1-ce00-000000000000'  # Office 365 SharePoint Online
+    'exchange'             = '00000002-0000-0ff1-ce00-000000000000'  # Office 365 Exchange Online
+    'office365management'  = 'c5393580-f805-4401-95e8-94b7a6ef2fc2'  # Office 365 Management APIs
+    'azureservicemanagement' = '797f4846-ba00-4fd7-ba43-dac1f8f63013'
+    'powerbi'              = '00000009-0000-0000-c000-000000000000'  # Power BI Service
+    'intune'               = 'c161e42e-d4df-4a3d-9b42-e7a3c31f59d4'  # Microsoft Intune API
+}
+
+function Resolve-EntraResourceApi {
+    # Resource API name / alias / appId / SP object id → the resource service
+    # principal with its publishable permission catalogue (appRoles for application
+    # permissions, oauth2PermissionScopes for delegated). Used by both the
+    # permission-add and consent flows.
+    param([Parameter(Mandatory)][string]$Resource)
+    $sel = 'id,appId,displayName,appRoles,oauth2PermissionScopes'
+    $key = $Resource.ToLower() -replace '[\s\.]', ''
+    $appId = if ($script:IaWellKnownApi.ContainsKey($key)) { $script:IaWellKnownApi[$key] }
+             elseif (Test-IaGuid $Resource) { $Resource } else { $null }
+    if ($appId) {
+        $sp = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=appId eq '$appId'&`$select=$sel"))
+        # a GUID might be the SP object id rather than the appId
+        if (-not $sp -and (Test-IaGuid $Resource)) {
+            try { $one = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "servicePrincipals/${Resource}?`$select=$sel"); if ($one.id) { $sp = @($one) } } catch { }
+        }
+    } else {
+        $f  = "displayName eq '$($Resource.Replace("'", "''"))'"
+        $sp = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=$([uri]::EscapeDataString($f))&`$select=$sel"))
+    }
+    if (-not $sp) { throw "Resource API '$Resource' is not provisioned as a service principal in this tenant." }
+    # never silently pick the first of an ambiguous name — a collision could consent
+    # against the WRONG resource SP. (appId/GUID input is unambiguous.)
+    if (-not $appId -and @($sp).Count -gt 1) { throw "Multiple service principals named '$Resource'. Use the appId to disambiguate." }
+    $sp[0]
+}
+
+function Resolve-EntraPermissionEntry {
+    # Permission name (e.g. User.Read.All) on a resource SP → { Id; OdataType }.
+    # OdataType is 'Role' for an application permission, 'Scope' for delegated —
+    # the value requiredResourceAccess.resourceAccess.type takes.
+    param(
+        [Parameter(Mandatory)]$ResourceSp,
+        [Parameter(Mandatory)][string]$Permission,
+        [Parameter(Mandatory)][ValidateSet('Application', 'Delegated')][string]$Type
+    )
+    if ($Type -eq 'Application') {
+        $r = @($ResourceSp.appRoles) | Where-Object { $_.value -eq $Permission -and $_.isEnabled } | Select-Object -First 1
+        if (-not $r) { throw "Application permission '$Permission' is not published by $($ResourceSp.displayName)." }
+        return [pscustomobject]@{ Id = [string]$r.id; OdataType = 'Role'; Name = $r.value }
+    }
+    $s = @($ResourceSp.oauth2PermissionScopes) | Where-Object { $_.value -eq $Permission } | Select-Object -First 1
+    if (-not $s) { throw "Delegated permission '$Permission' is not published by $($ResourceSp.displayName)." }
+    [pscustomobject]@{ Id = [string]$s.id; OdataType = 'Scope'; Name = $s.value }
+}
+
+function Get-EntraApplicationObject {
+    # App registration name / appId / object id → the application object (with the
+    # fields the write flows need). Applications are keyed by OBJECT id for PATCH,
+    # so a bare appId is resolved through a filter.
+    param([Parameter(Mandatory)][string]$App)
+    $sel = 'id,appId,displayName,requiredResourceAccess,signInAudience'
+    if (Test-IaGuid $App) {
+        try { $a = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "applications/${App}?`$select=$sel"); if ($a.id) { return $a } } catch { }
+        $byApp = @(Get-IaCollection (Resolve-IaUri -Path "applications?`$filter=appId eq '$App'&`$select=$sel"))
+        if ($byApp) { return $byApp[0] }
+        throw "No app registration found with id/appId '$App'."
+    }
+    $f   = "displayName eq '$($App.Replace("'", "''"))'"
+    $res = @(Get-IaCollection (Resolve-IaUri -Path "applications?`$filter=$([uri]::EscapeDataString($f))&`$select=$sel&`$top=5"))
+    if ($res.Count -eq 1) { return $res[0] }
+    if ($res.Count -gt 1) { throw "Multiple app registrations named '$App'. Use the appId or object id." }
+    throw "No app registration found matching '$App'."
+}
+
+function ConvertTo-IaRequiredResourceAccess {
+    # Deep-copy a Graph requiredResourceAccess collection into plain ordered
+    # hashtables we can safely mutate before PATCHing it back.
+    param($Existing)
+    $out = [System.Collections.Generic.List[object]]::new()
+    if ($null -eq $Existing) { return , $out }   # @($null) iterates once with $r=$null → phantom bucket
+    foreach ($r in @($Existing)) {
+        $access = [System.Collections.Generic.List[object]]::new()
+        foreach ($a in @($r.resourceAccess)) { [void]$access.Add([ordered]@{ id = [string]$a.id; type = [string]$a.type }) }
+        [void]$out.Add([ordered]@{ resourceAppId = [string]$r.resourceAppId; resourceAccess = $access })
+    }
+    , $out
+}
+
+function Resolve-EntraRoleDefinitionId {
+    # Directory-role display name / templateId / object id → roleDefinition id (which,
+    # for built-in roles, equals the well-known template GUID).
+    param([Parameter(Mandatory)][string]$Role)
+    if (Test-IaGuid $Role) { return $Role }
+    $f   = "displayName eq '$($Role.Replace("'", "''"))'"
+    $res = @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleDefinitions?`$filter=$([uri]::EscapeDataString($f))&`$select=id,displayName&`$top=5"))
+    if ($res.Count -eq 1) { return $res[0].id }
+    if ($res.Count -gt 1) { throw "Multiple directory roles named '$Role'." }
+    throw "No directory role found matching '$Role'."
+}
+
+function Resolve-EntraSkuId {
+    # License SKU part number (e.g. ENTERPRISEPACK) or skuId → skuId, via the tenant's
+    # subscribedSkus. Shared by user- and group-based licensing.
+    param([string[]]$Sku)
+    $vals = @($Sku | Where-Object { $_ })
+    if (-not $vals) { return @() }
+    $skus = @(Get-IaCollection (Resolve-IaUri -Path "subscribedSkus?`$select=skuId,skuPartNumber"))
+    $map  = @{}; foreach ($s in $skus) { $map[$s.skuPartNumber] = $s.skuId; $map[$s.skuId] = $s.skuId }
+    @($vals | ForEach-Object { if ($map.ContainsKey($_)) { $map[$_] } else { throw "Unknown SKU '$_' (see Get-EntraLicense)." } })
+}
+
+function Resolve-EntraDeviceObjectId {
+    # Azure AD device id (managedDevice.azureADDeviceId / device.deviceId) → the Entra
+    # device OBJECT id, which is what group membership and directory writes key on.
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$AzureAdDeviceId)
+    if ([string]::IsNullOrWhiteSpace($AzureAdDeviceId)) { return $null }
+    $f = "deviceId eq '$(ConvertTo-IaODataValue $AzureAdDeviceId)'"
+    $d = @(Get-IaCollection (Resolve-IaUri -Path "devices?`$filter=$f&`$select=id"))
+    if ($d.Count -gt 1) { throw "Multiple Entra devices share deviceId '$AzureAdDeviceId' — refusing to guess which to target." }
+    if ($d) { [string]$d[0].id } else { $null }
+}
+
+function Resolve-EntraCaPolicyId {
+    # Conditional Access policy display name or id → policy id. CA policies don't
+    # support a server-side displayName filter, so non-GUID input matches client-side.
+    param([Parameter(Mandatory)][string]$Policy)
+    if (Test-IaGuid $Policy) { return $Policy }
+    $all = @(Get-IaCollection (Resolve-IaUri -Path "identity/conditionalAccess/policies?`$select=id,displayName"))
+    $hit = @($all | Where-Object { $_.displayName -eq $Policy })
+    if ($hit.Count -eq 1) { return $hit[0].id }
+    if ($hit.Count -gt 1) { throw "Multiple Conditional Access policies named '$Policy'. Use the id." }
+    throw "No Conditional Access policy found matching '$Policy'."
+}
+
+function Get-EntraClientServicePrincipal {
+    # The enterprise app (service principal) for an app registration's appId,
+    # creating it if absent. Admin consent is recorded against the SP, so it must
+    # exist before grants can be made. Returns the SP object.
+    param([Parameter(Mandatory)][string]$AppId, [switch]$CreateIfMissing)
+    $sp = @(Get-IaCollection (Resolve-IaUri -Path "servicePrincipals?`$filter=appId eq '$AppId'&`$select=id,appId,displayName"))
+    if ($sp) { return $sp[0] }
+    if (-not $CreateIfMissing) { return $null }
+    Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "servicePrincipals") -Body @{ appId = $AppId }
+}
