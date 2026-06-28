@@ -220,6 +220,12 @@
         'Get-EntraRoleAssignment',
         'Get-EntraPimEligibility',
         'Get-EntraPimActive',
+        # --- role & PIM writes (Phase 3) ---
+        'New-EntraRoleAssignment',
+        'Remove-EntraRoleAssignment',
+        'New-EntraPimEligibility',
+        'Remove-EntraPimEligibility',
+        'Enable-EntraPimRole',
         # --- security / XDR ---
         'Get-EntraSecureScore',
         'Get-EntraSecurityAlert',
