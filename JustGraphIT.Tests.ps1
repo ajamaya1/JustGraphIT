@@ -3349,6 +3349,105 @@ Describe 'TUI write-menu smoke (new wiring)' {
     }
 }
 
+Describe 'Security hardening (review fixes)' {
+    It 'inj-1: Resolve-EntraGroupId percent-encodes the $filter so "&" cannot split the query' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'g-1'; displayName = 'Sales & Eng' }) }
+            Resolve-EntraGroupId -Group 'Sales & Eng' | Should -Be 'g-1'
+            $script:p | Should -Match 'displayName%20eq%20'          # filter is URL-encoded
+            $script:p | Should -Match 'Sales%20%26%20Eng'            # the & is %26, not a raw separator
+            $script:p | Should -Not -Match "displayName eq 'Sales & Eng'"
+        }
+    }
+
+    It 'inj-3: Resolve-EntraUserId resolves by EXACT equality, never a silent prefix match' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { throw 'not a routable UPN' }      # exact users/{key} GET fails → fall to filter
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @([pscustomobject]@{ id = 'u-1'; userPrincipalName = 'rob@x.com' }) }
+            Resolve-EntraUserId -User 'rob' | Should -Be 'u-1'
+            $script:p | Should -Match 'userPrincipalName%20eq%20'     # exact equality, URL-encoded
+            $script:p | Should -Not -Match 'startswith'               # no prefix matching on the write path
+        }
+    }
+
+    It 'inj-4: Resolve-EntraDeviceObjectId throws instead of guessing when a deviceId is not unique' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection { @([pscustomobject]@{ id = 'd-1' }, [pscustomobject]@{ id = 'd-2' }) }
+            { Resolve-EntraDeviceObjectId -AzureAdDeviceId 'dup' } | Should -Throw -ExpectedMessage '*Multiple Entra devices*'
+        }
+    }
+
+    It 'authz-2: Grant-EntraAdminConsent warns before consenting a tenant-takeover-class permission' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                if ($Method -eq 'GET' -and $Uri -match '/applications/33333333') {
+                    return [pscustomobject]@{ id = '33333333-3333-3333-3333-333333333333'; appId = 'client-app-id'; displayName = 'Worker'
+                        requiredResourceAccess = @([pscustomobject]@{ resourceAppId = '00000003-0000-0000-c000-000000000000'
+                                resourceAccess = @([pscustomobject]@{ id = 'role1'; type = 'Role' }) }) }
+                }
+                return [pscustomobject]@{ id = 'new' }
+            }
+            Mock Get-IaCollection {
+                if ($Path -match "appId eq 'client-app-id'") { return @([pscustomobject]@{ id = 'clientsp'; appId = 'client-app-id'; displayName = 'Worker' }) }
+                if ($Path -match "appId eq '00000003-0000-0000-c000-000000000000'") {
+                    return @([pscustomobject]@{ id = 'graphsp'; appId = '00000003-0000-0000-c000-000000000000'; displayName = 'Microsoft Graph'
+                            appRoles = @([pscustomobject]@{ id = 'role1'; value = 'Directory.ReadWrite.All' }); oauth2PermissionScopes = @() })
+                }
+                return @()
+            }
+            Grant-EntraAdminConsent -App '33333333-3333-3333-3333-333333333333' -Confirm:$false -WarningVariable wv -WarningAction SilentlyContinue | Out-Null
+            ($wv -join ' ') | Should -Match 'tenant-takeover-class'
+            ($wv -join ' ') | Should -Match 'Directory\.ReadWrite\.All'
+        }
+    }
+
+    It 'authz-M2: New-EntraConditionalAccessPolicy warns on a block-all -BodyObject with no exclusion' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { [pscustomobject]@{ id = 'ca-1'; displayName = 'Lockout'; state = 'enabled' } }
+            $body = @{ state = 'enabled'; grantControls = @{ builtInControls = @('block') }; conditions = @{ users = @{ includeUsers = @('All') } } }
+            New-EntraConditionalAccessPolicy -Name 'Lockout' -BodyObject $body -Confirm:$false -WarningVariable wv -WarningAction SilentlyContinue | Out-Null
+            ($wv -join ' ') | Should -Match 'BLOCKS all users'
+        }
+    }
+
+    It 'authz-M2: New-EntraConditionalAccessPolicy does NOT warn when the block-all body excludes a break-glass group' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { [pscustomobject]@{ id = 'ca-2'; displayName = 'Safe'; state = 'enabled' } }
+            $body = @{ state = 'enabled'; grantControls = @{ builtInControls = @('block') }; conditions = @{ users = @{ includeUsers = @('All'); excludeGroups = @('bg-1') } } }
+            New-EntraConditionalAccessPolicy -Name 'Safe' -BodyObject $body -Confirm:$false -WarningVariable wv -WarningAction SilentlyContinue | Out-Null
+            ($wv -join ' ') | Should -Not -Match 'BLOCKS all users'
+        }
+    }
+
+    It 'authz-1: the TUI does NOT issue a Temporary Access Pass when the operator declines' {
+        InModuleScope JustGraphIT {
+            Mock Get-EntraUser { [pscustomobject]@{ Enabled = $true } }
+            $script:mc = 0
+            Mock Read-IaMenu { $script:mc++; if ($script:mc -eq 1) { 'Issue Temporary Access Pass (passkey enrollment)' } else { 'Back' } }
+            Mock Read-IaConfirm { $false }                 # decline
+            Mock Read-IaPause {}; Mock Write-IaHost {}
+            Mock New-EntraUserTempAccessPass { [pscustomobject]@{ TemporaryAccessPass = 'SECRET'; LifetimeMinutes = 60 } }
+            Invoke-IaTuiUserActions -Accent 'cyan' -Upn 'u@x.com'
+            Should -Invoke New-EntraUserTempAccessPass -Times 0 -Exactly
+        }
+    }
+
+    It 'authz-1: the TUI issues the TAP only after an explicit confirmation' {
+        InModuleScope JustGraphIT {
+            Mock Get-EntraUser { [pscustomobject]@{ Enabled = $true } }
+            $script:mc = 0
+            Mock Read-IaMenu { $script:mc++; if ($script:mc -eq 1) { 'Issue Temporary Access Pass (passkey enrollment)' } else { 'Back' } }
+            Mock Read-IaConfirm { $true }                  # confirm
+            Mock Read-IaPause {}; Mock Write-IaHost {}
+            Mock New-EntraUserTempAccessPass { [pscustomobject]@{ TemporaryAccessPass = 'SECRET'; LifetimeMinutes = 60 } }
+            Invoke-IaTuiUserActions -Accent 'cyan' -Upn 'u@x.com'
+            Should -Invoke New-EntraUserTempAccessPass -Times 1 -Exactly
+        }
+    }
+}
+
 Describe 'Query to group pipeline (beta)' {
     It 'Get-IntuneStaleDevice filters managedDevices on lastSyncDateTime and computes DaysStale' {
         InModuleScope JustGraphIT {

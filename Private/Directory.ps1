@@ -109,8 +109,9 @@ function Resolve-IaGroup {
             throw "Can't read directory groups — Group.Read.All isn't consented. A Global Admin must grant admin consent to the Microsoft Graph PowerShell app, then reconnect."
         }
         $esc = $Value.Replace("'", "''")
+        $gf  = "displayName eq '$esc'"
         try {
-            $groupResults = Get-IaCollection -V1 -Path ("groups?`$filter=displayName eq '$esc'&`$select=id,displayName,membershipRule")
+            $groupResults = Get-IaCollection -V1 -Path ("groups?`$filter=$([uri]::EscapeDataString($gf))&`$select=id,displayName,membershipRule")
         } catch {
             if ("$($_.Exception.Message)" -match 'Forbidden|Authorization_RequestDenied|\b403\b') {
                 $script:IaDirectoryBlocked = $true
@@ -169,7 +170,8 @@ function Resolve-IaDevice {
         } catch { }
     }
     $esc = $Value.Replace("'", "''")
-    $deviceResults = Get-IaCollection -V1 -Path ("devices?`$filter=displayName eq '$esc'&`$select=id,displayName,deviceId")
+    $df  = "displayName eq '$esc'"
+    $deviceResults = Get-IaCollection -V1 -Path ("devices?`$filter=$([uri]::EscapeDataString($df))&`$select=id,displayName,deviceId")
     if ($deviceResults.Count -eq 1) { return [pscustomobject]@{ Id = $deviceResults[0].id; DisplayName = $deviceResults[0].displayName } }
     if (-not $deviceResults) { throw "No Entra device found matching '$Value'." }
     throw "'$Value' matches multiple devices: $((($deviceResults | ForEach-Object displayName) -join ', '))"

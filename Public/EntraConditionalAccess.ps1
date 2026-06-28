@@ -70,13 +70,17 @@ function New-EntraConditionalAccessPolicy {
         if ($BlockAccess)            { $controls = @('block') }
         $body = [ordered]@{ displayName = $Name; state = $State; conditions = $conditions }
         if ($controls) { $body.grantControls = [ordered]@{ operator = $GrantOperator; builtInControls = @($controls) } }
-        # break-glass guard: an enabled block-all policy with no exclusions locks
-        # everyone out — including you. Warn loudly (report-only is the safe default).
-        if ($State -eq 'enabled' -and $BlockAccess -and ($incUsers -contains 'All') -and -not ($ExcludeUsers -or $ExcludeGroups)) {
-            Write-Warning "This policy BLOCKS all users (including you) with no exclusion. Add -ExcludeUsers/-ExcludeGroups for a break-glass account, or use -State enabledForReportingButNotEnforced first."
-        }
     }
-    if ($PSCmdlet.ShouldProcess($Name, "Create Conditional Access policy (state=$State)")) {
+    # break-glass guard — evaluated on the EFFECTIVE body, so it also covers a hand-built
+    # -BodyObject: an enabled block-all policy with no exclusion locks everyone out (you
+    # included). Report-only is the safe default.
+    $effCtl = @($body.grantControls.builtInControls)
+    $effIu  = @($body.conditions.users.includeUsers)
+    $effEx  = @(@($body.conditions.users.excludeUsers) + @($body.conditions.users.excludeGroups) | Where-Object { $_ })
+    if (([string]$body.state -eq 'enabled') -and ($effCtl -contains 'block') -and ($effIu -contains 'All') -and -not $effEx) {
+        Write-Warning "This policy BLOCKS all users (including you) with no exclusion. Add an excluded break-glass account/group, or use state=enabledForReportingButNotEnforced first."
+    }
+    if ($PSCmdlet.ShouldProcess($Name, "Create Conditional Access policy (state=$($body.state))")) {
         $p = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "identity/conditionalAccess/policies") -Body $body
         [pscustomobject]@{ Name = $p.displayName; State = $p.state; Id = $p.id }
     }

@@ -125,6 +125,7 @@ function Resolve-EntraDeviceObjectId {
     if ([string]::IsNullOrWhiteSpace($AzureAdDeviceId)) { return $null }
     $f = "deviceId eq '$(ConvertTo-IaODataValue $AzureAdDeviceId)'"
     $d = @(Get-IaCollection (Resolve-IaUri -Path "devices?`$filter=$f&`$select=id"))
+    if ($d.Count -gt 1) { throw "Multiple Entra devices share deviceId '$AzureAdDeviceId' — refusing to guess which to target." }
     if ($d) { [string]$d[0].id } else { $null }
 }
 

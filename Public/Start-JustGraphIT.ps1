@@ -2169,10 +2169,12 @@ function Select-IaApiPermission {
     param([string]$Accent, [string]$Resource, [ValidateSet('Application', 'Delegated')][string]$Type)
     $sp = Invoke-IaStatus -Spinner Dots -Title "Loading $Resource permissions…" -ScriptBlock { Resolve-EntraResourceApi -Resource $Resource }
     if (-not $sp) { Write-IaHost "[yellow]Couldn't resolve '$Resource'.[/]"; Read-IaPause | Out-Null; return $null }
+    # Flag tenant-takeover-class permissions so the operator sees the risk before
+    # requesting one (it pairs with the pre-consent warning in Grant-EntraAdminConsent).
     $perms = if ($Type -eq 'Application') {
-        @($sp.appRoles | Where-Object { $_.isEnabled } | ForEach-Object { [pscustomobject][ordered]@{ Permission = $_.value; Description = $_.displayName } })
+        @($sp.appRoles | Where-Object { $_.isEnabled } | ForEach-Object { [pscustomobject][ordered]@{ Permission = $_.value; Risk = $(if (Test-EntraHighRiskPermission $_.value) { '[coral]High[/]' } else { '' }); Description = $_.displayName } })
     } else {
-        @($sp.oauth2PermissionScopes | ForEach-Object { [pscustomobject][ordered]@{ Permission = $_.value; Description = $_.adminConsentDisplayName } })
+        @($sp.oauth2PermissionScopes | ForEach-Object { [pscustomobject][ordered]@{ Permission = $_.value; Risk = $(if (Test-EntraHighRiskPermission $_.value) { '[coral]High[/]' } else { '' }); Description = $_.adminConsentDisplayName } })
     }
     $perms = @($perms | Where-Object { $_.Permission } | Sort-Object Permission)
     if (-not $perms) { Write-IaHost "[yellow]No $Type permissions published by $Resource.[/]"; Read-IaPause | Out-Null; return $null }
@@ -2880,8 +2882,13 @@ function Invoke-IaTuiUserActions {
                 'Revoke all*' { if (Read-IaConfirm "[red]Sign $Upn out of every session?[/]") { Revoke-EntraUserSession -User $Upn -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Sessions revoked.[/]" } }
                 'Reset MFA*'  { if (Read-IaConfirm "[red]Delete $Upn's strong MFA methods (forces re-register)?[/]") { $r = Reset-EntraUserMfa -User $Upn -Confirm:$false; Write-IaHost "[$Accent]✓ Removed $($r.MethodsRemoved) method(s).[/]" } }
                 'Issue Temporary*' {
-                    $r = New-EntraUserTempAccessPass -User $Upn -Confirm:$false
-                    Write-IaHost "[$Accent]✓ Temporary Access Pass:[/] [white]$($r.TemporaryAccessPass)[/]  [grey](valid $($r.LifetimeMinutes) min — the user redeems it to enroll a passkey)[/]"
+                    # A TAP is a redeemable credential that lets the holder enroll an MFA
+                    # method / passkey — i.e. it can bootstrap account takeover. Gate it
+                    # like the other sensitive actions in this menu (it was unguarded).
+                    if (Read-IaConfirm "[red]Issue a Temporary Access Pass for ${Upn}? It can be redeemed to enroll a passkey and bypass existing MFA.[/]") {
+                        $r = New-EntraUserTempAccessPass -User $Upn -Confirm:$false
+                        Write-IaHost "[$Accent]✓ Temporary Access Pass:[/] [white]$($r.TemporaryAccessPass)[/]  [grey](valid $($r.LifetimeMinutes) min — the user redeems it to enroll a passkey)[/]"
+                    }
                 }
                 'Add to a group' {
                     $g = $null; try { $g = Select-IaGroup -Accent $Accent -Title 'Add to which group?' } catch { }

@@ -20,7 +20,7 @@ function Add-EntraAppPermission {
     .EXAMPLE
         Add-EntraAppPermission -App 'CI Pipeline' -Permission Application.ReadWrite.OwnedBy -Type Application
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory, Position = 0)][string]$App,
         [Parameter(Mandatory, Position = 1)][string[]]$Permission,
@@ -176,12 +176,29 @@ function Grant-EntraAdminConsent {
         $rra  = @($rra | Where-Object { $_.resourceAppId -eq $only.appId })
     }
     if (-not $rra) { Write-Warning "'$($appObj.displayName)' has no requested permissions to consent."; return }
+
+    # Resolve each resource SP once (reused in the grant loop below), and surface any
+    # tenant-takeover-class permission BEFORE consent — granting these makes the app a
+    # de-facto privileged principal, so the operator should see it before confirming.
+    $spCache = @{}
+    foreach ($req in $rra) { $spCache[[string]$req.resourceAppId] = Resolve-EntraResourceApi -Resource ([string]$req.resourceAppId) }
+    $riskNames = foreach ($req in $rra) {
+        $rsp = $spCache[[string]$req.resourceAppId]
+        foreach ($ra in @($req.resourceAccess)) {
+            $nm = if ($ra.type -eq 'Role') { (@($rsp.appRoles) | Where-Object { [string]$_.id -eq [string]$ra.id } | Select-Object -First 1).value }
+                  else                     { (@($rsp.oauth2PermissionScopes) | Where-Object { [string]$_.id -eq [string]$ra.id } | Select-Object -First 1).value }
+            if ($nm -and (Test-EntraHighRiskPermission $nm)) { $nm }
+        }
+    }
+    $highRisk = @($riskNames | Select-Object -Unique)
+    if ($highRisk) { Write-Warning "About to consent tenant-takeover-class permission(s) for '$($appObj.displayName)': $($highRisk -join ', '). These can let the app escalate privileges across the whole tenant." }
+
     if (-not $PSCmdlet.ShouldProcess($appObj.displayName, "Grant admin consent for $(@($rra).Count) resource API(s)")) { return }
 
     $client = Get-EntraClientServicePrincipal -AppId $appObj.appId -CreateIfMissing
     $out    = @()
     foreach ($req in $rra) {
-        $resSp     = Resolve-EntraResourceApi -Resource ([string]$req.resourceAppId)
+        $resSp     = $spCache[[string]$req.resourceAppId]
         $roleIds   = @($req.resourceAccess | Where-Object { $_.type -eq 'Role' }  | ForEach-Object { [string]$_.id })
         $scopeIds  = @($req.resourceAccess | Where-Object { $_.type -eq 'Scope' } | ForEach-Object { [string]$_.id })
 
