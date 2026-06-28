@@ -255,3 +255,40 @@ function New-EntraUserTempAccessPass {
         [pscustomobject]@{ User = $User; TemporaryAccessPass = $r.temporaryAccessPass; LifetimeMinutes = $r.lifetimeInMinutes; OneTime = $r.isUsableOnce; StartsAt = $r.startDateTime }
     }
 }
+
+function New-EntraUser {
+    <#
+    .SYNOPSIS
+        Create an Entra member user. Beta POST /beta/users.
+    .DESCRIPTION
+        Creates an enabled user with a temporary password (returned; the user must
+        change it at next sign-in). The UPN's domain must be a verified tenant domain.
+    .OUTPUTS
+        PSCustomObject: User, DisplayName, Id, TempPassword.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory, Position = 0)][string]$UserPrincipalName,
+        [Parameter(Mandatory, Position = 1)][string]$DisplayName,
+        [string]$MailNickname,
+        [string]$Password,
+        [string]$JobTitle, [string]$Department, [string]$UsageLocation,
+        [switch]$NoForceChange
+    )
+    if (-not $MailNickname) { $MailNickname = ($UserPrincipalName -split '@')[0] }
+    if (-not $Password)     { $Password = New-IaTempPassword }
+    $body = [ordered]@{
+        accountEnabled    = $true
+        displayName       = $DisplayName
+        mailNickname      = $MailNickname
+        userPrincipalName = $UserPrincipalName
+        passwordProfile   = @{ password = $Password; forceChangePasswordNextSignIn = (-not $NoForceChange) }
+    }
+    if ($JobTitle)      { $body.jobTitle = $JobTitle }
+    if ($Department)    { $body.department = $Department }
+    if ($UsageLocation) { $body.usageLocation = $UsageLocation }
+    if ($PSCmdlet.ShouldProcess($UserPrincipalName, 'Create user')) {
+        $u = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri -Path "users") -Body $body
+        [pscustomobject]@{ User = $u.userPrincipalName; DisplayName = $u.displayName; Id = $u.id; TempPassword = $Password }
+    }
+}

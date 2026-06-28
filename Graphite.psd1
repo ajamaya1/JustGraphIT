@@ -161,6 +161,7 @@
         'Get-EntraUserAuthMethod',
         'Reset-EntraUserMfa',
         'New-EntraUserTempAccessPass',
+        'New-EntraUser',
         # --- licensing ---
         'Get-EntraLicense',
         # --- groups (Phase 3: lifecycle) ---
@@ -186,6 +187,10 @@
         'Get-EntraAppCredential',
         'Get-EntraEnterpriseApp',
         'Get-EntraManagedIdentity',
+        # --- app governance / hygiene reports ---
+        'Get-EntraExpiringSecret',
+        'Get-EntraAppWithoutOwner',
+        'Get-EntraAppCredentialSummary',
         # --- directory roles & PIM ---
         'Get-EntraDirectoryRole',
         'Get-EntraRoleAssignment',
