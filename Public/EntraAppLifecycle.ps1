@@ -74,8 +74,11 @@ function Add-EntraAppRedirectUri {
         Add redirect URI(s) to an app registration. Beta PATCH /beta/applications/{id}.
     .PARAMETER Platform
         Web (default), Spa or PublicClient.
+    .NOTES
+        ConfirmImpact High: adding an attacker-controlled reply URL to a legitimate app
+        is a known token-exfiltration technique, so this prompts by default.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory, Position = 0)][string]$App,
         [Parameter(Mandatory, Position = 1)][string[]]$Uri,

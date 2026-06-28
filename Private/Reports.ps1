@@ -159,7 +159,8 @@ function Resolve-IaResourceId {
     param([Parameter(Mandatory)][string]$ListPath, [Parameter(Mandatory)][string]$Value, [string]$NameField = 'displayName')
     if (Test-IaGuid $Value) { return $Value }
     $esc = $Value.Replace("'", "''")
-    $hit = Get-IaCollection "$ListPath`?`$filter=$NameField eq '$esc'&`$select=id,$NameField" | Select-Object -First 1
+    $rf  = "$NameField eq '$esc'"
+    $hit = Get-IaCollection "$ListPath`?`$filter=$([uri]::EscapeDataString($rf))&`$select=id,$NameField" | Select-Object -First 1
     if (-not $hit) {
         # Some endpoints don't allow $filter on name; fall back to client-side match.
         $hit = Get-IaCollection "$ListPath`?`$select=id,$NameField" | Where-Object { $_.$NameField -eq $Value } | Select-Object -First 1

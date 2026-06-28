@@ -11,21 +11,27 @@ function Resolve-EntraUserId {
         $u = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "users/$([uri]::EscapeDataString($User))?`$select=id")
         if ($u.id) { return $u.id }
     } catch { }
-    # Fall back to a prefix search across UPN / mail / display name.
+    # Fall back to an EXACT match across UPN / mail / display name. We deliberately do
+    # NOT prefix-match here: this id feeds privileged writes (disable, reset password,
+    # role assignment), and silently resolving "rob" to "robert@…" would hit the wrong
+    # person. Get-EntraUser -Filter is the place for prefix/contains searches.
     $odv = $User.Replace("'", "''")
-    $f   = "startswith(userPrincipalName,'$odv') or startswith(mail,'$odv') or startswith(displayName,'$odv')"
+    $f   = "userPrincipalName eq '$odv' or mail eq '$odv' or displayName eq '$odv'"
     $res = @(Get-IaCollection (Resolve-IaUri -Path "users?`$filter=$([uri]::EscapeDataString($f))&`$select=id,userPrincipalName&`$top=5"))
     if ($res.Count -eq 1) { return $res[0].id }
     if ($res.Count -gt 1) { throw "Multiple users match '$User'. Use the exact UPN or object id." }
-    throw "No Entra user found matching '$User'."
+    throw "No Entra user found matching '$User' (use the exact UPN, mail, display name, or object id)."
 }
 
 function Resolve-EntraGroupId {
     # Display name or object id → group object id.
     param([Parameter(Mandatory)][string]$Group)
     if (Test-IaGuid $Group) { return $Group }
-    $odv = $Group.Replace("'", "''")
-    $res = @(Get-IaCollection (Resolve-IaUri -Path "groups?`$filter=displayName eq '$odv'&`$select=id,displayName&`$top=5"))
+    # Escape the whole filter for the URL — a group named "Sales & Eng" would otherwise
+    # let the '&' start a new query parameter and silently truncate the filter, hitting
+    # the wrong group on the destructive write paths that key off this resolver.
+    $f   = "displayName eq '$($Group.Replace("'", "''"))'"
+    $res = @(Get-IaCollection (Resolve-IaUri -Path "groups?`$filter=$([uri]::EscapeDataString($f))&`$select=id,displayName&`$top=5"))
     if ($res.Count -eq 1) { return $res[0].id }
     if ($res.Count -gt 1) { throw "Multiple groups named '$Group'. Use the object id." }
     throw "No Entra group found matching '$Group'."
