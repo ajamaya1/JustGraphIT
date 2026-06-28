@@ -41,9 +41,65 @@ function Resolve-IaUri {
     "$base/$($Path.TrimStart('/'))"
 }
 
+# ---- transient-failure handling: Graph throttles (429) and occasionally returns
+# 503/504; every call honors Retry-After and retries with exponential backoff so the
+# TUI doesn't die mid-page on a busy tenant.
+$script:IaMaxRetry    = 4       # transient retries before giving up
+$script:IaRetryBaseMs = 1000    # backoff base when the server sends no Retry-After
+$script:IaMgFeatures  = $null   # cached Invoke-MgGraphRequest capability probe
+
+function Get-IaMgFeatures {
+    # Probe optional Invoke-MgGraphRequest params once. Modern SDKs expose
+    # -StatusCodeVariable (real status on success); older ones don't, so we fall back.
+    if ($null -ne $script:IaMgFeatures) { return $script:IaMgFeatures }
+    $f = [pscustomobject]@{ StatusCode = $false }
+    try { $f.StatusCode = (Get-Command Invoke-MgGraphRequest -ErrorAction Stop).Parameters.ContainsKey('StatusCodeVariable') } catch { }
+    $script:IaMgFeatures = $f
+    $f
+}
+
+function Get-IaErrorStatus {
+    # Best-effort HTTP status from a Graph error record — the SDK surfaces it in
+    # different shapes across versions, so probe several then fall back to the text.
+    param($ErrorRecord)
+    $ex = $ErrorRecord.Exception
+    foreach ($probe in @({ [int]$ex.Response.StatusCode }, { [int]$ex.StatusCode }, { [int]$ex.Response.StatusCode.value__ })) {
+        try { $v = & $probe; if ($v -ge 100 -and $v -lt 600) { return $v } } catch { }
+    }
+    $msg = "$($ErrorRecord.Exception.Message) $($ErrorRecord.ErrorDetails.Message)"
+    if ($msg -match 'Too Many Requests')                       { return 429 }
+    if ($msg -match '\b(429|503|504|500|404|403|401|400)\b')   { return [int]$Matches[1] }
+    return 0
+}
+
+function Test-IaRetryable {
+    # 429/503/504 are safe to retry on any verb (request was rejected/never ran);
+    # a 500 is only retried on GET, since a write may have partially applied.
+    param([int]$Status, [string]$Method)
+    if ($Status -in 429, 503, 504) { return $true }
+    if ($Status -eq 500 -and $Method -eq 'GET') { return $true }
+    $false
+}
+
+function Get-IaRetryDelayMs {
+    # Wait before the next attempt: honor the server's Retry-After header if present,
+    # else exponential backoff (base·2^(n-1), capped at 30s) with a little jitter.
+    param($ErrorRecord, [int]$Attempt)
+    try {
+        $ra = $ErrorRecord.Exception.Response.Headers.RetryAfter
+        if ($ra) {
+            if ($null -ne $ra.Delta) { return [int][math]::Max(0, $ra.Delta.TotalMilliseconds) }
+            if ($null -ne $ra.Date)  { return [int][math]::Max(0, ($ra.Date - (Get-Date)).TotalMilliseconds) }
+        }
+    } catch { }
+    $backoff = [math]::Min($script:IaRetryBaseMs * [math]::Pow(2, $Attempt - 1), 30000)
+    [int]($backoff + (Get-Random -Minimum 0 -Maximum 250))
+}
+
 function Invoke-IaRequest {
     # The single seam over Microsoft.Graph's Invoke-MgGraphRequest. Returns the
     # response as a PSObject (so .value / '@odata.nextLink' are property access).
+    # Retries throttled/transient failures honoring Retry-After.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PATCH', 'PUT', 'DELETE')][string]$Method,
@@ -57,22 +113,33 @@ function Invoke-IaRequest {
         $params.ContentType = 'application/json'
     }
     if ($Headers) { $params.Headers = $Headers }
+    if ((Get-IaMgFeatures).StatusCode) { $params.StatusCodeVariable = 'IaStatus' }
 
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    try {
-        $resp = Invoke-MgGraphRequest @params
-        $sw.Stop()
-        $count = if ($resp -and $resp.PSObject.Properties['value']) { @($resp.value).Count } else { 0 }
-        Add-IaCall -Method $Method -Uri $Uri -Status 200 -Ms $sw.Elapsed.TotalMilliseconds -Count $count
-        return $resp
-    } catch {
-        $sw.Stop()
-        $status = 0
-        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-            $status = [int]$_.Exception.Response.StatusCode
+    $max = $script:IaMaxRetry
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $IaStatus = $null
+            $resp = Invoke-MgGraphRequest @params
+            $sw.Stop()
+            $status = if ($IaStatus) { [int]$IaStatus } else { 200 }
+            $count  = if ($resp -and $resp.PSObject.Properties['value']) { @($resp.value).Count } else { 0 }
+            Add-IaCall -Method $Method -Uri $Uri -Status $status -Ms $sw.Elapsed.TotalMilliseconds -Count $count
+            return $resp
+        } catch {
+            $sw.Stop()
+            $status = Get-IaErrorStatus $_
+            if ((Test-IaRetryable -Status $status -Method $Method) -and $attempt -le $max) {
+                $delay = Get-IaRetryDelayMs -ErrorRecord $_ -Attempt $attempt
+                Add-IaCall -Method $Method -Uri $Uri -Status $status -Ms $sw.Elapsed.TotalMilliseconds -Count 0 -ErrorText "transient $status — retry $attempt/$max in $([int]$delay)ms"
+                Start-Sleep -Milliseconds $delay
+                continue
+            }
+            Add-IaCall -Method $Method -Uri $Uri -Status $status -Ms $sw.Elapsed.TotalMilliseconds -Count 0 -ErrorText $_.Exception.Message
+            throw
         }
-        Add-IaCall -Method $Method -Uri $Uri -Status $status -Ms $sw.Elapsed.TotalMilliseconds -Count 0 -ErrorText $_.Exception.Message
-        throw
     }
 }
 
