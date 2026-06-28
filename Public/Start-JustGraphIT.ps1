@@ -1573,7 +1573,7 @@ function Invoke-IaTuiDeviceCard {
         $hdr.Add('')
         $cardHeader = ($hdr -join "`n")
 
-        $sub = Read-IaMenu -Title "Device · $Device" -Color $Accent -Header $cardHeader -PageSize 10 -Choices @(
+        $sub = Read-IaMenu -Title "Device · $Device" -Color $Accent -Header $cardHeader -PageSize 12 -Choices @(
             'All fields & hardware (everything)',
             'Compliance policy states',
             'Configuration profile states',
@@ -1581,6 +1581,8 @@ function Invoke-IaTuiDeviceCard {
             'Action: Sync now',
             'Action: Restart',
             'Action: Locate device',
+            'Action: Set primary user',
+            'Action: Set device category',
             'Action: more…',
             'Back'
         )
@@ -1631,6 +1633,27 @@ function Invoke-IaTuiDeviceCard {
             'Action: Sync*'    { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Sync' }
             'Action: Restart*' { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Reboot' }
             'Action: Locate*'  { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'LocateDevice' }
+            'Action: Set primary user*' {
+                $u = Select-IaUser -Accent $Accent -Title 'New primary user?'
+                if ($u -and (Read-IaConfirm "Set $u as primary user of ${Device}?")) {
+                    try { Set-IntuneDevicePrimaryUser -Device $Device -User $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Primary user set.[/]" }
+                    catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+                    Read-IaPause | Out-Null
+                }
+            }
+            'Action: Set device category*' {
+                $cats = @(Invoke-IaStatus -Spinner Dots -Title 'Loading categories…' -ScriptBlock { Get-IntuneDeviceCategory })
+                if (-not $cats) { Write-IaHost '[yellow]No device categories defined.[/]'; Read-IaPause | Out-Null }
+                else {
+                    $cd = @($cats | ForEach-Object { [pscustomobject][ordered]@{ Category = $_.Category; Description = $_.Description } })
+                    $cp = Read-IaTableInteractive -Data $cd -Color $Accent -Selectable -Title "Device categories ($($cd.Count)) · Enter = assign" -Stem 'dev-cat-pick'
+                    if ($cp -and (Read-IaConfirm "Set ${Device}'s category to '$($cp.Category)'?")) {
+                        try { Set-IntuneDeviceCategory -Device $Device -Category $cp.Category -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Category set.[/]" }
+                        catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+                        Read-IaPause | Out-Null
+                    }
+                }
+            }
             'Action: more*'    {
                 $a = Read-IaMenu -Title 'Device action' -Color $Accent -PageSize 14 -Choices @(
                     'Sync', 'Reboot', 'RemoteLock', 'LocateDevice', 'RotateBitLockerKeys', 'DefenderScan',

@@ -3315,6 +3315,33 @@ Describe 'Entra users & licensing depth (beta)' {
     }
 }
 
+Describe 'Intune device writes (beta)' {
+    It 'Set-IntuneDevicePrimaryUser POSTs a users/$ref to the managed device' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-IaManagedDeviceId { 'md-1' }
+            Mock Resolve-EntraUserId { 'u-9' }
+            $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:u = $Uri; $script:b = $Body }
+            Set-IntuneDevicePrimaryUser -Device 'LAPTOP-7' -User 'a@x.com' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/deviceManagement/managedDevices/md-1/users/\$ref$'
+            $script:b.'@odata.id' | Should -Match 'users/u-9$'
+        }
+    }
+
+    It 'Set-IntuneDeviceCategory resolves the category name then PUTs the ref' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-IaManagedDeviceId { 'md-1' }
+            Mock Get-IaCollection { @([pscustomobject]@{ id = 'cat-1'; displayName = 'Kiosks'; description = '' }) }
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; $script:b = $Body }
+            Set-IntuneDeviceCategory -Device 'KIOSK-1' -Category 'Kiosks' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PUT'
+            $script:u | Should -Match 'managedDevices/md-1/deviceCategory/\$ref$'
+            $script:b.'@odata.id' | Should -Match 'deviceCategories/cat-1$'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {
