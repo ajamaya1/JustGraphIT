@@ -1889,7 +1889,7 @@ function Invoke-IaTuiEntraApps {
             'Enterprise apps WITHOUT*'   { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps without owner' -Stem 'entra-spnoowner' -Loader { Get-EntraAppWithoutOwner -EnterpriseApps } }
             'Credential hygiene*'        { Invoke-IaTuiReportView -Accent $Accent -Title 'App credential hygiene' -Stem 'entra-credhygiene' -Loader { Get-EntraAppCredentialSummary } }
             'App permissions*'           { Invoke-IaTuiEntraAppPerms -Accent $Accent }
-            'Tenant consent audit*'      { Invoke-IaTuiReportView -Accent $Accent -Title 'Risky Graph consents' -Stem 'entra-consent' -Loader { Get-EntraRiskyAppPermission } }
+            'Tenant consent audit*'      { Invoke-IaTuiEntraConsentAudit -Accent $Accent }
         }
     }
 }
@@ -1906,6 +1906,26 @@ function Invoke-IaTuiEntraAppPerms {
         if (-not $picked) { return }
         $spId = $picked.Id
         Invoke-IaTuiReportView -Accent $Accent -Title "Permissions · $($picked.DisplayName)" -Stem 'entra-sp-perms' -Loader { Get-EntraAppPermission -App $spId }
+    }
+}
+
+function Invoke-IaTuiEntraConsentAudit {
+    # Tenant consent audit — apps holding high-risk Graph application permissions.
+    # Selectable: Enter on a row offers to revoke that permission from the app.
+    param([string]$Accent)
+    while ($true) {
+        $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Auditing Graph app consents…' -ScriptBlock { Get-EntraRiskyAppPermission })
+        if (-not $rows) { Write-IaHost "[$Accent]✓ No apps hold high-risk Graph application permissions.[/]"; Read-IaPause | Out-Null; return }
+        $disp = @($rows | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Permission = $_.Permission; Risk = (ConvertFrom-IaMarkup '[coral]High[/]'); PrincipalType = $_.PrincipalType; AppId = $_.AppPrincipalId; GrantId = $_.GrantId } })
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Risky Graph consents ($($disp.Count)) · Enter = revoke" -Stem 'entra-consent'
+        if (-not $picked) { return }
+        $act = Read-IaMenu -Title "$($picked.App) — $($picked.Permission)" -Color $Accent -Choices @('Revoke this permission', 'Cancel')
+        if ($act -eq 'Revoke this permission' -and (Read-IaConfirm "[red]Revoke '$($picked.Permission)' from $($picked.App)?[/]")) {
+            try {
+                Remove-EntraAppRoleAssignment -ServicePrincipal $picked.AppId -AssignmentId $picked.GrantId -Confirm:$false | Out-Null
+                Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
+            } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+        }
     }
 }
 
