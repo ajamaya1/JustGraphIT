@@ -1808,7 +1808,7 @@ function Invoke-IaTuiEntra {
                 'Sign-ins*'           { Invoke-IaTuiReportView -Accent $Accent -Title 'Sign-ins (recent)' -Stem 'entra-signins' -Loader { Get-EntraSignIn -Top 200 } }
                 'Conditional Access*' { Invoke-IaTuiEntraCA -Accent $Accent }
                 'Risky users*'        { Invoke-IaTuiEntraRisky -Accent $Accent }
-                'Applications*'       { Invoke-IaTuiReportView -Accent $Accent -Title 'App registrations' -Stem 'entra-appregs' -Loader { Get-EntraAppRegistration } }
+                'Applications*'       { Invoke-IaTuiEntraApps -Accent $Accent }
                 'Enterprise apps*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps' -Stem 'entra-entapps' -Loader { Get-EntraEnterpriseApp } }
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
                 'Directory roles*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
@@ -1827,6 +1827,31 @@ function Invoke-IaTuiEntra {
                 }
             }
         } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
+    }
+}
+
+function Invoke-IaTuiEntraApps {
+    # App registration / enterprise-app governance reports.
+    param([string]$Accent)
+    while ($true) {
+        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 9 -Choices @(
+            'All app registrations (secret/cert expiry)',
+            'Expiring secrets & certs (next 30 days)',
+            'Expiring incl. enterprise apps (90 days, incl. expired)',
+            'App registrations WITHOUT an owner',
+            'Enterprise apps WITHOUT an owner',
+            'Credential hygiene summary (status per app)',
+            'Back'
+        )
+        if (-not $m -or $m -eq 'Back') { return }
+        switch -Wildcard ($m) {
+            'All app*'                   { Invoke-IaTuiReportView -Accent $Accent -Title 'App registrations' -Stem 'entra-appregs' -Loader { Get-EntraAppRegistration } }
+            'Expiring secrets*'          { Invoke-IaTuiReportView -Accent $Accent -Title 'Expiring secrets/certs (30d)' -Stem 'entra-expiring' -Loader { Get-EntraExpiringSecret -Days 30 } }
+            'Expiring incl*'             { Invoke-IaTuiReportView -Accent $Accent -Title 'Expiring incl. enterprise apps (90d)' -Stem 'entra-expiring90' -Loader { Get-EntraExpiringSecret -Days 90 -IncludeExpired -IncludeServicePrincipals } }
+            'App registrations WITHOUT*' { Invoke-IaTuiReportView -Accent $Accent -Title 'App regs without owner' -Stem 'entra-noowner' -Loader { Get-EntraAppWithoutOwner } }
+            'Enterprise apps WITHOUT*'   { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps without owner' -Stem 'entra-spnoowner' -Loader { Get-EntraAppWithoutOwner -EnterpriseApps } }
+            'Credential hygiene*'        { Invoke-IaTuiReportView -Accent $Accent -Title 'App credential hygiene' -Stem 'entra-credhygiene' -Loader { Get-EntraAppCredentialSummary } }
+        }
     }
 }
 

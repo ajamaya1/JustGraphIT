@@ -2425,3 +2425,41 @@ Describe 'Entra access / apps / roles / security — beta endpoint paths' {
         }
     }
 }
+
+Describe 'Entra create-user + app governance (beta)' {
+    It 'New-EntraUser POSTs an enabled user with a passwordProfile and returns the temp password' {
+        InModuleScope Graphite {
+            $script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body; @{ id='u1'; userPrincipalName='new@x.com'; displayName='New User' } }
+            $r = New-EntraUser -UserPrincipalName 'new@x.com' -DisplayName 'New User' -Confirm:$false
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/users$'
+            $script:b.accountEnabled | Should -Be $true
+            $script:b.passwordProfile.forceChangePasswordNextSignIn | Should -Be $true
+            $r.TempPassword | Should -Not -BeNullOrEmpty
+        }
+    }
+    It 'Get-EntraExpiringSecret returns credentials inside the window from beta /applications' {
+        InModuleScope Graphite {
+            $script:p=$null
+            Mock Get-IaCollection { $script:p=$Path; @([pscustomobject]@{ displayName='App1'; appId='a1'; passwordCredentials=@(@{ displayName='s1'; endDateTime=(Get-Date).AddDays(10).ToUniversalTime().ToString('o') }); keyCredentials=@() }) }
+            $rows = @(Get-EntraExpiringSecret -Days 30)
+            $script:p | Should -Match 'applications'
+            $rows.Count | Should -BeGreaterThan 0
+            $rows[0].Kind | Should -Be 'Secret'
+            $rows[0].DaysLeft | Should -BeLessOrEqual 30
+        }
+    }
+    It 'Get-EntraAppWithoutOwner expands owners and keeps only zero-owner apps' {
+        InModuleScope Graphite {
+            $script:p=$null
+            Mock Get-IaCollection { $script:p=$Path; @(
+                [pscustomobject]@{ displayName='Owned'; appId='a1'; owners=@(@{id='o1'}) }
+                [pscustomobject]@{ displayName='Orphan'; appId='a2'; owners=@() }
+            ) }
+            $rows = @(Get-EntraAppWithoutOwner)
+            $script:p | Should -Match 'expand=owners'
+            $rows.Count | Should -Be 1
+            $rows[0].Name | Should -Be 'Orphan'
+        }
+    }
+}
