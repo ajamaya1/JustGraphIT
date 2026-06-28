@@ -280,6 +280,8 @@ skipped — the rest of the sweep continues.
 | ------ | ------- |
 | `Get-IntuneTenantSummary` | Dashboard KPIs: device health + assignment posture |
 | `Get-IntuneDeviceInventory` / `Get-IntuneDeviceDetail` | Inventory & per-device detail |
+| `Get-IntuneStaleDevice` | Devices not synced in N+ days (feeds "build a group from a query") |
+| `Set-IntuneDevicePrimaryUser` · `Set-IntuneDeviceCategory` / `Get-IntuneDeviceCategory` | Re-point primary user · assign device category |
 | `Get-IntuneDeploymentSummary` | Success/fail rollup by resource |
 | `Get-IntuneAppInstallStatus` | App install status by device / user |
 | `Get-IntuneComplianceStatus` / `Get-IntuneConfigurationStatus` | Per-policy status |
@@ -372,6 +374,31 @@ skipped — the rest of the sweep continues.
 | `Get-EntraMailboxUsage` · `Get-EntraOneDriveUsage` · `Get-EntraSharePointUsage` · `Get-EntraTeamsUsage` · `Get-EntraM365AppUsage` | Usage & quota reports (mailbox · OneDrive · SharePoint · Teams · M365 Apps) |
 
 All read cmdlets take `-Raw` for the full property set; all writes are `SupportsShouldProcess`-gated. Every endpoint uses Graph **beta**.
+
+</details>
+
+<details>
+<summary><b>Identity · Entra — write / provision actions (do-it-from-the-CLI)</b></summary>
+
+Anything you'd normally open the portal for, from the command line:
+
+| Cmdlet | Purpose |
+| ------ | ------- |
+| `Add-/Remove-EntraAppPermission` · `Get-EntraAppRequestedPermission` | Edit an app registration's requested API permissions (by friendly name) |
+| `Grant-EntraAdminConsent` | The portal's "Grant admin consent" — app-role assignments + delegated grants |
+| `New-EntraServicePrincipal` | Materialise the enterprise app for an app registration |
+| `New-/Set-/Remove-EntraAppRegistration` · `New-EntraAppSecret` | Create / update / delete app registrations; add a client secret |
+| `Add-/Remove-EntraAppRedirectUri` · `Get-/Add-/Remove-EntraAppOwner` | Redirect URIs (Web/Spa/PublicClient) and owners |
+| `New-EntraGuestInvitation` | Invite an external / B2B guest user (returns the redeem URL) |
+| `New-EntraTeam` · `Get-/New-/Remove-EntraTeamChannel` · `Get-/Add-/Remove-EntraTeamMember` | Create a Microsoft 365 Team; manage its channels & members |
+| `New-/Remove-EntraRoleAssignment` | Permanent directory-role assignment |
+| `New-/Remove-EntraPimEligibility` · `Enable-EntraPimRole` | PIM: grant eligibility (admin) · activate your own eligible role |
+| `New-/Set-/Remove-EntraConditionalAccessPolicy` · `Get-/New-/Remove-EntraNamedLocation` | Author Conditional Access policies and named locations |
+| `Set-EntraGroupLicense` | Group-based licensing (members inherit the SKU) |
+| `Add-EntraGroupMemberBulk` | Push a whole filtered population into a group at once |
+| `Get-/Remove-EntraUserManager` | Read / clear a user's manager (`Set-EntraUser -ManagerUser` sets it) |
+
+**Query → group:** the main-menu *"Build a group from a query"* flow filters a population — devices not synced in *N* days (`Get-IntuneStaleDevice`), users by display-name prefix, or inactive users — then bulk-adds the set to a new or existing group. Same for any `Get-EntraUser -Filter "startswith(displayName,'EX')"` result.
 
 </details>
 
