@@ -3482,6 +3482,77 @@ Describe 'Security hardening (review fixes)' {
     }
 }
 
+Describe 'Entra Custom Roles blade (beta)' {
+    It 'Get-EntraRoleDefinition projects built-in vs custom and action count' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection { @(
+                    [pscustomobject]@{ id = 'r1'; displayName = 'Global Administrator'; isBuiltIn = $true; isEnabled = $true; isPrivileged = $true; rolePermissions = @([pscustomobject]@{ allowedResourceActions = @('a', 'b') }) }
+                    [pscustomobject]@{ id = 'r2'; displayName = 'App Support'; isBuiltIn = $false; isEnabled = $true; isPrivileged = $false; rolePermissions = @([pscustomobject]@{ allowedResourceActions = @('x') }) }
+                ) }
+            $rows = @(Get-EntraRoleDefinition)
+            ($rows | Where-Object DisplayName -eq 'App Support').Type           | Should -Be 'Custom'
+            ($rows | Where-Object DisplayName -eq 'Global Administrator').Type   | Should -Be 'Built-in'
+            ($rows | Where-Object DisplayName -eq 'Global Administrator').Actions | Should -Be 2
+        }
+    }
+
+    It 'Get-EntraRoleDefinition -CustomOnly filters isBuiltIn eq false' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection { $script:p = $Path; @() }
+            Get-EntraRoleDefinition -CustomOnly | Out-Null
+            $script:p | Should -Match 'isBuiltIn%20eq%20false'
+        }
+    }
+
+    It 'Get-EntraRoleAction lists resource actions and -Like filters them' {
+        InModuleScope JustGraphIT {
+            Mock Get-IaCollection { @(
+                    [pscustomobject]@{ id = '1'; name = 'microsoft.directory/applications/basic/read'; actionVerb = 'GET'; isPrivileged = $false; description = 'Read basic app props' }
+                    [pscustomobject]@{ id = '2'; name = 'microsoft.directory/users/delete'; actionVerb = 'DELETE'; isPrivileged = $true; description = 'Delete users' }
+                ) }
+            @(Get-EntraRoleAction).Count | Should -Be 2
+            $f = @(Get-EntraRoleAction -Like 'applications')
+            $f.Count    | Should -Be 1
+            $f[0].Action | Should -Be 'microsoft.directory/applications/basic/read'
+        }
+    }
+
+    It 'New-EntraRoleDefinition POSTs displayName + rolePermissions + tenant resourceScope' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; $script:b = $Body; [pscustomobject]@{ id = 'rc-1'; displayName = 'App Support' } }
+            New-EntraRoleDefinition -Name 'App Support' -AllowedResourceAction 'microsoft.directory/applications/basic/read' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'POST'
+            $script:u | Should -Match 'roleManagement/directory/roleDefinitions$'
+            $script:b.displayName | Should -Be 'App Support'
+            @($script:b.rolePermissions)[0].allowedResourceActions | Should -Contain 'microsoft.directory/applications/basic/read'
+            @($script:b.resourceScopes) | Should -Be @('/')
+        }
+    }
+
+    It 'Set-EntraRoleDefinition PATCHes the role definition by id' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null; $script:b = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri; $script:b = $Body }
+            Set-EntraRoleDefinition -Role '11111111-1111-1111-1111-111111111111' -DisplayName 'New Name' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'PATCH'
+            $script:u | Should -Match 'roleDefinitions/11111111-1111-1111-1111-111111111111$'
+            $script:b.displayName | Should -Be 'New Name'
+        }
+    }
+
+    It 'Remove-EntraRoleDefinition DELETEs the custom role' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraRoleDefinition -Role '22222222-2222-2222-2222-222222222222' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'roleDefinitions/22222222-2222-2222-2222-222222222222$'
+        }
+    }
+}
+
 Describe 'Entra Tenant Settings blade (beta)' {
     It 'Get-EntraAuthorizationPolicy projects the default user-role permissions' {
         InModuleScope JustGraphIT {
