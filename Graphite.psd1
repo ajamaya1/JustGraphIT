@@ -149,6 +149,18 @@
         'Remove-IntuneFeatureUpdate',
         'Remove-IntuneDriverUpdate',
         'Set-IntuneUpdateRing',
+        # ====================== Entra (Azure AD) ======================
+        # --- users (Phase 2: actionable) ---
+        'Get-EntraUser',
+        'Set-EntraUser',
+        'Reset-EntraUserPassword',
+        'Revoke-EntraUserSession',
+        'Add-EntraUserToGroup',
+        'Remove-EntraUserFromGroup',
+        'Set-EntraUserLicense',
+        'Get-EntraUserAuthMethod',
+        'Reset-EntraUserMfa',
+        'New-EntraUserTempAccessPass',
         'Start-Graphite'
     )
     CmdletsToExport   = @()
