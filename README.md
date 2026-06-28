@@ -397,23 +397,41 @@ Anything you'd normally open the portal for, from the command line:
 | `Set-EntraGroupLicense` | Group-based licensing (members inherit the SKU) |
 | `Add-EntraGroupMemberBulk` | Push a whole filtered population into a group at once |
 | `Get-/Remove-EntraUserManager` | Read / clear a user's manager (`Set-EntraUser -ManagerUser` sets it) |
+| `Get-/Set-/Remove-EntraDevice` · `Get-EntraDeviceRegisteredOwner` | Enable / disable / delete registered (Entra) devices; read owners |
+| `Get-EntraBitLockerKey` · `Get-EntraLapsCredential` | Reveal BitLocker recovery keys and Windows LAPS local-admin passwords (audited) |
+| `Get-/Set-EntraAuthorizationPolicy` · `Get-/Set-EntraSecurityDefault` | Tenant settings — default-user-role permissions, SSPR, guest policy, Security Defaults |
+| `Get-/New-/Set-/Remove-EntraRoleDefinition` · `Get-EntraRoleAction` | Custom directory roles, composed from the live action catalogue |
+| `Get-/Restore-/Remove-EntraDeletedItem` | Directory recycle bin — restore or purge soft-deleted users / groups / apps |
+| `Get-/Set-EntraUserMfaState` · `Add-EntraUserPhoneMethod` | Per-user MFA state (disabled/enabled/enforced) and admin-registered phone methods |
 
 **Query → group:** the main-menu *"Build a group from a query"* flow filters a population — devices not synced in *N* days (`Get-IntuneStaleDevice`), users by display-name prefix, or inactive users — then bulk-adds the set to a new or existing group. Same for any `Get-EntraUser -Filter "startswith(displayName,'EX')"` result.
 
 **All of the above is reachable from the menus**, not just the CLI. Under **Identity · Entra**:
 
+- *Dashboard* → a live identity overview: user / guest / group / app / device counts, a Microsoft Secure Score gauge, and Users / Groups / Conditional Access breakdowns.
 - *Applications* → pick an app registration → add/remove API permissions, grant admin consent, client secrets, redirect URIs, owners, rename/delete, create its enterprise app.
 - *Enterprise apps* → pick a service principal → see exactly what it can do, then **revoke a delegated grant** or an **application permission**.
 - *Groups* → group card → members, **owners (add/remove)**, group-based licensing, update, delete; plus **Create a Team** and **Manage a Team** (channels · members).
+- *Devices* → enable / disable / delete registered devices, registered owners, and **reveal BitLocker recovery keys & the Windows LAPS local-admin password** (both audited).
 - *Conditional Access* → **create** a policy (report-only by default), change state, **rename**, delete; **named locations** (IP/country) create & delete.
-- *Directory roles* → assign/remove; *PIM* → activate your own eligible role, make a user eligible, **remove eligibility**.
-- *Lifecycle* → invite a guest; inactive-user & guest reports.
+- *Directory roles* → assign/remove; **Custom roles** → create / edit / delete role definitions from the live action catalogue; *PIM* → activate your own eligible role, make a user eligible, **remove eligibility**.
+- *Tenant settings* → toggle whether users can register apps / create groups / create tenants / read other users, SSPR, the guest-invite policy, and the **Security Defaults** switch.
+- *Deleted items* → restore or permanently purge soft-deleted users / groups / apps (the directory recycle bin).
+- *Lifecycle* → invite a guest; inactive-user & guest reports. *Help-desk user card* → reset password / MFA / TAP, **set per-user MFA state**, add a phone method.
 
 <p align="center">
+  <img src="docs/img/identity-dashboard.png" width="860" alt="Live Identity dashboard: counts, Secure Score gauge, Users/Groups/Conditional Access breakdowns">
+</p>
+<p align="center">
+  <img src="docs/img/entra-devices.png" width="860" alt="Entra Devices blade — enable / disable / delete registered devices, with BitLocker/LAPS reveal">
+</p>
+<p align="center">
   <img src="docs/img/entra-enterprise-app-revoke.png" width="820" alt="Enterprise app management: see what an app can do, then revoke a delegated consent grant — from the CLI">
+  <img src="docs/img/entra-custom-roles.png" width="820" alt="Custom directory roles: create / edit / delete role definitions">
 </p>
 <p align="center">
   <img src="docs/img/conditional-access-policies.png" width="820" alt="Conditional Access policies you can create (report-only by default), change state, rename and delete">
+  <img src="docs/img/entra-tenant-settings.png" width="820" alt="Tenant settings: toggle user-default permissions and Security Defaults">
 </p>
 
 On the Intune side the menus cover browse / assign / **delete** for apps, configuration, compliance, scripts, remediations, update rings (now **create / edit / delete**), feature & driver update profiles, **assignment filters** (create/delete), and legacy device-config + ADMX profiles. Authoring policies whose definition is a full settings-catalog / compliance-rule / script body (`New-IntuneConfigurationPolicy`, `New-IntuneCompliancePolicy`, `New-IntuneScript`, `New-IntuneRemediation`, `New-IntuneAdminTemplate`, and the matching `Set-*` patches) stays a **CLI-first** operation by design — those take structured bodies a menu can't sensibly capture — but everything they create is fully browsable, assignable and deletable from the TUI.
@@ -426,7 +444,7 @@ On the Intune side the menus cover browse / assign / **delete** for apps, config
 JustGraphIT/
 ├── JustGraphIT.psd1          # module manifest (PowerShell 7.2+, exports)
 ├── JustGraphIT.psm1          # loader — dot-sources Private + Public, exports public surface
-├── Public/                  # 100 cmdlets, one per file (the public API)
+├── Public/                  # 220+ cmdlets (the public API)
 │   ├── Connect-JustGraphIT.ps1
 │   ├── Get-IntuneAssignment.ps1
 │   ├── Copy-IntuneAssignment.ps1
@@ -493,7 +511,7 @@ dependency is ever introduced.
 Invoke-Pester ./JustGraphIT/JustGraphIT.Tests.ps1
 ```
 
-281 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps and TUI write-menu smoke tests.
+317 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps and TUI write-menu smoke tests.
 
 ## Roadmap
 
