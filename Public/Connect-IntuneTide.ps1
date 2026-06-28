@@ -30,6 +30,7 @@ function Connect-IntuneTide {
             'DeviceManagementApps.ReadWrite.All',
             'DeviceManagementServiceConfig.ReadWrite.All',
             'DeviceManagementManagedDevices.Read.All',
+            'CloudPC.ReadWrite.All',
             'Group.Read.All',
             'Directory.Read.All',
             'RoleManagementPolicy.Read.Directory',

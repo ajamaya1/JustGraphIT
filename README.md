@@ -285,6 +285,7 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneComplianceStatus` / `Get-IntuneConfigurationStatus` | Per-policy status |
 | `Get-IntuneAssignmentAudit` / `Get-IntuneAuditLog` | Tenant audit / change log |
 | `Get-IntuneApprovalRequest` | Multi-admin approval requests |
+| `Get-IntunePatchReport` | Windows patch status (quality + feature updates) from Intune report exports |
 | `Get-IntuneReportCatalog` / `Export-IntuneReport` | Native Intune report exports |
 | `Export-IntuneAssignmentReport` / `Export-IntuneHtmlReport` / `Export-IntuneExcel` | HTML / CSV / JSON / Excel |
 | `Send-IntuneReportToTeams` | Push any report to a Teams channel as an Adaptive Card (Workflows webhook) |

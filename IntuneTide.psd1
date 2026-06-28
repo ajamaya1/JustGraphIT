@@ -41,6 +41,7 @@
         'Get-IntuneDeploymentSummary',
         'Get-IntuneAuditLog',
         'Get-IntuneApprovalRequest',
+        'Get-IntunePatchReport',
         # --- device reporting ---
         'Get-IntuneDeviceInventory',
         'Get-IntuneTenantSummary',
