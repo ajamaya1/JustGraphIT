@@ -163,6 +163,17 @@
         'New-EntraUserTempAccessPass',
         # --- licensing ---
         'Get-EntraLicense',
+        # --- groups (Phase 3: lifecycle) ---
+        'Get-EntraGroup',
+        'Get-EntraGroupMember',
+        'Get-EntraGroupOwner',
+        'New-EntraGroup',
+        'Set-EntraGroup',
+        'Add-EntraGroupMember',
+        'Remove-EntraGroupMember',
+        'Add-EntraGroupOwner',
+        'Remove-EntraGroupOwner',
+        'Remove-EntraGroup',
         'Start-Graphite'
     )
     CmdletsToExport   = @()

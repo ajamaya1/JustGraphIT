@@ -2315,3 +2315,61 @@ Describe 'Entra user cmdlets — beta endpoints, methods and bodies' {
         }
     }
 }
+
+Describe 'Entra group cmdlets — beta endpoints and create bodies' {
+
+    It 'New-EntraGroup (Security) POSTs securityEnabled with no groupTypes (beta)' {
+        InModuleScope Graphite {
+            $script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body; @{ id='g1'; displayName='Sec'; securityEnabled=$true; mailEnabled=$false; groupTypes=@() } }
+            New-EntraGroup -Name 'Sec' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups$'
+            $script:b.securityEnabled | Should -Be $true
+            $script:b.mailEnabled     | Should -Be $false
+            @($script:b.groupTypes).Count | Should -Be 0
+        }
+    }
+
+    It 'New-EntraGroup (Microsoft365) sets Unified + mailEnabled' {
+        InModuleScope Graphite {
+            $script:b=$null
+            Mock Invoke-IaRequest { $script:b=$Body; @{ id='g2'; groupTypes=@('Unified') } }
+            New-EntraGroup -Name 'Team' -Type Microsoft365 -Confirm:$false | Out-Null
+            $script:b.groupTypes | Should -Contain 'Unified'
+            $script:b.mailEnabled | Should -Be $true
+        }
+    }
+
+    It 'New-EntraGroup -MembershipRule makes it dynamic' {
+        InModuleScope Graphite {
+            $script:b=$null
+            Mock Invoke-IaRequest { $script:b=$Body; @{ id='g3' } }
+            New-EntraGroup -Name 'Dyn' -MembershipRule 'user.department -eq "Sales"' -Confirm:$false | Out-Null
+            $script:b.groupTypes | Should -Contain 'DynamicMembership'
+            $script:b.membershipRuleProcessingState | Should -Be 'On'
+            $script:b.membershipRule | Should -Match 'Sales'
+        }
+    }
+
+    It 'Add-EntraGroupOwner POSTs a beta directoryObjects ref to owners/$ref' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraGroupId { 'gid-1' }; Mock Resolve-EntraUserId { 'uid-1' }
+            $script:u=$null;$script:b=$null
+            Mock Invoke-IaRequest { $script:u=$Uri;$script:b=$Body }
+            Add-EntraGroupOwner -Group 'Sales' -Owner 'a@x.com' -Confirm:$false | Out-Null
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups/gid-1/owners/\$ref$'
+            $script:b.'@odata.id' | Should -Match 'graph\.microsoft\.com/beta/directoryObjects/uid-1$'
+        }
+    }
+
+    It 'Remove-EntraGroup DELETEs /beta/groups/{id}' {
+        InModuleScope Graphite {
+            Mock Resolve-EntraGroupId { 'gid-1' }
+            $script:m=$null;$script:u=$null
+            Mock Invoke-IaRequest { $script:m=$Method;$script:u=$Uri }
+            Remove-EntraGroup -Group 'Sales' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/groups/gid-1$'
+        }
+    }
+}
