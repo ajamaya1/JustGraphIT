@@ -292,3 +292,80 @@ function New-EntraUser {
         [pscustomobject]@{ User = $u.userPrincipalName; DisplayName = $u.displayName; Id = $u.id; TempPassword = $Password }
     }
 }
+
+function Get-EntraInactiveUser {
+    <#
+    .SYNOPSIS
+        Users who haven't signed in for N days (the "stale accounts" report).
+        Beta GET /beta/users?$select=…,signInActivity.
+    .DESCRIPTION
+        Reads each member account's last interactive sign-in (signInActivity, needs
+        AuditLog.Read.All) and keeps those idle for at least -Days (default 90), plus
+        accounts that have never signed in. Sorted by most-stale first. -IncludeDisabled
+        also lists disabled accounts; by default only enabled ones are shown (the ones
+        worth cleaning up). -Raw returns the untouched user objects.
+    .PARAMETER Days
+        Inactivity threshold in days (default 90).
+    .OUTPUTS
+        PSCustomObject: User, DisplayName, LastSignIn, DaysInactive, Enabled,
+        Department, Created, Id.
+    #>
+    [CmdletBinding()]
+    param([int]$Days = 90, [switch]$IncludeDisabled, [int]$Top = 1000, [switch]$Raw)
+    $select = 'id,displayName,userPrincipalName,accountEnabled,userType,department,createdDateTime,signInActivity'
+    $users  = @(Get-IaCollection (Resolve-IaUri -Path "users?`$select=$select&`$top=$Top"))
+    if ($Raw) { return $users }
+    $now = (Get-Date).ToUniversalTime()
+    @($users | ForEach-Object {
+        if (-not $IncludeDisabled -and -not $_.accountEnabled) { return }
+        $last = $_.signInActivity.lastSignInDateTime
+        # NB: $idle, not $days — $days would alias the $Days parameter (case-insensitive).
+        $idle = if ($last) { [int][math]::Floor(($now - ([datetime]$last).ToUniversalTime()).TotalDays) } else { [int]::MaxValue }
+        if ($idle -lt $Days) { return }
+        [pscustomobject][ordered]@{
+            User         = $_.userPrincipalName
+            DisplayName  = $_.displayName
+            LastSignIn   = if ($last) { ([datetime]$last).ToString('yyyy-MM-dd') } else { 'never' }
+            DaysInactive = if ($idle -eq [int]::MaxValue) { 'never' } else { $idle }
+            Enabled      = [bool]$_.accountEnabled
+            Department   = $_.department
+            Created      = $_.createdDateTime
+            Id           = $_.id
+        }
+    } | Sort-Object @{ Expression = { if ($_.DaysInactive -eq 'never') { [int]::MaxValue } else { [int]$_.DaysInactive } } } -Descending)
+}
+
+function Get-EntraGuestUser {
+    <#
+    .SYNOPSIS
+        Guest (B2B) accounts with invitation state and last sign-in. Beta GET
+        /beta/users filtered to userType eq 'Guest'.
+    .DESCRIPTION
+        Surfaces external collaborators — when they were invited, whether they've
+        accepted, their last sign-in and sponsoring domain — for access reviews.
+        -StalePendingDays flags guests still in PendingAcceptance past that many days.
+        -Raw returns the untouched user objects.
+    #>
+    [CmdletBinding()]
+    param([int]$Top = 1000, [switch]$Raw)
+    $select = 'id,displayName,userPrincipalName,mail,accountEnabled,createdDateTime,' +
+              'externalUserState,externalUserStateChangeDateTime,creationType,signInActivity'
+    $f     = "userType eq 'Guest'"
+    $users = @(Get-IaCollection (Resolve-IaUri -Path "users?`$filter=$([uri]::EscapeDataString($f))&`$select=$select&`$top=$Top"))
+    if ($Raw) { return $users }
+    @($users | ForEach-Object {
+        $last = $_.signInActivity.lastSignInDateTime
+        # B2B guest UPNs look like ext#EXT#@tenant — pull the original domain for context.
+        $dom  = if ($_.mail -match '@(.+)$') { $Matches[1] } elseif ($_.userPrincipalName -match '#EXT#@') { ($_.userPrincipalName -replace '_.*$', '') } else { '' }
+        [pscustomobject][ordered]@{
+            DisplayName  = $_.displayName
+            Mail         = $_.mail
+            State        = $_.externalUserState
+            Enabled      = [bool]$_.accountEnabled
+            LastSignIn   = if ($last) { ([datetime]$last).ToString('yyyy-MM-dd') } else { 'never' }
+            Invited      = $_.createdDateTime
+            UPN          = $_.userPrincipalName
+            Id           = $_.id
+        }
+    } | Sort-Object State, DisplayName)
+}

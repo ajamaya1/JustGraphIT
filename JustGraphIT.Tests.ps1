@@ -2770,6 +2770,52 @@ Describe 'Entra app permissions & consent (beta)' {
     }
 }
 
+Describe 'Entra lifecycle hygiene (beta)' {
+    It 'Get-EntraInactiveUser keeps stale + never-signed-in enabled accounts, drops recent ones' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            # $script: scope so the Pester mock body (module scope) can read them
+            $script:recent = (Get-Date).AddDays(-10).ToString('o')
+            $script:stale  = (Get-Date).AddDays(-200).ToString('o')
+            Mock Get-IaCollection {
+                $script:p = $Path
+                @(
+                    [pscustomobject]@{ userPrincipalName = 'stale@x.com';  displayName = 'Stale';  accountEnabled = $true;  department = 'IT'; createdDateTime = '2019-01-01T00:00:00Z'; signInActivity = [pscustomobject]@{ lastSignInDateTime = $script:stale } }
+                    [pscustomobject]@{ userPrincipalName = 'recent@x.com'; displayName = 'Recent'; accountEnabled = $true;  department = 'HR'; createdDateTime = '2024-01-01T00:00:00Z'; signInActivity = [pscustomobject]@{ lastSignInDateTime = $script:recent } }
+                    [pscustomobject]@{ userPrincipalName = 'never@x.com';  displayName = 'Never';  accountEnabled = $true;  department = 'Ops';createdDateTime = '2024-06-01T00:00:00Z'; signInActivity = $null }
+                    [pscustomobject]@{ userPrincipalName = 'off@x.com';    displayName = 'Off';    accountEnabled = $false; department = 'IT'; createdDateTime = '2018-01-01T00:00:00Z'; signInActivity = [pscustomobject]@{ lastSignInDateTime = $script:stale } }
+                )
+            }
+            $rows = @(Get-EntraInactiveUser -Days 90)
+            $script:p | Should -Match 'graph\.microsoft\.com/beta/users'
+            $script:p | Should -Match 'signInActivity'
+            $names = $rows.User
+            $names | Should -Contain 'stale@x.com'
+            $names | Should -Contain 'never@x.com'   # never-signed-in counts as inactive
+            $names | Should -Not -Contain 'recent@x.com'
+            $names | Should -Not -Contain 'off@x.com' # disabled excluded by default
+            ($rows | Where-Object User -eq 'never@x.com').DaysInactive | Should -Be 'never'
+            # -IncludeDisabled brings the disabled stale account back
+            @(Get-EntraInactiveUser -Days 90 -IncludeDisabled).User | Should -Contain 'off@x.com'
+        }
+    }
+
+    It 'Get-EntraGuestUser filters userType eq Guest on beta /users' {
+        InModuleScope JustGraphIT {
+            $script:p = $null
+            Mock Get-IaCollection {
+                $script:p = $Path
+                @([pscustomobject]@{ displayName = 'Ext Partner'; mail = 'p@partner.com'; userPrincipalName = 'p_partner.com#EXT#@x.onmicrosoft.com'; accountEnabled = $true; externalUserState = 'Accepted'; createdDateTime = '2025-01-01T00:00:00Z'; signInActivity = $null })
+            }
+            $rows = @(Get-EntraGuestUser)
+            $script:p | Should -Match 'graph\.microsoft\.com/beta/users'
+            $script:p | Should -Match "userType%20eq%20%27Guest%27"
+            $rows[0].State | Should -Be 'Accepted'
+            $rows[0].LastSignIn | Should -Be 'never'
+        }
+    }
+}
+
 Describe 'Entra usage reports (CSV → objects)' {
     It 'Get-EntraMailboxUsage computes UsedGB / QuotaGB / PercentUsed from the report CSV' {
         InModuleScope JustGraphIT {

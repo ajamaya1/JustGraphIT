@@ -1808,7 +1808,7 @@ function Invoke-IaTuiEntra {
     # Identity (Entra) hub — first-page category that fans out to every Entra surface.
     param([string]$Accent)
     while ($true) {
-        $pick = Read-IaMenu -Title 'Identity · Entra' -Color $Accent -PageSize 14 -Choices @(
+        $pick = Read-IaMenu -Title 'Identity · Entra' -Color $Accent -PageSize 15 -Choices @(
             'Users — lookup & manage',
             'Groups — list / create / manage',
             'Licenses — tenant SKUs',
@@ -1818,6 +1818,7 @@ function Invoke-IaTuiEntra {
             'Applications — registrations (secret/cert expiry)',
             'Enterprise apps (service principals)',
             'Managed identities',
+            'Lifecycle — inactive users · guests',
             'Directory roles & assignments',
             'PIM — eligible & active',
             'Security / XDR — score · alerts · incidents',
@@ -1836,6 +1837,14 @@ function Invoke-IaTuiEntra {
                 'Applications*'       { Invoke-IaTuiEntraApps -Accent $Accent }
                 'Enterprise apps*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Enterprise apps' -Stem 'entra-entapps' -Loader { Get-EntraEnterpriseApp } }
                 'Managed identities*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Managed identities' -Stem 'entra-mi' -Loader { Get-EntraManagedIdentity } }
+                'Lifecycle*' {
+                    $m = Read-IaMenu -Title 'Lifecycle & hygiene' -Color $Accent -Choices @('Inactive users (90+ days)', 'Inactive users (30+ days)', 'Guest accounts', 'Back')
+                    switch -Wildcard ($m) {
+                        'Inactive users (90*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Inactive users (90+ days)' -Stem 'entra-inactive90' -Loader { Get-EntraInactiveUser -Days 90 } }
+                        'Inactive users (30*' { Invoke-IaTuiReportView -Accent $Accent -Title 'Inactive users (30+ days)' -Stem 'entra-inactive30' -Loader { Get-EntraInactiveUser -Days 30 } }
+                        'Guest accounts*'      { Invoke-IaTuiReportView -Accent $Accent -Title 'Guest accounts' -Stem 'entra-guests' -Loader { Get-EntraGuestUser } }
+                    }
+                }
                 'Directory roles*'    { Invoke-IaTuiReportView -Accent $Accent -Title 'Role assignments' -Stem 'entra-roles' -Loader { Get-EntraRoleAssignment } }
                 'PIM*' {
                     $m = Read-IaMenu -Title 'PIM' -Color $Accent -Choices @('Eligible', 'Active', 'Back')
