@@ -1230,7 +1230,11 @@ function Read-IaTableInteractive {
         [string]$Color     = 'grey',
         [string]$Title     = '',
         [string]$Stem      = 'JUSTGRAPHIT-export',
-        [switch]$Selectable
+        [switch]$Selectable,
+        # Columns to drop from the RENDER and EXPORT while leaving them on the row
+        # object selection returns — e.g. hide a real grant id (show a masked one) but
+        # still hand the true id to the revoke action. Sensitive values never leave here.
+        [string[]]$HideColumns = @()
     )
 
     $rows = @($Data | Where-Object { $null -ne $_ })
@@ -1240,16 +1244,26 @@ function Read-IaTableInteractive {
         return $null
     }
 
+    # ── Pre-compute the visible column set ──────────────────────────────────
+    $isDictionary = $rows[0] -is [System.Collections.IDictionary]
+    $cols = if ($isDictionary) { @($rows[0].Keys) } else { @($rows[0].PSObject.Properties.Name) }
+    if ($HideColumns) { $cols = @($cols | Where-Object { $_ -notin $HideColumns }) }
+    # Display projection (visible columns only) used for export / Teams push / the
+    # non-interactive fallback, so hidden columns never leave this function.
+    $exportRows = @($rows | ForEach-Object {
+        $r = $_; $isDict = $r -is [System.Collections.IDictionary]; $o = [ordered]@{}
+        foreach ($c in $cols) { $o[$c] = if ($isDict) { $r[$c] } else { $r.PSObject.Properties[$c].Value } }
+        [pscustomobject]$o
+    })
+
     # Non-interactive fallback (Pester / redirected I/O)
     if (-not (Test-IaArrowSupport)) {
-        Show-IaTableObjects -Rows $rows -Color $Color -Title $Title
+        Show-IaTableObjects -Rows $exportRows -Color $Color -Title $Title
         Read-IaPause
         return $null
     }
 
-    # ── Pre-compute columns and cell matrix (done once; not per-frame) ──────
-    $isDictionary = $rows[0] -is [System.Collections.IDictionary]
-    $cols = if ($isDictionary) { @($rows[0].Keys) } else { @($rows[0].PSObject.Properties.Name) }
+    # ── cell matrix (done once; not per-frame) ──────────────────────────────
 
     $allCells = [System.Collections.Generic.List[object[]]]::new()
     foreach ($r in $rows) {
@@ -1552,8 +1566,8 @@ function Read-IaTableInteractive {
                     default     {
                         switch ($ev.KeyChar) {
                             '/'  { $st.searching = $true; & $renderFrame }
-                            'e'  { Invoke-IaExport -Data $rows -Stem $Stem -Color $Color; & $renderFrame }
-                            'p'  { Invoke-IaPushToTeams -Data $rows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame }
+                            'e'  { Invoke-IaExport -Data $exportRows -Stem $Stem -Color $Color; & $renderFrame }
+                            'p'  { Invoke-IaPushToTeams -Data $exportRows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame }
                             '?'  { & $showHelp }
                             'q'  { return $null }
                             'j'  { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ }; & $renderFrame }

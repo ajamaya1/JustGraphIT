@@ -2101,13 +2101,15 @@ function Invoke-IaTuiEntraConsentAudit {
         $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Auditing Graph app consents…' -ScriptBlock { Get-EntraRiskyAppPermission })
         if (-not $rows) { Write-IaHost "[$Accent]✓ No high-risk or unresolved Graph application permissions found.[/]"; Read-IaPause | Out-Null; return }
         # pass the markup string (not pre-rendered ANSI) so `e` export stays clean
-        $disp = @($rows | ForEach-Object { $rc = if ($_.Risk -eq 'Unknown') { 'yellow' } else { 'coral' }; [pscustomobject][ordered]@{ App = $_.App; Permission = $_.Permission; Risk = "[$rc]$($_.Risk)[/]"; PrincipalType = $_.PrincipalType; AppId = $_.AppPrincipalId; GrantId = $_.GrantId } })
-        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Risky Graph consents ($($disp.Count)) · Enter = revoke" -Stem 'entra-consent'
+        # grant id is masked in the table (and exports); the real id rides along in the
+        # hidden _GrantId column so the revoke still targets the right assignment.
+        $disp = @($rows | ForEach-Object { $rc = if ($_.Risk -eq 'Unknown') { 'yellow' } else { 'coral' }; [pscustomobject][ordered]@{ App = $_.App; Permission = $_.Permission; Risk = "[$rc]$($_.Risk)[/]"; PrincipalType = $_.PrincipalType; AppId = $_.AppPrincipalId; GrantId = '•••'; _GrantId = $_.GrantId } })
+        $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -HideColumns '_GrantId' -Title "Risky Graph consents ($($disp.Count)) · Enter = revoke" -Stem 'entra-consent'
         if (-not $picked) { return }
         $act = Read-IaMenu -Title "$($picked.App) — $($picked.Permission)" -Color $Accent -Choices @('Revoke this permission', 'Cancel')
         if ($act -eq 'Revoke this permission' -and (Read-IaConfirm "[red]Revoke '$($picked.Permission)' from $($picked.App)?[/]")) {
             try {
-                Remove-EntraAppRoleAssignment -ServicePrincipal $picked.AppId -AssignmentId $picked.GrantId -Confirm:$false | Out-Null
+                Remove-EntraAppRoleAssignment -ServicePrincipal $picked.AppId -AssignmentId $picked._GrantId -Confirm:$false | Out-Null
                 Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
             } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
         }
@@ -2139,10 +2141,10 @@ function Invoke-IaTuiEntraEnterpriseApp {
                         $raw = Invoke-IaStatus -Spinner Dots -Title 'Loading delegated grants…' -ScriptBlock { Get-EntraAppPermission -App $spId -Raw }
                         $grants = @($raw.Delegated)
                         if (-not $grants) { Write-IaHost '[yellow]No delegated grants.[/]'; Read-IaPause | Out-Null; continue }
-                        $gd = @($grants | ForEach-Object { [pscustomobject][ordered]@{ Consent = $(if ($_.consentType -eq 'AllPrincipals') { 'Admin (all users)' } else { 'User' }); Scopes = ("$($_.scope)").Trim(); GrantId = $_.id } })
-                        $gp = Read-IaTableInteractive -Data $gd -Color $Accent -Selectable -Title "Delegated grants ($($gd.Count)) · Enter = revoke" -Stem 'entapp-grant-rm'
+                        $gd = @($grants | ForEach-Object { [pscustomobject][ordered]@{ Consent = $(if ($_.consentType -eq 'AllPrincipals') { 'Admin (all users)' } else { 'User' }); Scopes = ("$($_.scope)").Trim(); GrantId = '•••'; _GrantId = $_.id } })
+                        $gp = Read-IaTableInteractive -Data $gd -Color $Accent -Selectable -HideColumns '_GrantId' -Title "Delegated grants ($($gd.Count)) · Enter = revoke" -Stem 'entapp-grant-rm'
                         if ($gp -and (Read-IaConfirm "[red]Revoke this delegated grant ($($gp.Scopes)) from ${spName}?[/]")) {
-                            Remove-EntraOAuth2Grant -GrantId $gp.GrantId -Confirm:$false | Out-Null
+                            Remove-EntraOAuth2Grant -GrantId $gp._GrantId -Confirm:$false | Out-Null
                             Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
                         }
                     }
@@ -2150,10 +2152,10 @@ function Invoke-IaTuiEntraEnterpriseApp {
                         $raw = Invoke-IaStatus -Spinner Dots -Title 'Loading application permissions…' -ScriptBlock { Get-EntraAppPermission -App $spId -Raw }
                         $assigns = @($raw.Application)
                         if (-not $assigns) { Write-IaHost '[yellow]No application permissions.[/]'; Read-IaPause | Out-Null; continue }
-                        $ad = @($assigns | ForEach-Object { [pscustomobject][ordered]@{ Resource = $_.resourceDisplayName; AppRoleId = $_.appRoleId; AssignmentId = $_.id } })
-                        $ap = Read-IaTableInteractive -Data $ad -Color $Accent -Selectable -Title "Application permissions ($($ad.Count)) · Enter = revoke" -Stem 'entapp-approle-rm'
+                        $ad = @($assigns | ForEach-Object { [pscustomobject][ordered]@{ Resource = $_.resourceDisplayName; AppRoleId = $_.appRoleId; AssignmentId = '•••'; _AssignmentId = $_.id } })
+                        $ap = Read-IaTableInteractive -Data $ad -Color $Accent -Selectable -HideColumns '_AssignmentId' -Title "Application permissions ($($ad.Count)) · Enter = revoke" -Stem 'entapp-approle-rm'
                         if ($ap -and (Read-IaConfirm "[red]Revoke this application permission ($($ap.Resource)) from ${spName}?[/]")) {
-                            Remove-EntraAppRoleAssignment -ServicePrincipal $spId -AssignmentId $ap.AssignmentId -Confirm:$false | Out-Null
+                            Remove-EntraAppRoleAssignment -ServicePrincipal $spId -AssignmentId $ap._AssignmentId -Confirm:$false | Out-Null
                             Write-IaHost "[$Accent]✓ Revoked.[/]"; Read-IaPause | Out-Null
                         }
                     }
