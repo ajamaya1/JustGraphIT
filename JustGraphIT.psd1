@@ -189,6 +189,8 @@
         'Get-EntraManagedIdentity',
         'Get-EntraAppPermission',
         'Get-EntraRiskyAppPermission',
+        'Remove-EntraAppRoleAssignment',
+        'Remove-EntraOAuth2Grant',
         # --- app governance / hygiene reports ---
         'Get-EntraExpiringSecret',
         'Get-EntraAppWithoutOwner',

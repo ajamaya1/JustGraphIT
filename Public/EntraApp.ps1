@@ -173,6 +173,49 @@ function Get-EntraRiskyAppPermission {
     @($rows | Sort-Object @{ Expression = { if ($_.Risk -eq 'High') { 0 } else { 1 } } }, App, Permission)
 }
 
+function Remove-EntraAppRoleAssignment {
+    <#
+    .SYNOPSIS
+        Revoke an application permission (app-role grant) from a service principal.
+        Beta DELETE /beta/servicePrincipals/{spId}/appRoleAssignments/{id}.
+    .DESCRIPTION
+        The companion to Get-EntraAppPermission / Get-EntraRiskyAppPermission — pass the
+        client SP (the app that HOLDS the permission) and the assignment id from those
+        reports to take the grant away. High-impact, so it confirms.
+    .PARAMETER ServicePrincipal
+        The client service principal that holds the permission (object id, appId or name).
+    .PARAMETER AssignmentId
+        The appRoleAssignment id (the GrantId column from the consent reports).
+    #>
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory, Position = 0)][string]$ServicePrincipal,
+        [Parameter(Mandatory, Position = 1)][string]$AssignmentId
+    )
+    $spId = Resolve-EntraServicePrincipalId -App $ServicePrincipal
+    if ($PSCmdlet.ShouldProcess("$ServicePrincipal ($AssignmentId)", 'Revoke application permission')) {
+        Invoke-IaRequest -Method DELETE -Uri (Resolve-IaUri -Path "servicePrincipals/$spId/appRoleAssignments/$AssignmentId") | Out-Null
+        [pscustomobject]@{ ServicePrincipal = $ServicePrincipal; AssignmentId = $AssignmentId; Revoked = $true }
+    }
+}
+
+function Remove-EntraOAuth2Grant {
+    <#
+    .SYNOPSIS
+        Revoke a delegated permission grant (OAuth2 consent). Beta DELETE
+        /beta/oauth2PermissionGrants/{id}.
+    .DESCRIPTION
+        Removes a delegated consent grant by its id (the Delegated grants returned by
+        Get-EntraAppPermission -Raw). Revokes the whole grant — every scope it carries.
+    #>
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param([Parameter(Mandatory, Position = 0)][string]$GrantId)
+    if ($PSCmdlet.ShouldProcess($GrantId, 'Revoke delegated consent grant')) {
+        Invoke-IaRequest -Method DELETE -Uri (Resolve-IaUri -Path "oauth2PermissionGrants/$GrantId") | Out-Null
+        [pscustomobject]@{ GrantId = $GrantId; Revoked = $true }
+    }
+}
+
 function Get-EntraManagedIdentity {
     <#
     .SYNOPSIS

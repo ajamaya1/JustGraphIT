@@ -2747,6 +2747,27 @@ Describe 'Entra app permissions & consent (beta)' {
             $script:u | Should -Match 'Tim%27%27s%20App'
         }
     }
+
+    It 'Remove-EntraAppRoleAssignment DELETEs the beta appRoleAssignment on the client SP' {
+        InModuleScope JustGraphIT {
+            Mock Resolve-EntraServicePrincipalId { 'sp-1' }
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraAppRoleAssignment -ServicePrincipal 'p1' -AssignmentId 'a1' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/servicePrincipals/sp-1/appRoleAssignments/a1$'
+        }
+    }
+
+    It 'Remove-EntraOAuth2Grant DELETEs the beta oauth2PermissionGrant by id' {
+        InModuleScope JustGraphIT {
+            $script:m = $null; $script:u = $null
+            Mock Invoke-IaRequest { $script:m = $Method; $script:u = $Uri }
+            Remove-EntraOAuth2Grant -GrantId 'g-9' -Confirm:$false | Out-Null
+            $script:m | Should -Be 'DELETE'
+            $script:u | Should -Match 'graph\.microsoft\.com/beta/oauth2PermissionGrants/g-9$'
+        }
+    }
 }
 
 Describe 'Entra usage reports (CSV → objects)' {
