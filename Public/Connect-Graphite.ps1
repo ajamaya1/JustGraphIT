@@ -1,4 +1,4 @@
-function Connect-IntuneTide {
+function Connect-Graphite {
     <#
     .SYNOPSIS
         Sign in to Microsoft Graph for Intune assignment management.
@@ -8,9 +8,9 @@ function Connect-IntuneTide {
         secret or certificate. Runs anywhere pwsh + Microsoft.Graph.Authentication
         run (macOS, Windows, Linux).
     .EXAMPLE
-        Connect-IntuneTide -UseDeviceCode
+        Connect-Graphite -UseDeviceCode
     .EXAMPLE
-        Connect-IntuneTide -TenantId contoso.com -ClientId <id> -ClientSecret <secret>
+        Connect-Graphite -TenantId contoso.com -ClientId <id> -ClientSecret <secret>
     #>
     [CmdletBinding(DefaultParameterSetName = 'Interactive')]
     param(

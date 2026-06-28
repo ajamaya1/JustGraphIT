@@ -122,7 +122,7 @@ function Resolve-IaAppId {
 function ConvertTo-IaAppObject {
     <#
     .SYNOPSIS
-        Maps a raw Graph mobileApps item to the standard IntuneTide app object.
+        Maps a raw Graph mobileApps item to the standard Graphite app object.
     #>
     param([Parameter(Mandatory)]$App)
 

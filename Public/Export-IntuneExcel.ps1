@@ -1,7 +1,7 @@
 function Export-IntuneExcel {
     <#
     .SYNOPSIS
-        Export any TIDE output to a beautifully-formatted Excel workbook.
+        Export any GRAPHITE output to a beautifully-formatted Excel workbook.
 
     .DESCRIPTION
         Pipes any objects (assignments, install/compliance status, deployment
@@ -31,13 +31,13 @@ function Export-IntuneExcel {
         Open the workbook when done.
 
     .EXAMPLE
-        Get-IntuneAssignment -Flat | Export-IntuneExcel -Path tide.xlsx -WorksheetName Assignments -Title 'All assignments'
+        Get-IntuneAssignment -Flat | Export-IntuneExcel -Path GRAPHITE.xlsx -WorksheetName Assignments -Title 'All assignments'
 
         A formatted assignments sheet with exclude/unassigned coloring.
 
     .EXAMPLE
-        Get-IntuneDeploymentSummary -FailuresOnly | Export-IntuneExcel -Path tide.xlsx -WorksheetName Failures -Append
-        Get-IntuneAssignmentDrift -Path base.json | Export-IntuneExcel -Path tide.xlsx -WorksheetName Drift -Append -Show
+        Get-IntuneDeploymentSummary -FailuresOnly | Export-IntuneExcel -Path GRAPHITE.xlsx -WorksheetName Failures -Append
+        Get-IntuneAssignmentDrift -Path base.json | Export-IntuneExcel -Path GRAPHITE.xlsx -WorksheetName Drift -Append -Show
 
         Build a multi-tab workbook (assignments + failures + drift) and open it.
 

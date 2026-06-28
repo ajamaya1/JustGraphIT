@@ -1,9 +1,9 @@
-# TIDE - Targeted Intune Deployment & Endpoints
+# GRAPHITE - Microsoft Intune & Entra management
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-170%20passing-3FB950)](IntuneTide.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-170%20passing-3FB950)](Graphite.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** for inspecting,
@@ -14,7 +14,7 @@ full mouse-driven, scrollable, clickable experience works identically on macOS, 
 and Linux.
 
 <p align="center">
-  <img src="docs/img/main-menu.png" width="760" alt="TIDE main menu with the live Graph-call log">
+  <img src="docs/img/main-menu.png" width="760" alt="GRAPHITE main menu with the live Graph-call log">
 </p>
 
 ## Features
@@ -58,7 +58,7 @@ and Linux.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
   (one file per object), and diff current state against a snapshot.
 - **Live Graph-call log** - The bottom of the main menu is a copy-pasteable log of the
-  actual Microsoft Graph calls TIDE made — full path + query, status and timing.
+  actual Microsoft Graph calls GRAPHITE made — full path + query, status and timing.
 - **Eight themes, masked tenant ID, native Save dialogs** - `deepsea` (default), `green`,
   `amber`, `lego`, `sunset`, `ocean`, `forest`, `mono`; the tenant ID is masked for safe
   screenshots; exports use the OS-native "Save as…" picker.
@@ -78,7 +78,7 @@ count/sum/avg/min/max aggregation:
 
 ## Common workflows
 
-The five things TIDE gets reached for most — each is a few keystrokes from the main menu.
+The five things GRAPHITE gets reached for most — each is a few keystrokes from the main menu.
 
 **1. Help-desk user lookup** — one UPN → the caller's devices, Entra group memberships and
 licenses on a single **Overview** page (friendly SKU names like *Microsoft 365 E5*, with
@@ -128,13 +128,13 @@ Get-IntuneComplianceStatus | Where-Object State -eq noncompliant |
 ```
 
 <p align="center">
-  <img src="docs/img/teams-card.png" width="760" alt="A TIDE report pushed to Teams as an Adaptive Card">
+  <img src="docs/img/teams-card.png" width="760" alt="A GRAPHITE report pushed to Teams as an Adaptive Card">
 </p>
 
 It posts to a Power Automate **Workflows** incoming webhook (the supported successor to the
 retired O365 connector webhooks) — **no extra Graph scopes**. The URL comes from
-`-WebhookUrl` or `$env:TIDE_TEAMS_WEBHOOK`, so the *same* cmdlet runs unattended from an
-**Azure Automation runbook** (with `Connect-IntuneTide` app-only auth) for nightly digests.
+`-WebhookUrl` or `$env:GRAPHITE_TEAMS_WEBHOOK`, so the *same* cmdlet runs unattended from an
+**Azure Automation runbook** (with `Connect-Graphite` app-only auth) for nightly digests.
 `-PassThru` returns the card JSON for preview without posting.
 
 ## Prerequisites
@@ -154,7 +154,7 @@ Install-Module PSWriteHTML -Scope CurrentUser                      # optional
 
 ```powershell
 git clone https://github.com/ajamaya1/IntuneTide.git
-Import-Module ./IntuneTide/IntuneTide.psd1
+Import-Module ./IntuneTide/Graphite.psd1
 ```
 
 ### Try it offline (no tenant, no dependencies)
@@ -162,19 +162,19 @@ Import-Module ./IntuneTide/IntuneTide.psd1
 Explore the whole UI with mock data — nothing touches a real tenant:
 
 ```powershell
-pwsh -NoProfile -File ./IntuneTide/examples/Invoke-TideDemo.ps1
+pwsh -NoProfile -File ./Graphite/examples/Invoke-GraphiteDemo.ps1
 ```
 
 ## Usage
 
 ```powershell
 # Sign in — device code is the easy path on a Mac or over SSH
-Connect-IntuneTide -UseDeviceCode
+Connect-Graphite -UseDeviceCode
 
 # Launch the interactive UI
-Start-IntuneTide                  # default "deepsea" theme
-tide                              # short alias
-Start-IntuneTide -Theme sunset    # green | amber | lego | sunset | ocean | forest | mono
+Start-Graphite                  # default "deepsea" theme
+GRAPHITE                              # short alias
+Start-Graphite -Theme sunset    # green | amber | lego | sunset | ocean | forest | mono
 ```
 
 Inside a table: `↑ ↓ PgUp PgDn Home End` or the **wheel** scroll · `/` searches ·
@@ -204,13 +204,13 @@ Get-IntuneAssignmentDrift -Baseline snapshot.json
 
 ## Authentication Notes
 
-`Connect-IntuneTide` wraps `Connect-MgGraph` and supports interactive, device-code and
+`Connect-Graphite` wraps `Connect-MgGraph` and supports interactive, device-code and
 app-only sign-in.
 
 ### Device code (Mac / SSH)
 
 ```powershell
-Connect-IntuneTide -UseDeviceCode
+Connect-Graphite -UseDeviceCode
 ```
 
 Prints a code and URL to authenticate in any browser — no GUI session needed on the
@@ -219,9 +219,9 @@ host, which makes it ideal on macOS or over SSH.
 ### App-only (automation)
 
 ```powershell
-Connect-IntuneTide -TenantId contoso.com -ClientId <id> -ClientSecret <secret>
+Connect-Graphite -TenantId contoso.com -ClientId <id> -ClientSecret <secret>
 # or a certificate:
-Connect-IntuneTide -TenantId contoso.com -ClientId <id> -CertificateThumbprint <thumb>
+Connect-Graphite -TenantId contoso.com -ClientId <id> -CertificateThumbprint <thumb>
 ```
 
 ### Required permissions
@@ -250,7 +250,7 @@ skipped — the rest of the sweep continues.
 
 | Cmdlet | Purpose |
 | ------ | ------- |
-| `Connect-IntuneTide` | Sign in (interactive / device-code / app-only) |
+| `Connect-Graphite` | Sign in (interactive / device-code / app-only) |
 | `Get-IntuneAssignment` | List all assignments (`-Flat` = one row per edge) |
 | `Get-IntuneGroupAssignment` | Reverse lookup — what a group is assigned to |
 | `Compare-IntuneAssignment` | Diff two groups |
@@ -346,21 +346,21 @@ skipped — the rest of the sweep continues.
 | `Get-IntuneConditionalAccess` | Conditional Access policies |
 | `Watch-IntuneTenant` | Poll for changes |
 | `Get-/Clear-IntuneCallLog` | The Graph activity log (also shown in the TUI) |
-| `Start-IntuneTide` | Launch the interactive TUI (alias `tide`) |
+| `Start-Graphite` | Launch the interactive TUI (alias `GRAPHITE`) |
 
 </details>
 
 ## Project structure
 
 ```
-IntuneTide/
-├── IntuneTide.psd1          # module manifest (PowerShell 7.2+, exports)
-├── IntuneTide.psm1          # loader — dot-sources Private + Public, exports public surface
+Graphite/
+├── Graphite.psd1          # module manifest (PowerShell 7.2+, exports)
+├── Graphite.psm1          # loader — dot-sources Private + Public, exports public surface
 ├── Public/                  # 100 cmdlets, one per file (the public API)
-│   ├── Connect-IntuneTide.ps1
+│   ├── Connect-Graphite.ps1
 │   ├── Get-IntuneAssignment.ps1
 │   ├── Copy-IntuneAssignment.ps1
-│   ├── Start-IntuneTide.ps1  # the whole TUI dispatch
+│   ├── Start-Graphite.ps1  # the whole TUI dispatch
 │   └── ...
 ├── Private/                 # internal helpers
 │   ├── Graph.ps1            # single Invoke-IaRequest seam over Invoke-MgGraphRequest + call log
@@ -369,7 +369,7 @@ IntuneTide/
 │   ├── Resources.ps1       # the resource registry (paths, name fields, expand flags)
 │   ├── Inventory.ps1       # the cross-area assignment sweep
 │   └── Backup.ps1 · Reports.ps1 · Pim.ps1 · ...
-├── IntuneTide.Tests.ps1     # Pester suite — Graph mocked, fully offline
+├── Graphite.Tests.ps1     # Pester suite — Graph mocked, fully offline
 └── docs/img/                # screenshots
 ```
 
@@ -418,7 +418,7 @@ dependency is ever introduced.
 ## Tests
 
 ```powershell
-Invoke-Pester ./IntuneTide/IntuneTide.Tests.ps1
+Invoke-Pester ./Graphite/Graphite.Tests.ps1
 ```
 
 149 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam).

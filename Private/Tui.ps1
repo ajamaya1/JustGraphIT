@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  IntuneTide self-contained terminal-UI engine  (no external TUI dependency)
+#  Graphite self-contained terminal-UI engine  (no external TUI dependency)
 # ────────────────────────────────────────────────────────────────────────────
 #  WHY THIS EXISTS
 #    The TUI was originally built on PwshSpectreConsole. Two properties of that
@@ -513,12 +513,17 @@ function Write-IaRule {
     }
 }
 
-# 5-row block glyphs for the TIDE banner; anything else falls back to a bold rule.
+# 5-row block glyphs for the GRAPHITE banner; anything else falls back to a bold rule.
 $script:IaFiglet = @{
     'T' = @('█████', '  █  ', '  █  ', '  █  ', '  █  ')
     'I' = @('█████', '  █  ', '  █  ', '  █  ', '█████')
     'D' = @('████ ', '█   █', '█   █', '█   █', '████ ')
     'E' = @('█████', '█    ', '███  ', '█    ', '█████')
+    'G' = @('█████', '█    ', '█  ██', '█   █', '█████')
+    'R' = @('████ ', '█   █', '████ ', '█  █ ', '█   █')
+    'A' = @('█████', '█   █', '█████', '█   █', '█   █')
+    'P' = @('████ ', '█   █', '████ ', '█    ', '█    ')
+    'H' = @('█   █', '█   █', '█████', '█   █', '█   █')
     ' ' = @('   ', '   ', '   ', '   ', '   ')
 }
 
@@ -1151,7 +1156,7 @@ function Invoke-IaExport {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Data,
-        [string]$Stem  = 'tide-export',
+        [string]$Stem  = 'GRAPHITE-export',
         [string]$Color = 'turquoise2'
     )
     $clean = @($Data | ForEach-Object {
@@ -1221,7 +1226,7 @@ function Read-IaTableInteractive {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Data,
         [string]$Color     = 'grey',
         [string]$Title     = '',
-        [string]$Stem      = 'tide-export',
+        [string]$Stem      = 'GRAPHITE-export',
         [switch]$Selectable
     )
 
@@ -1571,7 +1576,7 @@ function Read-IaTablePause {
     [CmdletBinding()]
     param(
         [object[]]$Data,
-        [string]$Stem  = 'tide-export',
+        [string]$Stem  = 'GRAPHITE-export',
         [string]$Color = 'turquoise2',
         [string]$Title = ''
     )
