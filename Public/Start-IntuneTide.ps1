@@ -94,10 +94,12 @@ function Start-IntuneTide {
             'Autopilot & enrollment (devices · profiles · restrictions)',
             'Backup / Restore / Drift',
             'Compare two groups',
+            'Dashboard (device management overview · live)',
             'Elevate (PIM) — activate an eligible role',
             'Export report (HTML · Excel · Rich HTML)',
             'Graph calls (live activity log)',
             'Group lookup (what is a group assigned to)',
+            'Help desk (user lookup · devices · groups · licenses)',
             'Mirror assignments (copy A -> B, pick which)',
             'Policies (configuration · compliance · scripts · remediations)',
             'Reports (status · audit · approvals)',
@@ -113,6 +115,8 @@ function Start-IntuneTide {
         try {
             switch -Wildcard ($choice) {
                 'View all*'       { Invoke-IaTuiViewAll     -Accent $accent }
+                'Dashboard*'      { Invoke-IaTuiDashboard   -Accent $accent }
+                'Help desk*'      { Invoke-IaTuiUserLookup  -Accent $accent }
                 'Group lookup*'   { Invoke-IaTuiGroupLookup -Accent $accent }
                 'Compare*'        { Invoke-IaTuiCompare     -Accent $accent }
                 'What-if*'        { Invoke-IaTuiWhatIf      -Accent $accent }
@@ -138,9 +142,9 @@ function Start-IntuneTide {
         } catch {
             Write-IaHost "[red]Error:[/] $($_.Exception.Message)"
         }
-        if ($choice -ne 'Quit' -and $choice -notlike 'View all*') {
-            # 'View all' is self-paced by its interactive table (own q/Esc exit), so
-            # it skips the trailing pause to avoid a redundant "press any key".
+        if ($choice -ne 'Quit' -and $choice -notlike 'View all*' -and $choice -notlike 'Dashboard*') {
+            # 'View all' and 'Dashboard' are self-paced by their interactive tables
+            # (own q/Esc exit), so they skip the trailing redundant "press any key".
             Read-IaPause | Out-Null
             # No splash here: the next Read-IaMenu repaints the banner via -Header.
         }
@@ -1522,6 +1526,250 @@ function Invoke-IaTuiRemediations {
 
 # ─── reports submenu ──────────────────────────────────────────────────────────
 
+function Invoke-IaTuiDashboard {
+    # Live device-management overview for the first-page menu: KPI tiles plus
+    # colour-graded bar charts, all computed from a single managedDevices read.
+    param([string]$Accent)
+    $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Building device management dashboard…' -ScriptBlock {
+        Get-IntuneDeviceInventory -Top 5000
+    })
+    Write-IaTuiHeader -Screen 'Device management dashboard' -Sub 'live overview · managed devices' -Accent $Accent
+    if (-not $devs) { Write-IaHost '[yellow]No managed devices found.[/]'; Read-IaPause | Out-Null; return }
+
+    $total   = @($devs).Count
+    $comp    = @($devs | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
+    $noncomp = @($devs | Where-Object { "$($_.Compliance)" -eq 'noncompliant' }).Count
+    $enc     = @($devs | Where-Object { $_.Encrypted }).Count
+    $stale   = @($devs | Where-Object { $null -ne $_.DaysSinceSync -and $_.DaysSinceSync -ge 30 }).Count
+    $compPct = if ($total) { [int][math]::Round($comp / $total * 100) } else { 0 }
+    $ncPct   = if ($total) { [int][math]::Round($noncomp / $total * 100) } else { 0 }
+    $encPct  = if ($total) { [int][math]::Round($enc / $total * 100) } else { 0 }
+
+    $health  = { param($p) if ($p -ge 90) { $Accent } elseif ($p -ge 75) { 'yellow' } else { 'coral' } }
+    $cClr = & $health $compPct
+    $eClr = & $health $encPct
+    $rClr = if ($noncomp -eq 0) { $Accent } else { 'coral' }
+    $sClr = if ($stale -eq 0) { $Accent } elseif ($stale -le [math]::Ceiling($total * 0.1)) { 'yellow' } else { 'coral' }
+
+    # Gauge bar from a percentage (filled vs track).
+    $gauge = {
+        param([int]$pct, [int]$width, [string]$color)
+        $w = [int][math]::Round($pct / 100 * $width)
+        $f = '█' * [Math]::Max(0, [Math]::Min($width, $w))
+        $t = '░' * [Math]::Max(0, $width - $w)
+        "[$color]$f[/][grey]$t[/]"
+    }
+    # Category breakdown bars (count vs the largest in the set).
+    $drawBars = {
+        param($pairs, [int]$width, [string]$color)
+        $max = (@($pairs) | Measure-Object -Property Count -Maximum).Maximum
+        foreach ($p in @($pairs)) {
+            $w = if ($max) { [int][math]::Round($p.Count / $max * $width) } else { 0 }
+            $bar = '█' * [Math]::Max($w, 1)
+            $extra = if ($p.PSObject.Properties['Extra'] -and $p.Extra) { "  [grey]$($p.Extra)[/]" } else { '' }
+            Write-IaHost ("  [grey]{0,-16}[/] [$color]{1}[/] [white]{2}[/]{3}" -f $p.Label, $bar, $p.Count, $extra)
+        }
+    }
+    $groupBars = {
+        param([string]$Prop, [string]$Fallback, [int]$Top, [string]$color)
+        $g = @($devs | Group-Object $Prop | Sort-Object Count -Descending)
+        if ($Top -gt 0) { $g = @($g | Select-Object -First $Top) }
+        $pairs = foreach ($x in $g) {
+            $lbl = if ("$($x.Name)") { "$($x.Name)" } else { $Fallback }
+            [pscustomobject]@{ Label = $lbl; Count = $x.Count }
+        }
+        & $drawBars $pairs 30 $color
+    }
+
+    # ── KPI tiles ──────────────────────────────────────────────────────────
+    $tile = { param($text, $color, $w = 16) $s = "$text"; "[$color]$s[/]" + (' ' * [Math]::Max(1, $w - $s.Length)) }
+    Write-IaHost ''
+    Write-IaHost (' ' + (& $tile '▎ DEVICES' $Accent) + (& $tile '▎ COMPLIANT' $cClr) + (& $tile '▎ AT RISK' $rClr) + (& $tile '▎ STALE 30d+' $sClr) + (& $tile '▎ ENCRYPTED' $eClr))
+    Write-IaHost ('   ' + (& $tile $total 'white') + (& $tile "$compPct%" $cClr) + (& $tile $noncomp $rClr) + (& $tile $stale $sClr) + (& $tile "$encPct%" $eClr))
+
+    # ── Compliance gauge ───────────────────────────────────────────────────
+    Write-IaHost ''
+    Write-IaRule -Title 'Compliance' -Color $Accent
+    Write-IaHost ("  [grey]Compliant [/] $(& $gauge $compPct 40 $cClr) [white]$compPct%[/]  [grey]($comp/$total)[/]")
+    Write-IaHost ("  [grey]At risk   [/] $(& $gauge $ncPct 40 'coral') [white]$noncomp[/]")
+    Write-IaHost ("  [grey]Encrypted [/] $(& $gauge $encPct 40 $eClr) [white]$encPct%[/]  [grey]($enc/$total)[/]")
+
+    # ── Breakdowns ─────────────────────────────────────────────────────────
+    Write-IaHost ''
+    Write-IaRule -Title 'By platform (compliance)' -Color $Accent
+    $byPlat = foreach ($x in @($devs | Group-Object OS | Sort-Object Count -Descending)) {
+        $c = @($x.Group | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
+        $pct = if ($x.Count) { [int][math]::Round($c / $x.Count * 100) } else { 0 }
+        $lbl = if ("$($x.Name)") { "$($x.Name)" } else { 'Unknown' }
+        [pscustomobject]@{ Label = $lbl; Count = $x.Count; Extra = "$pct% compliant" }
+    }
+    & $drawBars $byPlat 30 $Accent
+
+    Write-IaRule -Title 'By enrollment source' -Color $Accent
+    & $groupBars 'Source' 'Standard' 0 'deepskyblue1'
+
+    Write-IaRule -Title 'By ownership' -Color $Accent
+    & $groupBars 'Owner' 'unknown' 0 $Accent
+
+    Write-IaRule -Title 'Top manufacturers' -Color $Accent
+    & $groupBars 'Manufacturer' 'Unknown' 6 $Accent
+
+    Write-IaHost ''
+    Write-IaHost '[grey]Live from deviceManagement/managedDevices · press any key for the per-device list…[/]'
+    Read-IaPause | Out-Null
+
+    # Per-device detail: OS, OS version, user (UPN), last sync — scrollable / searchable / exportable.
+    $devRows = @($devs | ForEach-Object {
+        $cc = switch ("$($_.Compliance)") { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
+        [pscustomobject][ordered]@{
+            Device            = $_.Device
+            OS                = $_.OS
+            OSVersion         = $_.OSVersion
+            UserPrincipalName = $_.UPN
+            LastSync          = $_.LastSync
+            Compliance        = "[$cc]$($_.Compliance)[/]"
+        }
+    })
+    Read-IaTablePause -Data $devRows -Stem 'dashboard-devices' -Color $Accent -Title "Devices · OS · version · user · last sync ($total)"
+}
+
+function Invoke-IaTuiUserLookup {
+    # Help-desk user report (devices, groups, licenses, sign-in/MFA). Reachable
+    # from the first-page menu and from Reports.
+    param([string]$Accent)
+            $upn = Select-IaUser -Accent $Accent -Title 'Which user to look up?'
+            if ([string]::IsNullOrWhiteSpace($upn)) { return }
+            $stemU = ($upn -replace '[^\w.-]', '_')
+            Write-IaTuiHeader -Screen 'User lookup' -Sub $upn -Accent $Accent
+
+            # Pull the full help-desk profile once — managed devices, Entra group
+            # memberships and assigned licenses (groups + licenses come from the beta
+            # /users endpoints). Cached so each drill-in renders instantly and the
+            # "Overview" can show all three together.
+            $prof = Invoke-IaStatus -Spinner Dots -Title "Building help-desk profile for $upn…" -ScriptBlock {
+                [pscustomobject]@{
+                    Devices  = @(Get-IntuneUserDevice          -User $upn)
+                    Groups   = @(Get-IntuneUserGroupMembership -User $upn)
+                    Licenses = @(Get-IntuneUserLicense         -User $upn)
+                }
+            }
+            $uDevices  = @($prof.Devices)
+            $uGroups   = @($prof.Groups)
+            $uLicenses = @($prof.Licenses)
+            $compliant = @($uDevices | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
+
+            $hdr = [System.Collections.Generic.List[string]]::new()
+            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ TIDE[/]  [bold]· User lookup[/]"))
+            $hdr.Add((ConvertFrom-IaMarkup "[grey]$upn[/]"))
+            $hdr.Add('')
+            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]  [grey]({2} compliant)[/]" -f 'Devices',  $uDevices.Count, $compliant)))
+            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]" -f 'Groups',   $uGroups.Count)))
+            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]" -f 'Licenses', $uLicenses.Count)))
+            $hdr.Add('')
+            $userHeader = ($hdr -join "`n")
+
+            # Display projections (built once) — shared by Overview and the individual
+            # scrollable views so colouring stays consistent.
+            $devRows = @($uDevices | ForEach-Object {
+                $cc = switch ("$($_.Compliance)") { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
+                [pscustomobject][ordered]@{
+                    Device     = $_.Device
+                    OS         = "[$Accent]$($_.OS)[/]"
+                    Compliance = "[$cc]$($_.Compliance)[/]"
+                    Owner      = $_.Owner
+                    Model      = $_.Model
+                    Serial     = $_.Serial
+                    Encrypted  = if ($_.Encrypted) { "[$Accent]yes[/]" } else { '[coral]no[/]' }
+                    LastSync   = $_.LastSync
+                }
+            })
+            $grpRows = @($uGroups | ForEach-Object {
+                [pscustomobject][ordered]@{
+                    Group      = $_.GroupName
+                    Kind       = $_.Kind
+                    Membership = if ($_.Membership -eq 'dynamic') { '[deepskyblue1]dynamic[/]' } else { '[grey]assigned[/]' }
+                    Rule       = $_.MembershipRule
+                }
+            })
+            $licRows = @($uLicenses | ForEach-Object {
+                [pscustomobject][ordered]@{
+                    License       = "[$Accent]$($_.License)[/]"
+                    SkuPartNumber = $_.SkuPartNumber
+                    Services      = $_.Services
+                    Disabled      = if ($_.DisabledPlans) { "[yellow]$($_.DisabledPlans)[/]" } else { '' }
+                }
+            })
+
+            while ($true) {
+                $sub = Read-IaMenu -Title 'Help desk · user' -Color $Accent -Header $userHeader -PageSize 7 -Choices @(
+                    'Overview — devices · groups · licenses (everything)',
+                    'Devices (managed by Intune)',
+                    'Group memberships (Entra)',
+                    'Licenses (assigned SKUs + service plans)',
+                    'Sign-in & MFA diagnostics (why can''t they log in)',
+                    'Back'
+                )
+                if (-not $sub -or $sub -eq 'Back') { break }
+                switch -Wildcard ($sub) {
+                    'Overview*' {
+                        Write-IaTuiHeader -Screen 'User profile' -Sub $upn -Accent $Accent
+                        Write-IaHost ("[$Accent]$($uDevices.Count)[/] device(s)  ·  [$Accent]$($uGroups.Count)[/] group(s)  ·  [$Accent]$($uLicenses.Count)[/] license(s)  [grey]for $upn[/]")
+                        Write-IaRule -Title "Devices ($($uDevices.Count))" -Color $Accent
+                        if ($devRows) { $devRows | Format-IaTable -Color $Accent } else { Write-IaHost '[grey]none[/]' }
+                        Write-IaRule -Title "Group memberships ($($uGroups.Count))" -Color $Accent
+                        if ($grpRows) { $grpRows | Format-IaTable -Color $Accent } else { Write-IaHost '[grey]none[/]' }
+                        Write-IaRule -Title "Licenses ($($uLicenses.Count))" -Color $Accent
+                        if ($licRows) { $licRows | Format-IaTable -Color $Accent } else { Write-IaHost '[grey]none[/]' }
+                        Read-IaPause | Out-Null
+                    }
+                    'Devices*' {
+                        if (-not $uDevices) { Write-IaHost '[yellow]No Intune-managed devices found for this user.[/]'; Read-IaPause | Out-Null }
+                        else { Read-IaTablePause -Data $devRows -Stem "user-$stemU-devices" -Color $Accent -Title "Devices · $upn ($($uDevices.Count))" }
+                    }
+                    'Group memberships*' {
+                        if (-not $uGroups) { Write-IaHost '[yellow]User is not a member of any Entra group.[/]'; Read-IaPause | Out-Null }
+                        else { Read-IaTablePause -Data $grpRows -Stem "user-$stemU-groups" -Color $Accent -Title "Group memberships · $upn ($($uGroups.Count))" }
+                    }
+                    'Licenses*' {
+                        if (-not $uLicenses) { Write-IaHost '[yellow]No licenses assigned to this user.[/]'; Read-IaPause | Out-Null }
+                        else { Read-IaTablePause -Data $licRows -Stem "user-$stemU-licenses" -Color $Accent -Title "Licenses · $upn ($($uLicenses.Count))" }
+                    }
+                    'Sign-in*' {
+                        $si = @(Invoke-IaStatus -Spinner Dots -Title "Loading recent sign-ins for $upn…" -ScriptBlock {
+                            Get-IntuneUserSignIn -User $upn -Top 20
+                        })
+                        if (-not $si) { Write-IaHost '[yellow]No sign-in records returned (needs AuditLog.Read.All + Entra ID P1).[/]' }
+                        else {
+                            # Curated columns for the on-screen table; the cmdlet keeps CA / IP /
+                            # client / device too — press `e` in the viewer to export the lot.
+                            $rows = $si | ForEach-Object {
+                                $sc = if ("$($_.Status)" -like 'success*') { $Accent } else { 'coral' }
+                                [pscustomobject][ordered]@{
+                                    When    = $_.When
+                                    App     = $_.App
+                                    Status  = "[$sc]$($_.Status)[/]"
+                                    Reason  = $_.Reason
+                                    Blocked = if ($_.BlockedBy) { "[coral]$($_.BlockedBy)[/]" } else { '' }
+                                }
+                            }
+                            Read-IaTablePause -Data $rows -Stem "user-$stemU-signins" -Color $Accent -Title "Recent sign-ins · $upn ($($si.Count))"
+                        }
+                        # MFA methods are rendered AFTER the table viewer so its full-screen
+                        # repaint can't wipe them.
+                        $mfa = @(Invoke-IaStatus -Spinner Dots -Title 'Loading registered MFA methods…' -ScriptBlock {
+                            Get-IntuneUserAuthMethod -User $upn
+                        })
+                        Write-IaRule -Title "Registered MFA methods ($($mfa.Count))" -Color $Accent
+                        if (-not $mfa) { Write-IaHost '[coral]No methods registered — the user has no MFA method on file.[/]' }
+                        else {
+                            $mfa | ForEach-Object { [pscustomobject][ordered]@{ Method = "[$Accent]$($_.Method)[/]"; Detail = $_.Detail } } | Format-IaTable -Color $Accent
+                        }
+                        Read-IaPause | Out-Null
+                    }
+                }
+            }
+}
+
 function Invoke-IaTuiReports {
     param([string]$Accent)
     Write-IaTuiHeader -Screen 'Reports' -Sub 'status · audit · approvals · any report' -Accent $Accent
@@ -1872,139 +2120,7 @@ function Invoke-IaTuiReports {
                     }
             }
         }
-        'User lookup*' {
-            $upn = Select-IaUser -Accent $Accent -Title 'Which user to look up?'
-            if ([string]::IsNullOrWhiteSpace($upn)) { return }
-            $stemU = ($upn -replace '[^\w.-]', '_')
-            Write-IaTuiHeader -Screen 'User lookup' -Sub $upn -Accent $Accent
-
-            # Pull the full help-desk profile once — managed devices, Entra group
-            # memberships and assigned licenses (groups + licenses come from the beta
-            # /users endpoints). Cached so each drill-in renders instantly and the
-            # "Overview" can show all three together.
-            $prof = Invoke-IaStatus -Spinner Dots -Title "Building help-desk profile for $upn…" -ScriptBlock {
-                [pscustomobject]@{
-                    Devices  = @(Get-IntuneUserDevice          -User $upn)
-                    Groups   = @(Get-IntuneUserGroupMembership -User $upn)
-                    Licenses = @(Get-IntuneUserLicense         -User $upn)
-                }
-            }
-            $uDevices  = @($prof.Devices)
-            $uGroups   = @($prof.Groups)
-            $uLicenses = @($prof.Licenses)
-            $compliant = @($uDevices | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
-
-            $hdr = [System.Collections.Generic.List[string]]::new()
-            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ TIDE[/]  [bold]· User lookup[/]"))
-            $hdr.Add((ConvertFrom-IaMarkup "[grey]$upn[/]"))
-            $hdr.Add('')
-            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]  [grey]({2} compliant)[/]" -f 'Devices',  $uDevices.Count, $compliant)))
-            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]" -f 'Groups',   $uGroups.Count)))
-            $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]" -f 'Licenses', $uLicenses.Count)))
-            $hdr.Add('')
-            $userHeader = ($hdr -join "`n")
-
-            # Display projections (built once) — shared by Overview and the individual
-            # scrollable views so colouring stays consistent.
-            $devRows = @($uDevices | ForEach-Object {
-                $cc = switch ("$($_.Compliance)") { 'compliant' { $Accent } 'noncompliant' { 'coral' } default { 'grey' } }
-                [pscustomobject][ordered]@{
-                    Device     = $_.Device
-                    OS         = "[$Accent]$($_.OS)[/]"
-                    Compliance = "[$cc]$($_.Compliance)[/]"
-                    Owner      = $_.Owner
-                    Model      = $_.Model
-                    Serial     = $_.Serial
-                    Encrypted  = if ($_.Encrypted) { "[$Accent]yes[/]" } else { '[coral]no[/]' }
-                    LastSync   = $_.LastSync
-                }
-            })
-            $grpRows = @($uGroups | ForEach-Object {
-                [pscustomobject][ordered]@{
-                    Group      = $_.GroupName
-                    Kind       = $_.Kind
-                    Membership = if ($_.Membership -eq 'dynamic') { '[deepskyblue1]dynamic[/]' } else { '[grey]assigned[/]' }
-                    Rule       = $_.MembershipRule
-                }
-            })
-            $licRows = @($uLicenses | ForEach-Object {
-                [pscustomobject][ordered]@{
-                    License       = "[$Accent]$($_.License)[/]"
-                    SkuPartNumber = $_.SkuPartNumber
-                    Services      = $_.Services
-                    Disabled      = if ($_.DisabledPlans) { "[yellow]$($_.DisabledPlans)[/]" } else { '' }
-                }
-            })
-
-            while ($true) {
-                $sub = Read-IaMenu -Title 'Help desk · user' -Color $Accent -Header $userHeader -PageSize 7 -Choices @(
-                    'Overview — devices · groups · licenses (everything)',
-                    'Devices (managed by Intune)',
-                    'Group memberships (Entra)',
-                    'Licenses (assigned SKUs + service plans)',
-                    'Sign-in & MFA diagnostics (why can''t they log in)',
-                    'Back'
-                )
-                if (-not $sub -or $sub -eq 'Back') { break }
-                switch -Wildcard ($sub) {
-                    'Overview*' {
-                        Write-IaTuiHeader -Screen 'User profile' -Sub $upn -Accent $Accent
-                        Write-IaHost ("[$Accent]$($uDevices.Count)[/] device(s)  ·  [$Accent]$($uGroups.Count)[/] group(s)  ·  [$Accent]$($uLicenses.Count)[/] license(s)  [grey]for $upn[/]")
-                        Write-IaRule -Title "Devices ($($uDevices.Count))" -Color $Accent
-                        if ($devRows) { $devRows | Format-IaTable -Color $Accent } else { Write-IaHost '[grey]none[/]' }
-                        Write-IaRule -Title "Group memberships ($($uGroups.Count))" -Color $Accent
-                        if ($grpRows) { $grpRows | Format-IaTable -Color $Accent } else { Write-IaHost '[grey]none[/]' }
-                        Write-IaRule -Title "Licenses ($($uLicenses.Count))" -Color $Accent
-                        if ($licRows) { $licRows | Format-IaTable -Color $Accent } else { Write-IaHost '[grey]none[/]' }
-                        Read-IaPause | Out-Null
-                    }
-                    'Devices*' {
-                        if (-not $uDevices) { Write-IaHost '[yellow]No Intune-managed devices found for this user.[/]'; Read-IaPause | Out-Null }
-                        else { Read-IaTablePause -Data $devRows -Stem "user-$stemU-devices" -Color $Accent -Title "Devices · $upn ($($uDevices.Count))" }
-                    }
-                    'Group memberships*' {
-                        if (-not $uGroups) { Write-IaHost '[yellow]User is not a member of any Entra group.[/]'; Read-IaPause | Out-Null }
-                        else { Read-IaTablePause -Data $grpRows -Stem "user-$stemU-groups" -Color $Accent -Title "Group memberships · $upn ($($uGroups.Count))" }
-                    }
-                    'Licenses*' {
-                        if (-not $uLicenses) { Write-IaHost '[yellow]No licenses assigned to this user.[/]'; Read-IaPause | Out-Null }
-                        else { Read-IaTablePause -Data $licRows -Stem "user-$stemU-licenses" -Color $Accent -Title "Licenses · $upn ($($uLicenses.Count))" }
-                    }
-                    'Sign-in*' {
-                        $si = @(Invoke-IaStatus -Spinner Dots -Title "Loading recent sign-ins for $upn…" -ScriptBlock {
-                            Get-IntuneUserSignIn -User $upn -Top 20
-                        })
-                        if (-not $si) { Write-IaHost '[yellow]No sign-in records returned (needs AuditLog.Read.All + Entra ID P1).[/]' }
-                        else {
-                            # Curated columns for the on-screen table; the cmdlet keeps CA / IP /
-                            # client / device too — press `e` in the viewer to export the lot.
-                            $rows = $si | ForEach-Object {
-                                $sc = if ("$($_.Status)" -like 'success*') { $Accent } else { 'coral' }
-                                [pscustomobject][ordered]@{
-                                    When    = $_.When
-                                    App     = $_.App
-                                    Status  = "[$sc]$($_.Status)[/]"
-                                    Reason  = $_.Reason
-                                    Blocked = if ($_.BlockedBy) { "[coral]$($_.BlockedBy)[/]" } else { '' }
-                                }
-                            }
-                            Read-IaTablePause -Data $rows -Stem "user-$stemU-signins" -Color $Accent -Title "Recent sign-ins · $upn ($($si.Count))"
-                        }
-                        # MFA methods are rendered AFTER the table viewer so its full-screen
-                        # repaint can't wipe them.
-                        $mfa = @(Invoke-IaStatus -Spinner Dots -Title 'Loading registered MFA methods…' -ScriptBlock {
-                            Get-IntuneUserAuthMethod -User $upn
-                        })
-                        Write-IaRule -Title "Registered MFA methods ($($mfa.Count))" -Color $Accent
-                        if (-not $mfa) { Write-IaHost '[coral]No methods registered — the user has no MFA method on file.[/]' }
-                        else {
-                            $mfa | ForEach-Object { [pscustomobject][ordered]@{ Method = "[$Accent]$($_.Method)[/]"; Detail = $_.Detail } } | Format-IaTable -Color $Accent
-                        }
-                        Read-IaPause | Out-Null
-                    }
-                }
-            }
-        }
+        'User lookup*' { Invoke-IaTuiUserLookup -Accent $Accent }
         'App install*' {
             $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
             if (-not $app) { return }

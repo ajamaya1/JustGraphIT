@@ -108,6 +108,7 @@ function Get-IntuneDeviceInventory {
             Compliance    = $d.complianceState
             Owner         = $d.managedDeviceOwnerType
             User          = if ($d.userDisplayName) { $d.userDisplayName } else { $d.userPrincipalName }
+            UPN           = $d.userPrincipalName
             LastSync      = $sync
             DaysSinceSync = $days
             Manufacturer  = $d.manufacturer
