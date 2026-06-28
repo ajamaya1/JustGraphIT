@@ -38,10 +38,12 @@ function Get-IntuneAutopilotDevice {
     if ($SerialNumber) { $filter += "serialNumber eq '$($SerialNumber -replace "'", "''")'" }
     if ($GroupTag)     { $filter += "groupTag eq '$($GroupTag -replace "'", "''")'" }
 
-    $query = 'deviceManagement/windowsAutopilotDeviceIdentities?$orderby=serialNumber'
-    if ($filter) { $query += '&$filter=' + ($filter -join ' and ') }
+    # NOTE: windowsAutopilotDeviceIdentities returns 500 InternalServerError on
+    # server-side $orderby in many tenants, so we sort client-side instead.
+    $query = 'deviceManagement/windowsAutopilotDeviceIdentities'
+    if ($filter) { $query += '?$filter=' + ($filter -join ' and ') }
 
-    $devices = Get-IaCollection (Resolve-IaUri $query)
+    $devices = @(Get-IaCollection (Resolve-IaUri $query)) | Sort-Object serialNumber
     foreach ($d in $devices) {
         ConvertTo-IaAutopilotDeviceObject -Device $d
     }

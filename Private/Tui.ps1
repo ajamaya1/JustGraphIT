@@ -462,17 +462,55 @@ function Get-IaFigletString {
 # ─── input primitives ────────────────────────────────────────────────────────
 
 function Read-IaText {
-    # Text prompt with optional default. Replaces Read-SpectreText.
+    # Text prompt with optional default. Enter accepts; Esc cancels (returns $null) so
+    # the caller can back out — Read-Host can't do that. Falls back to Read-Host when the
+    # host isn't interactive (Pester / redirected I/O).
     [CmdletBinding()]
     param([Parameter(Position = 0)][Alias('Question')][string]$Message = '', [string]$DefaultAnswer = '')
     $reset = Get-IaReset
     $dim = Get-IaAnsi 'dim'
     $msg = ConvertFrom-IaMarkup -Text $Message
     $hint = if ($DefaultAnswer) { " $dim($DefaultAnswer)$reset" } else { '' }
-    Write-IaRaw "$msg$hint`: " -NoNewline
-    $in = Read-Host
-    if ([string]::IsNullOrWhiteSpace($in) -and $DefaultAnswer) { return $DefaultAnswer }
-    return $in
+    $escTip = if ($msg) { " $dim(Esc cancels)$reset" } else { '' }
+    Write-IaRaw "$msg$hint$escTip`: " -NoNewline
+
+    if (-not (Test-IaArrowSupport)) {
+        $in = Read-Host
+        if ([string]::IsNullOrWhiteSpace($in) -and $DefaultAnswer) { return $DefaultAnswer }
+        return $in
+    }
+
+    # Interactive line editor: printable chars echo, Backspace edits, Enter accepts,
+    # Esc cancels.
+    $sb = [System.Text.StringBuilder]::new()
+    while ($true) {
+        $k = [Console]::ReadKey($true)
+        switch ($k.Key) {
+            'Enter' {
+                Write-IaRaw "`n" -NoNewline
+                $val = $sb.ToString()
+                if ([string]::IsNullOrWhiteSpace($val) -and $DefaultAnswer) { return $DefaultAnswer }
+                return $val
+            }
+            'Escape' {
+                Write-IaRaw "`n" -NoNewline
+                return $null
+            }
+            'Backspace' {
+                if ($sb.Length -gt 0) {
+                    [void]$sb.Remove($sb.Length - 1, 1)
+                    Write-IaRaw "`b `b" -NoNewline
+                }
+            }
+            default {
+                $ch = $k.KeyChar
+                if ($ch -and -not [char]::IsControl($ch)) {
+                    [void]$sb.Append($ch)
+                    Write-IaRaw ([string]$ch) -NoNewline
+                }
+            }
+        }
+    }
 }
 
 function Read-IaSavePath {
@@ -658,10 +696,20 @@ function Show-IaTableObjects {
         Write-IaRaw ("{0}{1}{2} {3} {0}{4}{2}" -f $border, (([char]0x256D) + ($h * $l)), $reset, (ConvertFrom-IaMarkup $Title), (($h * $rgt) + ([char]0x256E)))
     }
 
-    # Header.
+    # Header.  Truncate names to the (possibly scaled-down) column width so the header
+    # lines up with the underline and data rows instead of overflowing and wrapping.
     $hdr = @()
     for ($ci = 0; $ci -lt $cols.Count; $ci++) {
         $plain = Strip-IaMarkup -Text $cols[$ci]
+        if ((Measure-IaWidth -Text $plain) -gt $widths[$ci]) {
+            $cut = 0; $acc = 0; $max = [Math]::Max(1, $widths[$ci] - 1)
+            for ($k = 0; $k -lt $plain.Length; $k++) {
+                $chW = Measure-IaWidth -Text ([string]$plain[$k])
+                if (($acc + $chW) -gt $max) { break }
+                $acc += $chW; $cut++
+            }
+            $plain = $plain.Substring(0, [Math]::Max(1, $cut)) + '…'
+        }
         $w = Measure-IaWidth -Text $plain
         $hdr += ($bold + $white + $plain + $reset + (' ' * [Math]::Max(0, $widths[$ci] - $w)))
     }
@@ -1159,15 +1207,22 @@ function Read-IaTableInteractive {
         $plain = Strip-IaMarkup -Text $Raw
         $dw    = Measure-IaWidth $plain
         if ($dw -gt $Width) {
+            # Too wide for its column: truncate by *visible* width + ellipsis. The
+            # truncated text is emitted as plain (markup colour is dropped on the rare
+            # over-long cell) so the cell can never exceed $Width and wrap the row.
             $cut = 0; $acc = 0; $max = [Math]::Max(1, $Width - 1)
             for ($k = 0; $k -lt $plain.Length; $k++) {
                 $chW = Measure-IaWidth ([string]$plain[$k])
                 if (($acc + $chW) -gt $max) { break }
                 $acc += $chW; $cut++
             }
-            $plain = $plain.Substring(0, [Math]::Max(1, $cut)) + '…'
-            $dw    = Measure-IaWidth $plain
+            $plain   = $plain.Substring(0, [Math]::Max(1, $cut)) + '…'
+            $dw      = Measure-IaWidth $plain
+            $padding = ' ' * [Math]::Max(0, $Width - $dw)
+            if ($IsSelected) { return "$border$bold$plain$reset$padding" }
+            return "$plain$reset$padding"
         }
+        # Fits: keep the original (coloured) rendering.
         $padding = ' ' * [Math]::Max(0, $Width - $dw)
         if ($IsSelected) { return "$border$bold$plain$reset$padding" }
         return (ConvertFrom-IaMarkup $Raw) + $reset + $padding
@@ -1194,10 +1249,17 @@ function Read-IaTableInteractive {
         $s = $st.sel; $top = $st.top
         if ($total -eq 0) { $s = 0; $top = 0 }
         else {
-            if ($s -ge $total)            { $s   = $total - 1 }
-            if ($s -lt 0)                 { $s   = 0 }
-            if ($s -lt $top)              { $top = $s }
-            if ($s -ge ($top + $pageSize)) { $top = $s - $pageSize + 1 }
+            if ($s -ge $total) { $s = $total - 1 }
+            if ($s -lt 0)      { $s = 0 }
+            # Selectable tables keep the (highlighted) selection in view; non-selectable
+            # tables scroll the viewport freely (arrows move $top directly).
+            if ($Selectable) {
+                if ($s -lt $top)               { $top = $s }
+                if ($s -ge ($top + $pageSize)) { $top = $s - $pageSize + 1 }
+            }
+            $maxTop = [Math]::Max(0, $total - $pageSize)
+            if ($top -gt $maxTop) { $top = $maxTop }
+            if ($top -lt 0)       { $top = 0 }
         }
         $st.sel = $s; $st.top = $top
 
@@ -1216,9 +1278,20 @@ function Read-IaTableInteractive {
             [void]$buf.AppendLine($_b + [char]0x256D + ($_h * $lft) + $_r + ' ' + (ConvertFrom-IaMarkup $Title) + ' ' + $_b + ($_h * $rgt) + [char]0x256E + $_r)
         }
 
-        # Column header
+        # Column header — truncate names to the (possibly scaled-down) column width,
+        # exactly like the data cells, so the header row can't overflow and wrap.
         $hdrCells = @(for ($ci = 0; $ci -lt $cols.Count; $ci++) {
-            $plain = Strip-IaMarkup $cols[$ci]; $w = Measure-IaWidth $plain
+            $plain = Strip-IaMarkup $cols[$ci]
+            if ((Measure-IaWidth $plain) -gt $widths[$ci]) {
+                $cut = 0; $acc = 0; $max = [Math]::Max(1, $widths[$ci] - 1)
+                for ($k = 0; $k -lt $plain.Length; $k++) {
+                    $chW = Measure-IaWidth ([string]$plain[$k])
+                    if (($acc + $chW) -gt $max) { break }
+                    $acc += $chW; $cut++
+                }
+                $plain = $plain.Substring(0, [Math]::Max(1, $cut)) + '…'
+            }
+            $w = Measure-IaWidth $plain
             $_bo + $_wh + $plain + $_r + (' ' * [Math]::Max(0, $widths[$ci] - $w))
         })
         [void]$buf.AppendLine($_b + $_v + $_r + ' ' + ($hdrCells -join " $_d$_v$_r ") + ' ' + $_b + $_v + $_r)
@@ -1329,8 +1402,8 @@ function Read-IaTableInteractive {
                 if (-not $st.searching) {
                     $filtered = @(& $getFiltered)
                     $total    = $filtered.Count
-                    if (Test-IaMouseWheelUp $ev)   { if ($st.sel -gt 0)            { $st.sel-- }; & $renderFrame }
-                    elseif (Test-IaMouseWheelDown $ev) { if ($st.sel -lt ($total - 1)) { $st.sel++ }; & $renderFrame }
+                    if (Test-IaMouseWheelUp $ev)   { if ($Selectable) { if ($st.sel -gt 0) { $st.sel-- } } else { $st.top-- }; & $renderFrame }
+                    elseif (Test-IaMouseWheelDown $ev) { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ }; & $renderFrame }
                     elseif (Test-IaMouseLeftClick $ev) {
                         $j = $ev.Y - $firstDataRow
                         $endIdx = [Math]::Min($st.top + $pageSize - 1, $total - 1)
@@ -1365,12 +1438,12 @@ function Read-IaTableInteractive {
                 $moved    = $false
 
                 switch ($ev.Key) {
-                    'UpArrow'   { if ($st.sel -gt 0)              { $st.sel-- };                                                    $moved = $true }
-                    'DownArrow' { if ($st.sel -lt ($total - 1))   { $st.sel++ };                                                    $moved = $true }
-                    'PageUp'    { $st.sel = [Math]::Max(0, $st.sel - $pageSize);                                                    $moved = $true }
-                    'PageDown'  { $st.sel = [Math]::Min([Math]::Max(0, $total - 1), $st.sel + $pageSize);                          $moved = $true }
-                    'Home'      { $st.sel = 0;                                                                                      $moved = $true }
-                    'End'       { $st.sel = [Math]::Max(0, $total - 1);                                                             $moved = $true }
+                    'UpArrow'   { if ($Selectable) { if ($st.sel -gt 0) { $st.sel-- } } else { $st.top-- };                $moved = $true }
+                    'DownArrow' { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ };     $moved = $true }
+                    'PageUp'    { if ($Selectable) { $st.sel = [Math]::Max(0, $st.sel - $pageSize) } else { $st.top -= $pageSize }; $moved = $true }
+                    'PageDown'  { if ($Selectable) { $st.sel = [Math]::Min([Math]::Max(0, $total - 1), $st.sel + $pageSize) } else { $st.top += $pageSize }; $moved = $true }
+                    'Home'      { if ($Selectable) { $st.sel = 0 } else { $st.top = 0 };                                   $moved = $true }
+                    'End'       { if ($Selectable) { $st.sel = [Math]::Max(0, $total - 1) } else { $st.top = $total };     $moved = $true }
                     'Escape'    {
                         if ($st.query) { $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
                         else           { return $null }
@@ -1386,8 +1459,8 @@ function Read-IaTableInteractive {
                             'p'  { Invoke-IaPushToTeams -Data $rows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame }
                             '?'  { & $showHelp }
                             'q'  { return $null }
-                            'j'  { if ($st.sel -lt ($total - 1)) { $st.sel++ }; & $renderFrame }
-                            'k'  { if ($st.sel -gt 0)            { $st.sel-- }; & $renderFrame }
+                            'j'  { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ }; & $renderFrame }
+                            'k'  { if ($Selectable) { if ($st.sel -gt 0) { $st.sel-- } } else { $st.top-- }; & $renderFrame }
                         }
                     }
                 }
