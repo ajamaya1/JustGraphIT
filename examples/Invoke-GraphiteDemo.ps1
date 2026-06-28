@@ -1,22 +1,22 @@
 <#
 .SYNOPSIS
-    Run the TIDE terminal UI offline with mock data — no tenant, no Microsoft.Graph
+    Run the GRAPHITE terminal UI offline with mock data — no tenant, no Microsoft.Graph
     module, no permissions required.
 
 .DESCRIPTION
-    Stubs the three Microsoft Graph entry points TIDE uses (Get-MgContext,
+    Stubs the three Microsoft Graph entry points GRAPHITE uses (Get-MgContext,
     Connect-MgGraph, Invoke-MgGraphRequest) with a small in-memory fixture, imports the
     module from this repo, and launches the interactive UI. Everything you see is fake
     sample data, so you can click around every screen safely.
 
-    To use TIDE against a real tenant instead, skip this file:
+    To use GRAPHITE against a real tenant instead, skip this file:
         Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
-        Import-Module ./IntuneTide.psd1
-        Connect-IntuneTide        # interactive / device-code / app-only
-        Start-IntuneTide          # or the `tide` alias
+        Import-Module ./Graphite.psd1
+        Connect-Graphite        # interactive / device-code / app-only
+        Start-Graphite          # or the `GRAPHITE` alias
 
 .EXAMPLE
-    pwsh -NoProfile -File ./examples/Invoke-TideDemo.ps1
+    pwsh -NoProfile -File ./examples/Invoke-GraphiteDemo.ps1
 #>
 [CmdletBinding()]
 param([string]$Theme = 'deepsea')
@@ -171,15 +171,15 @@ function global:Invoke-MgGraphRequest {
 }
 
 # ── Import the module from this repo and launch the UI ───────────────────────
-$manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'IntuneTide.psd1'
+$manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'Graphite.psd1'
 Import-Module $manifest -Force
 
 Write-Host ''
-Write-Host '  ≈ TIDE — offline demo' -ForegroundColor Cyan
+Write-Host '  ≈ GRAPHITE — offline demo' -ForegroundColor Cyan
 Write-Host '  Sample/mock data only — nothing here touches a real tenant.' -ForegroundColor DarkGray
 Write-Host '  Arrow keys / Enter to navigate · q or Esc to go back · Quit from the main menu.' -ForegroundColor DarkGray
 Write-Host ''
 Start-Sleep -Milliseconds 700
 
-try { Start-IntuneTide -Theme $Theme }
+try { Start-Graphite -Theme $Theme }
 catch { Write-Host "Demo error: $($_.Exception.Message)" -ForegroundColor Red; Write-Host $_.ScriptStackTrace }

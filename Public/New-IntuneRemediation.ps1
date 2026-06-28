@@ -17,7 +17,7 @@ function New-IntuneRemediation {
         Path to the PowerShell remediation script file (.ps1). Optional.
 
     .PARAMETER Publisher
-        Publisher name (default: 'IntuneTide').
+        Publisher name (default: 'Graphite').
 
     .PARAMETER Description
         Optional description.
@@ -45,7 +45,7 @@ function New-IntuneRemediation {
         [Parameter(Mandatory, Position = 0)][string]$Name,
         [Parameter(Mandatory)][string]$DetectionScript,
         [string]$RemediationScript,
-        [string]$Publisher = 'IntuneTide',
+        [string]$Publisher = 'Graphite',
         [string]$Description,
         [ValidateSet('system','user')][string]$RunAs = 'system',
         [switch]$EnforceSignatureCheck,

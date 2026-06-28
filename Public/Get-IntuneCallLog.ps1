@@ -1,7 +1,7 @@
 function Get-IntuneCallLog {
     <#
     .SYNOPSIS
-        Show the Microsoft Graph calls TIDE has made this session.
+        Show the Microsoft Graph calls GRAPHITE has made this session.
 
     .DESCRIPTION
         Every Graph request flows through one seam that records the method, URL
