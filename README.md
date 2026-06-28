@@ -157,6 +157,14 @@ git clone https://github.com/ajamaya1/IntuneTide.git
 Import-Module ./IntuneTide/IntuneTide.psd1
 ```
 
+### Try it offline (no tenant, no dependencies)
+
+Explore the whole UI with mock data — nothing touches a real tenant:
+
+```powershell
+pwsh -NoProfile -File ./IntuneTide/examples/Invoke-TideDemo.ps1
+```
+
 ## Usage
 
 ```powershell
@@ -170,7 +178,7 @@ Start-IntuneTide -Theme sunset    # green | amber | lego | sunset | ocean | fore
 ```
 
 Inside a table: `↑ ↓ PgUp PgDn Home End` or the **wheel** scroll · `/` searches ·
-`e` exports · `?` shows help · **Enter / click** drills in · `q` goes back.
+`e` exports · `p` pushes to Teams · `?` shows help · **Enter / click** drills in · `q` goes back.
 
 It's also a normal scriptable module:
 
