@@ -2508,14 +2508,17 @@ function Invoke-IaTuiCloudPC {
         }
         'Reports*' {
             Write-IaTuiHeader -Screen 'Cloud PC Reports' -Accent $Accent
-            $rpt = Read-IaMenu -Title 'Report' -Color $Accent -Choices @(
-                'Remote connections', 'Daily aggregate', 'Connection quality', 'Shared PC overview'
+            $rpt = Read-IaMenu -Title 'Report' -Color $Accent -PageSize 7 -Choices @(
+                'Total usage (active hours · connections)', 'Daily aggregate', 'Remote connections',
+                'Connection quality', 'Frontline (shared) utilization', 'Inaccessible Cloud PCs'
             )
             $rptName = switch -Wildcard ($rpt) {
-                'Remote*'     { 'RemoteConnection' }
-                'Daily*'      { 'DailyAggregate' }
-                'Connection*' { 'ConnectionQuality' }
-                'Shared*'     { 'SharedPCOverview' }
+                'Total*'        { 'TotalUsage' }
+                'Daily*'        { 'DailyAggregate' }
+                'Remote*'       { 'RemoteConnection' }
+                'Connection*'   { 'ConnectionQuality' }
+                'Frontline*'    { 'Frontline' }
+                'Inaccessible*' { 'Inaccessible' }
             }
             Invoke-IaStatus -Spinner Dots -Title "Running $rpt report…" -ScriptBlock {
                 Get-IntuneCloudPCReport -Report $rptName

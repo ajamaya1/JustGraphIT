@@ -1291,6 +1291,27 @@ Describe 'Public cmdlets — Cloud PC' {
         }
     }
 
+    It 'Get-IntuneCloudPCReport posts the CSDL-verified report action + reportName' {
+        InModuleScope IntuneTide {
+            $script:capUri = $null; $script:capBody = $null
+            Mock Invoke-IaRequest { $script:capUri = $Uri; $script:capBody = $Body; return [pscustomobject]@{ schema = @(); values = @() } }
+
+            Get-IntuneCloudPCReport -Report TotalUsage | Out-Null
+            $script:capUri | Should -Match 'getTotalAggregatedRemoteConnectionReports$'
+
+            Get-IntuneCloudPCReport -Report ConnectionQuality | Out-Null
+            $script:capUri | Should -Match 'getConnectionQualityReports$'   # NOT getCloudPcRecommendationReports
+
+            Get-IntuneCloudPCReport -Report Frontline | Out-Null
+            $script:capUri              | Should -Match 'getFrontlineReport$'
+            $script:capBody.reportName  | Should -Be 'frontlineLicenseUsageReport'
+
+            Get-IntuneCloudPCReport -Report Inaccessible | Out-Null
+            $script:capUri              | Should -Match 'getInaccessibleCloudPcReports$'
+            $script:capBody.reportName  | Should -Be 'inaccessibleCloudPcReports'
+        }
+    }
+
     It 'Get-IntuneCloudPCProvisioningPolicy queries provisioningPolicies' {
         InModuleScope IntuneTide {
             $uris = [System.Collections.Generic.List[string]]::new()

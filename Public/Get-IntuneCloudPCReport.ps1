@@ -4,15 +4,18 @@ function Get-IntuneCloudPCReport {
         Retrieve Windows 365 usage and quality reports from Graph.
 
     .DESCRIPTION
-        Posts to the Cloud PC report action endpoints, which return a schema and
-        a values matrix. The schema is used as column names to normalize each row
-        into a PSCustomObject. Optionally filter the results by Cloud PC name or id.
+        Posts to the Cloud PC report action endpoints (deviceManagement/virtualEndpoint
+        /reports/*), which return a schema and a values matrix. The schema is used as
+        column names to normalize each row into a PSCustomObject. Optionally filter the
+        results by Cloud PC name or id.
 
-        Report types:
-          RemoteConnection  — remote connection history
-          DailyAggregate    — daily aggregated connection stats
-          ConnectionQuality — per-Cloud-PC quality recommendations
-          SharedPCOverview  — shared Cloud PC tenant policy summary
+        Report types (each verified against the beta cloudPcReports schema):
+          RemoteConnection  — per-session remote connection history
+          DailyAggregate    — daily aggregated usage per Cloud PC
+          TotalUsage        — total aggregated usage (active hours / connection counts)
+          ConnectionQuality — per-session connection quality (round-trip time, region)
+          Frontline         — frontline (shared) Cloud PC license utilization
+          Inaccessible      — Cloud PCs that failed health checks / can't be connected to
 
     .PARAMETER Report
         The report to retrieve.
@@ -22,7 +25,10 @@ function Get-IntuneCloudPCReport {
         any column whose name contains 'CloudPcId' or 'CloudPcName').
 
     .EXAMPLE
-        Get-IntuneCloudPCReport -Report RemoteConnection
+        Get-IntuneCloudPCReport -Report TotalUsage
+
+        Total aggregated usage per Cloud PC — the "how much is each one used / which are
+        idle" view.
 
     .EXAMPLE
         Get-IntuneCloudPCReport -Report DailyAggregate -CloudPC "Alice-W365"
@@ -33,20 +39,25 @@ function Get-IntuneCloudPCReport {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('RemoteConnection', 'DailyAggregate', 'ConnectionQuality', 'SharedPCOverview')]
+        [ValidateSet('RemoteConnection', 'DailyAggregate', 'TotalUsage', 'ConnectionQuality', 'Frontline', 'Inaccessible')]
         [string]$Report,
         [string]$CloudPC
     )
 
-    $actionMap = @{
-        RemoteConnection  = 'reports/getRemoteConnectionHistoricalReports'
-        DailyAggregate    = 'reports/getDailyAggregatedRemoteConnectionReports'
-        ConnectionQuality = 'reports/getCloudPcRecommendationReports'
-        SharedPCOverview  = 'reports/getSharedCloudPcTenantPolicyReports'
+    # action = the bound report function; reportName = the required enum value for the
+    # reports that take one (Frontline / Inaccessible). Verified against the beta CSDL:
+    # cloudPcReports actions + cloudPcReportName / cloudPCInaccessibleReportName enums.
+    $reportMap = @{
+        RemoteConnection  = @{ Action = 'getRemoteConnectionHistoricalReports' }
+        DailyAggregate    = @{ Action = 'getDailyAggregatedRemoteConnectionReports' }
+        TotalUsage        = @{ Action = 'getTotalAggregatedRemoteConnectionReports' }
+        ConnectionQuality = @{ Action = 'getConnectionQualityReports' }
+        Frontline         = @{ Action = 'getFrontlineReport';            ReportName = 'frontlineLicenseUsageReport' }
+        Inaccessible      = @{ Action = 'getInaccessibleCloudPcReports'; ReportName = 'inaccessibleCloudPcReports' }
     }
 
-    $action = $actionMap[$Report]
-    $uri    = Resolve-IaUri (Get-IaW365Path $action)
+    $spec = $reportMap[$Report]
+    $uri  = Resolve-IaUri (Get-IaW365Path "reports/$($spec.Action)")
 
     $body = @{
         filter = ''
@@ -54,6 +65,7 @@ function Get-IntuneCloudPCReport {
         top    = 50
         skip   = 0
     }
+    if ($spec.ReportName) { $body.reportName = $spec.ReportName }   # required by getFrontlineReport / getInaccessibleCloudPcReports
 
     # Resolve filter PC id once if supplied.
     $filterPcId = $null
