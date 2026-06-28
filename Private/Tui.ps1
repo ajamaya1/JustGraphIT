@@ -281,8 +281,8 @@ $script:IaWinPrevInMode = $null   # saved Windows console input mode, restored o
 
 function Add-IaWinConsoleType {
     # P/Invoke shim for the Windows console input mode (no-op everywhere else).
-    if ('IaTideNative.WinConsole' -as [type]) { return }
-    Add-Type -Namespace 'IaTideNative' -Name 'WinConsole' -MemberDefinition @'
+    if ('IaConsoleNative.WinConsole' -as [type]) { return }
+    Add-Type -Namespace 'IaConsoleNative' -Name 'WinConsole' -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)] public static extern System.IntPtr GetStdHandle(int nStdHandle);
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetConsoleMode(System.IntPtr hConsoleHandle, out uint lpMode);
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetConsoleMode(System.IntPtr hConsoleHandle, uint dwMode);
@@ -299,12 +299,12 @@ function Start-IaMouse {
     if ($IsWindows) {
         try {
             Add-IaWinConsoleType
-            $h = [IaTideNative.WinConsole]::GetStdHandle(-10)   # STD_INPUT_HANDLE
+            $h = [IaConsoleNative.WinConsole]::GetStdHandle(-10)   # STD_INPUT_HANDLE
             $m = [uint32]0
-            if ([IaTideNative.WinConsole]::GetConsoleMode($h, [ref]$m)) {
+            if ([IaConsoleNative.WinConsole]::GetConsoleMode($h, [ref]$m)) {
                 $script:IaWinPrevInMode = $m
                 $new = ($m -bor 0x0080 -bor 0x0010 -bor 0x0200) -band (-bnot 0x0040)
-                [void][IaTideNative.WinConsole]::SetConsoleMode($h, [uint32]$new)
+                [void][IaConsoleNative.WinConsole]::SetConsoleMode($h, [uint32]$new)
             }
         } catch { }
     }
@@ -314,8 +314,8 @@ function Stop-IaMouse {
     # Restore the saved Windows console mode and turn SGR mouse reporting off.
     if ($IsWindows -and $null -ne $script:IaWinPrevInMode) {
         try {
-            $h = [IaTideNative.WinConsole]::GetStdHandle(-10)
-            [void][IaTideNative.WinConsole]::SetConsoleMode($h, [uint32]$script:IaWinPrevInMode)
+            $h = [IaConsoleNative.WinConsole]::GetStdHandle(-10)
+            [void][IaConsoleNative.WinConsole]::SetConsoleMode($h, [uint32]$script:IaWinPrevInMode)
         } catch { }
         $script:IaWinPrevInMode = $null
     }
@@ -513,7 +513,7 @@ function Write-IaRule {
     }
 }
 
-# 5-row block glyphs for the JUSTGRAPHIT banner; anything else falls back to a bold rule.
+# 5-row block glyphs for the JustGraphIT banner; anything else falls back to a bold rule.
 $script:IaFiglet = @{
     'T' = @('█████', '  █  ', '  █  ', '  █  ', '  █  ')
     'I' = @('█████', '  █  ', '  █  ', '  █  ', '█████')
@@ -1159,7 +1159,7 @@ function Invoke-IaExport {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Data,
-        [string]$Stem  = 'JUSTGRAPHIT-export',
+        [string]$Stem  = 'justgraphit-export',
         [string]$Color = 'turquoise2'
     )
     $clean = @($Data | ForEach-Object {
@@ -1229,7 +1229,7 @@ function Read-IaTableInteractive {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Data,
         [string]$Color     = 'grey',
         [string]$Title     = '',
-        [string]$Stem      = 'JUSTGRAPHIT-export',
+        [string]$Stem      = 'justgraphit-export',
         [switch]$Selectable,
         # Columns to drop from the RENDER and EXPORT while leaving them on the row
         # object selection returns — e.g. hide a real grant id (show a masked one) but
@@ -1599,7 +1599,7 @@ function Read-IaTablePause {
     [CmdletBinding()]
     param(
         [object[]]$Data,
-        [string]$Stem  = 'JUSTGRAPHIT-export',
+        [string]$Stem  = 'justgraphit-export',
         [string]$Color = 'turquoise2',
         [string]$Title = '',
         [switch]$NoExport

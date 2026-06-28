@@ -1,19 +1,19 @@
 <#
 .SYNOPSIS
-    Run the JUSTGRAPHIT terminal UI offline with mock data — no tenant, no Microsoft.Graph
+    Run the JustGraphIT terminal UI offline with mock data — no tenant, no Microsoft.Graph
     module, no permissions required.
 
 .DESCRIPTION
-    Stubs the three Microsoft Graph entry points JUSTGRAPHIT uses (Get-MgContext,
+    Stubs the three Microsoft Graph entry points JustGraphIT uses (Get-MgContext,
     Connect-MgGraph, Invoke-MgGraphRequest) with a small in-memory fixture, imports the
     module from this repo, and launches the interactive UI. Everything you see is fake
     sample data, so you can click around every screen safely.
 
-    To use JUSTGRAPHIT against a real tenant instead, skip this file:
+    To use JustGraphIT against a real tenant instead, skip this file:
         Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
         Import-Module ./JustGraphIT.psd1
         Connect-JustGraphIT        # interactive / device-code / app-only
-        Start-JustGraphIT          # or the `JUSTGRAPHIT` alias
+        Start-JustGraphIT          # or the `jgi` alias
 
 .EXAMPLE
     pwsh -NoProfile -File ./examples/Invoke-JustGraphITDemo.ps1
@@ -175,7 +175,7 @@ $manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'JustGraphIT.psd1'
 Import-Module $manifest -Force
 
 Write-Host ''
-Write-Host '  ≈ JUSTGRAPHIT — offline demo' -ForegroundColor Cyan
+Write-Host '  ≈ JustGraphIT — offline demo' -ForegroundColor Cyan
 Write-Host '  Sample/mock data only — nothing here touches a real tenant.' -ForegroundColor DarkGray
 Write-Host '  Arrow keys / Enter to navigate · q or Esc to go back · Quit from the main menu.' -ForegroundColor DarkGray
 Write-Host ''

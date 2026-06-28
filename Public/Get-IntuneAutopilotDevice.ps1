@@ -41,7 +41,7 @@ function Get-IntuneAutopilotDevice {
     # NOTE: windowsAutopilotDeviceIdentities returns 500 InternalServerError on
     # server-side $orderby in many tenants, so we sort client-side instead.
     $query = 'deviceManagement/windowsAutopilotDeviceIdentities'
-    if ($filter) { $query += '?$filter=' + ($filter -join ' and ') }
+    if ($filter) { $query += '?$filter=' + [uri]::EscapeDataString($filter -join ' and ') }
 
     $devices = @(Get-IaCollection (Resolve-IaUri $query)) | Sort-Object serialNumber
     foreach ($d in $devices) {

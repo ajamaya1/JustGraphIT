@@ -1,0 +1,82 @@
+TOPIC
+    about_JustGraphIT
+
+SHORT DESCRIPTION
+    JustGraphIT — inspect, manage and report on Microsoft Intune AND Entra ID
+    (Azure AD) from a cross-platform terminal UI, built directly on Microsoft
+    Graph. No portal, no Out-GridView, no external TUI dependency.
+
+LONG DESCRIPTION
+    JustGraphIT is a cross-platform PowerShell module (macOS / Windows / Linux
+    under pwsh 7+) built on the Microsoft Graph PowerShell SDK. It answers the
+    questions the Intune and Entra portals make slow — what is assigned, to
+    which groups, did it deploy, who has which roles, which apps hold risky
+    consent — and lets you ACT on the answers (assign, mirror, create groups,
+    revoke consent, manage devices and identities) and report/audit at scale.
+
+    The interactive UI is rendered by a self-contained ANSI engine (in
+    Private/Tui.ps1) — there is NO Spectre.Console or other external terminal-UI
+    dependency. Tables scroll and search, export (CSV / Excel / JSON), and push
+    to a Teams webhook; secret-bearing views (BitLocker keys, LAPS passwords)
+    deliberately disable export.
+
+    Launch the TUI with `Start-JustGraphIT` or the alias `jgi`.
+
+GETTING STARTED
+    # Install the one prerequisite (once)
+    Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+
+    Import-Module ./JustGraphIT/JustGraphIT.psd1
+    Connect-JustGraphIT -UseDeviceCode
+    jgi                                    # or: Start-JustGraphIT
+
+INTUNE — ASSIGNMENTS & DEPLOYMENT
+    Get-IntuneAssignment -AssignedOnly | Format-Table Area, Name, AssignedTo
+    Get-IntuneGroupAssignment -Group "All Workstations"
+    Compare-IntuneAssignment -GroupA Pilot -GroupB Prod
+    Get-IntuneEffectiveAssignment -User jdoe@contoso.com | Where-Object Effective
+    Copy-IntuneAssignment -FromGroup Pilot -ToGroup Prod -Area Configuration -WhatIf
+    Add-IntuneBulkAssignment -Group "All Macs" -Area Compliance -WhatIf
+
+INTUNE — REPORTING & STATUS
+    Get-IntuneAppInstallStatus -App "Microsoft Edge" | Where-Object Status -eq failed
+    Get-IntuneComplianceStatus -Policy "Win 11 Corp Compliance" -Status noncompliant
+    Get-IntuneDeploymentSummary -Group "All Workstations" -FailuresOnly
+    Get-IntuneReportCatalog
+    Export-IntuneReport -Name DeviceNonCompliance -As Csv -Path noncompliant.csv
+
+ENTRA ID — IDENTITY, APPS & SECURITY
+    Get-EntraUser -StartsWith EX | Export-Csv ex-users.csv
+    Get-EntraInactiveUser -Days 90
+    Get-EntraAppPermission -App "Backup Service"        # delegated + app consent
+    Get-EntraExpiringSecret -Days 30                    # app credential hygiene
+    Get-EntraRiskyUser -AtRiskOnly
+    Get-EntraConditionalAccessPolicy
+    Get-EntraRoleAssignment                             # who is admin
+
+ENTRA ID — ACTIONS
+    The TUI gates every write behind an explicit confirmation. Examples of the
+    underlying cmdlets:
+    Set-EntraDevice -Device LAPTOP-01 -AccountEnabled $false
+    New-EntraRoleDefinition -Name 'App Reg Support' -AllowedResourceAction ...
+    Restore-EntraDeletedItem -Id <id>                   # 30-day recycle bin
+    Get-EntraBitLockerKey -DeviceId <id> -Reveal        # audited
+    Remove-EntraOAuth2Grant -GrantId <id>               # revoke risky consent
+
+AUDITING & EXPORT
+    Get-IntuneAuditLog -Since 7d -Activity Assign
+    Get-IntuneAssignmentAudit -CheckEmptyGroups
+    Export-IntuneAssignmentReport -Format Html -Path assignments.html
+    Send-IntuneReportToTeams -Data $rows -Title 'Weekly drift'   # Teams webhook
+
+GRAPH PERMISSIONS
+    Reads need DeviceManagementConfiguration.Read.All,
+    DeviceManagementApps.Read.All, DeviceManagementServiceConfig.Read.All,
+    Group.Read.All, Directory.Read.All, Policy.Read.All. Writes need the
+    matching *.ReadWrite.All scopes (requested by Connect-JustGraphIT by
+    default). All calls go to the Microsoft Graph beta endpoint.
+
+SEE ALSO
+    Get-Help Start-JustGraphIT -Examples
+    Get-Help Export-IntuneReport -Full
+    Get-Command -Module JustGraphIT

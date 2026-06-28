@@ -84,8 +84,8 @@ function Get-IaTenantSlug {
 
 function Get-IaBackupName {
     # Standard, sortable backup name so callers never have to invent one.
-    # e.g. intunetide-assignments-contoso-2026-06-25-1430.json
-    param([string]$Prefix = 'intunetide-assignments', [string]$Extension = 'json')
+    # e.g. justgraphit-assignments-contoso-2026-06-25-1430.json
+    param([string]$Prefix = 'justgraphit-assignments', [string]$Extension = 'json')
     $stamp = (Get-Date).ToString('yyyy-MM-dd-HHmm')
     $slug  = Get-IaTenantSlug
     $name  = if ($slug) { "$Prefix-$slug-$stamp" } else { "$Prefix-$stamp" }
@@ -95,7 +95,7 @@ function Get-IaBackupName {
 function Find-IaLatestBackup {
     # Newest backup in a directory matching the standard naming scheme — used to
     # pre-fill restore/drift prompts so the common case is one keypress.
-    param([string]$Directory = '.', [string]$Prefix = 'intunetide-assignments', [string]$Extension = 'json')
+    param([string]$Directory = '.', [string]$Prefix = 'justgraphit-assignments', [string]$Extension = 'json')
     Get-ChildItem -Path $Directory -Filter "$Prefix-*.$Extension" -File -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 }
@@ -103,7 +103,7 @@ function Find-IaLatestBackup {
 function Find-IaLatestConfigBackup {
     # Newest full-config backup *folder* (Backup-IntuneConfig output), to pre-fill
     # the restore prompt.
-    param([string]$Directory = '.', [string]$Prefix = 'intunetide-config')
+    param([string]$Directory = '.', [string]$Prefix = 'justgraphit-config')
     Get-ChildItem -Path $Directory -Directory -Filter "$Prefix-*" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 }

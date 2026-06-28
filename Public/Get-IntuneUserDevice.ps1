@@ -26,11 +26,13 @@ function Get-IntuneUserDevice {
         [Parameter(Mandatory)][string]$User
     )
 
-    $esc    = $User -replace "'", "''"
+    # Double the apostrophes (OData literal) AND URL-encode the whole clause so a UPN
+    # containing # / & / % cannot truncate or reshape the query (cross-user disclosure).
+    $f      = "userPrincipalName eq '$($User -replace "'", "''")'"
     $select = 'id,deviceName,operatingSystem,osVersion,complianceState,' +
               'managedDeviceOwnerType,lastSyncDateTime,manufacturer,model,' +
               'serialNumber,isEncrypted,enrolledDateTime'
-    $devices = Get-IaCollection "deviceManagement/managedDevices?`$filter=userPrincipalName eq '$esc'&`$select=$select"
+    $devices = Get-IaCollection "deviceManagement/managedDevices?`$filter=$([uri]::EscapeDataString($f))&`$select=$select"
 
     foreach ($d in $devices) {
         [pscustomobject][ordered]@{

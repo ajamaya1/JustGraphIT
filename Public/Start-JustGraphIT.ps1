@@ -20,7 +20,10 @@ function Start-JustGraphIT {
     param([ValidateSet('green', 'amber', 'lego', 'deepsea', 'sunset', 'ocean', 'forest', 'mono')][string]$Theme = 'deepsea')
 
     if ($PSVersionTable.PSVersion.Major -lt 7) {
-        throw "The JUSTGRAPHIT TUI requires PowerShell 7+ (you are on $($PSVersionTable.PSVersion))."
+        throw "The JustGraphIT TUI requires PowerShell 7+ (you are on $($PSVersionTable.PSVersion))."
+    }
+    if (-not (Get-Command Get-MgContext -ErrorAction SilentlyContinue)) {
+        throw "JustGraphIT needs the Microsoft Graph authentication module. Install it once:`n    Install-Module Microsoft.Graph.Authentication -Scope CurrentUser"
     }
     if (-not (Get-MgContext)) {
         Write-IaHost "[yellow]Not connected.[/] Starting device-code sign-in…"
@@ -68,11 +71,11 @@ function Start-JustGraphIT {
         Clear-IaHost
         Write-IaFiglet -Text 'JUSTGRAPHIT' -Color $accent
         Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev"
-        Write-IaRule -Title 'JUSTGRAPHIT · microsoft intune & entra management' -Color $accent
+        Write-IaRule -Title 'JustGraphIT · microsoft intune & entra management' -Color $accent
     }
 
     Show-IaTuiSplash
-    # One-time inventory load: stream the live Graph calls as they happen (JUSTGRAPHIT logs
+    # One-time inventory load: stream the live Graph calls as they happen (JustGraphIT logs
     # every Invoke-MgGraphRequest via Add-IaCall), then wipe to a clean workspace so
     # each screen renders as a tidy bordered table instead of below a wall of GET lines.
     if ($null -eq $script:IaTuiInventory) {
@@ -367,7 +370,7 @@ function Select-IaBackupPath {
     # directory, newest first, with a "✎ Type a path…" escape hatch. Returns the
     # full path, a typed path, or $null when cancelled.
     param([string]$Accent, [string]$Title = 'Which snapshot?',
-          [string]$Prefix = 'intunetide-assignments', [string]$Extension = 'json',
+          [string]$Prefix = 'justgraphit-assignments', [string]$Extension = 'json',
           [string]$Glob, [switch]$Directory)
     $filter = if ($Glob) { $Glob } else { "$Prefix-*.$Extension" }
     $items = if ($Directory) {
@@ -391,8 +394,8 @@ function Select-IaBackupPath {
 function Write-IaTuiHeader {
     param([string]$Screen, [string]$Sub = '', [string]$Accent)
     Clear-IaHost
-    try { $host.UI.RawUI.WindowTitle = "JUSTGRAPHIT — $Screen" } catch { }
-    Write-IaHost "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· $Screen[/]"
+    try { $host.UI.RawUI.WindowTitle = "JustGraphIT — $Screen" } catch { }
+    Write-IaHost "[$Accent]≈ JustGraphIT[/]  [bold]· $Screen[/]"
     if ($Sub) {
         Write-IaHost "[grey]$Sub[/]"
     } elseif ($script:IaTuiAccount) {
@@ -1710,7 +1713,7 @@ function Invoke-IaTuiDeviceCard {
         $cs = "$($detail.ComplianceState)"
         $cc = if ($cs -eq 'compliant') { $Accent } elseif ($cs -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
         $hdr = [System.Collections.Generic.List[string]]::new()
-        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· Device card[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· Device card[/]"))
         $hdr.Add((ConvertFrom-IaMarkup "[grey]$($detail.Device)[/]  ·  [$cc]$cs[/]"))
         $hdr.Add('')
         $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'OS',      "$($detail.OS) $($detail.OSVersion)")))
@@ -2459,7 +2462,12 @@ function Invoke-IaTuiEntraAppManage {
                         }
                     }
                     'Grant admin*' {
-                        if (Read-IaConfirm "[red]Grant tenant-wide admin consent for everything '$appName' requests?[/]") {
+                        # Name the dangerous scopes BEFORE the confirm — the cmdlet's own warning
+                        # fires mid-spinner, after the decision, and can be overwritten on screen.
+                        $req  = @(Invoke-IaStatus -Spinner Dots -Title 'Checking requested permissions…' -ScriptBlock { Get-EntraAppRequestedPermission -App $appId })
+                        $high = @($req | Where-Object { Test-EntraHighRiskPermission -Name $_.Permission } | ForEach-Object { $_.Permission } | Sort-Object -Unique)
+                        $warn = if ($high.Count) { "[red]⚠ Includes tenant-takeover-class scope(s): $($high -join ', ').[/] " } else { '' }
+                        if (Read-IaConfirm "$warn[red]Grant tenant-wide admin consent for everything '$appName' requests?[/]") {
                             $res = @(Invoke-IaStatus -Spinner Dots -Title 'Granting admin consent…' -ScriptBlock { Grant-EntraAdminConsent -App $appId -Confirm:$false })
                             if ($res) { Read-IaTablePause -Data $res -Color $Accent -Title "Consent results · $appName" -Stem 'appreg-consent' | Out-Null }
                             else { Write-IaHost '[yellow]Nothing to consent.[/]'; Read-IaPause | Out-Null }
@@ -2476,7 +2484,7 @@ function Invoke-IaTuiEntraAppManage {
                         if (-not $life) { continue }
                         $mo  = [int]($life -replace '\D')
                         $nm  = Read-IaText -Question 'Secret description (blank = default)'
-                        if (Read-IaConfirm "Add a $mo-month client secret to ${appName}?") {
+                        if (Read-IaConfirm "[red]Add a $mo-month client secret to '$appName'? It is a credential shown once.[/]") {
                             $p = @{ App = $appId; Months = $mo; Confirm = $false }; if ($nm) { $p.DisplayName = $nm }
                             $sec = New-EntraAppSecret @p
                             Write-IaHost "[$Accent]✓ Secret created — copy it NOW (Graph won't show it again):[/]"
@@ -3157,7 +3165,7 @@ function Invoke-IaTuiUserActions {
                 'Enable account'  { if (Read-IaConfirm "Enable ${Upn}?")          { Set-EntraUser -User $Upn -AccountEnabled $true  -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Enabled.[/]" } }
                 'Disable account' { if (Read-IaConfirm "[red]Disable ${Upn}?[/]")  { Set-EntraUser -User $Upn -AccountEnabled $false -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Disabled.[/]" } }
                 'Reset password*' {
-                    if (Read-IaConfirm "Reset password for ${Upn}?") {
+                    if (Read-IaConfirm "[red]Reset password for '$Upn'? Their current password stops working immediately.[/]") {
                         $r = Reset-EntraUserPassword -User $Upn -Confirm:$false
                         Write-IaHost "[$Accent]✓ Temporary password:[/] [white]$($r.TempPassword)[/]  [grey](must change at next sign-in)[/]"
                     }
@@ -3268,7 +3276,7 @@ function Invoke-IaTuiUserLookup {
             $compliant = @($uDevices | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
 
             $hdr = [System.Collections.Generic.List[string]]::new()
-            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· User lookup[/]"))
+            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· User lookup[/]"))
             $hdr.Add((ConvertFrom-IaMarkup "[grey]$upn[/]"))
             $hdr.Add('')
             $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]  [grey]({2} compliant)[/]" -f 'Devices',  $uDevices.Count, $compliant)))
@@ -3569,7 +3577,7 @@ function Invoke-IaTuiReports {
                         # Render the detail block into the menu's -Header so it stays on
                         # screen — Read-IaMenu repaints full-screen and would otherwise wipe it.
                         $hdr = [System.Collections.Generic.List[string]]::new()
-                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· Device detail[/]"))
+                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· Device detail[/]"))
                         $hdr.Add((ConvertFrom-IaMarkup "[grey]$devName[/]"))
                         $hdr.Add('')
                         foreach ($kv in $fields.GetEnumerator()) {
@@ -4038,7 +4046,7 @@ function Get-IaReportPanel {
     # Build the recipe-summary header repainted above the builder menu each frame.
     param([string]$Accent, [string]$SourceName, [int]$RowCount, $Recipe)
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add((ConvertFrom-IaMarkup "[$Accent]≈ JUSTGRAPHIT[/]  [bold]· Custom report builder[/]"))
+    $lines.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· Custom report builder[/]"))
     $lines.Add((ConvertFrom-IaMarkup "[grey]build a report: select · where · sort · group · export[/]"))
     $lines.Add((ConvertFrom-IaMarkup ("[darkslategray1]" + ('─' * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
 
@@ -4217,7 +4225,7 @@ function Invoke-IaTuiReportBuilder {
             'Save report definition' {
                 $name = Read-IaText -Question 'Report name' -DefaultAnswer 'my-report'
                 $safe = ($name -replace '[^\w-]', '-')
-                $path = Join-Path ([Environment]::GetFolderPath('UserProfile')) "JUSTGRAPHIT-report-$safe.json"
+                $path = Join-Path ([Environment]::GetFolderPath('UserProfile')) "JustGraphIT-report-$safe.json"
                 $def  = [pscustomobject]@{ Source = $srcName; Recipe = $recipe; SavedBy = 'JustGraphIT'; Version = 1 }
                 try {
                     $def | ConvertTo-Json -Depth 6 | Set-Content -Path $path -Encoding UTF8
@@ -4227,7 +4235,7 @@ function Invoke-IaTuiReportBuilder {
             }
             'Load report definition' {
                 $userHome = [Environment]::GetFolderPath('UserProfile')
-                $defs = @(Get-ChildItem -Path $userHome -Filter 'JUSTGRAPHIT-report-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+                $defs = @(Get-ChildItem -Path $userHome -Filter 'JustGraphIT-report-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
                 $path = $null
                 if ($defs) {
                     $choice = Read-IaMenu -Title 'Load which report?' -Color $Accent -PageSize 15 -Choices (@($defs | ForEach-Object { $_.Name }) + 'Type a path…')
@@ -4289,7 +4297,7 @@ function Invoke-IaTuiBackup {
             Write-IaHost "[$Accent]Backed up[/] $($snap.count) resource(s) → $p"
         }
         'Backup full config*' {
-            $p = Read-IaText -Question 'Backup folder' -DefaultAnswer (Get-IaBackupName -Prefix 'intunetide-config' -Extension '')
+            $p = Read-IaText -Question 'Backup folder' -DefaultAnswer (Get-IaBackupName -Prefix 'justgraphit-config' -Extension '')
             Write-IaTuiHeader -Screen 'Full config backup' -Sub "→ $p (one file per config)" -Accent $Accent
             $res = Invoke-IaStatus -Spinner Dots -Title 'Exporting every config…' -ScriptBlock {
                 $ProgressPreference = 'SilentlyContinue'
@@ -4327,7 +4335,7 @@ function Invoke-IaTuiBackup {
             if ($mode -like 'Apply*') { $script:IaTuiInventory = $null }
         }
         'Restore full config*' {
-            $p = Select-IaBackupPath -Accent $Accent -Title 'Backup folder to restore' -Prefix 'intunetide-config' -Directory
+            $p = Select-IaBackupPath -Accent $Accent -Title 'Backup folder to restore' -Prefix 'justgraphit-config' -Directory
             if ([string]::IsNullOrWhiteSpace($p)) { return }
             $mode = Read-IaMenu -Title 'Restore mode' -Color $Accent -Choices @('Preview only (no changes)', 'Apply now')
             $create = Read-IaMenu -Title 'Re-create configs that were deleted?' -Color $Accent `
@@ -4436,6 +4444,7 @@ function Invoke-IaTuiCloudPC {
                     $plans = Invoke-IaStatus -Spinner Dots -Title 'Loading service plans…' -ScriptBlock { Get-IntuneCloudPCServicePlan }
                     $planChoice = Read-IaMenu -Title 'Target service plan' -Color $Accent `
                         -Choices @($plans | ForEach-Object { "$($_.vCPU)vCPU / $($_.RAM)GB RAM / $($_.Storage)GB  —  $($_.Name)" })
+                    if (-not $planChoice) { return }   # Esc → cancel (IndexOf($null) would pick the last plan)
                     $planIndex  = @($plans | ForEach-Object { "$($_.vCPU)vCPU / $($_.RAM)GB RAM / $($_.Storage)GB  —  $($_.Name)" }).IndexOf($planChoice)
                     $extraParams.ServicePlanId = $plans[$planIndex].Id
                 }
@@ -4449,10 +4458,16 @@ function Invoke-IaTuiCloudPC {
                     if (-not $snaps) { Write-IaHost '[yellow]No snapshots found for this Cloud PC.[/]'; return }
                     $snapChoice = Read-IaMenu -Title 'Restore from snapshot' -Color $Accent `
                         -Choices @($snaps | ForEach-Object { "$($_.CreatedAt)  ($($_.SnapshotType))" })
+                    if (-not $snapChoice) { return }   # Esc → cancel (else IndexOf($null) rolls back to the LAST snapshot)
                     $snapIndex  = @($snaps | ForEach-Object { "$($_.CreatedAt)  ($($_.SnapshotType))" }).IndexOf($snapChoice)
                     $extraParams.SnapshotId = $snaps[$snapIndex].Id
                 }
             }
+            # -Confirm:$false suppresses the cmdlet's own prompt, so gate here. Reprovision /
+            # Restore / EndGracePeriod rebuild or roll back the Cloud PC and destroy data.
+            $irrev = $action -in @('Reprovision', 'Restore', 'EndGracePeriod')
+            $cmsg  = if ($irrev) { "[red]$action '$pcName'? This is IRREVERSIBLE — it rebuilds or rolls back the Cloud PC and DESTROYS current data.[/]" } else { "Run '$action' on '$pcName'?" }
+            if (-not (Read-IaConfirm $cmsg)) { Write-IaHost '[grey]Cancelled.[/]'; return }
             Write-IaTuiHeader -Screen "Cloud PC action: $action" -Sub $pcName -Accent $Accent
             $result = Invoke-IntuneCloudPCAction -CloudPC $pcName -Action $action @extraParams -Confirm:$false
             if ($result.Submitted) {
@@ -4476,6 +4491,7 @@ function Invoke-IaTuiCloudPC {
                     $imgs  = Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock { Get-IntuneCloudPCImage }
                     $imgC  = Read-IaMenu -Title 'OS image' -Color $Accent `
                         -Choices @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" })
+                    if (-not $imgC) { return }   # Esc → cancel (else IndexOf($null) picks the last image)
                     $imgIdx= @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" }).IndexOf($imgC)
                     $img   = $imgs[$imgIdx]
                     $join  = Read-IaMenu -Title 'Azure AD join type' -Color $Accent `
@@ -4493,6 +4509,8 @@ function Invoke-IaTuiCloudPC {
                     $pols = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCProvisioningPolicy }
                     $polC = Read-IaMenu -Title 'Policy to delete' -Color $Accent `
                         -Choices @($pols | ForEach-Object { $_.Name })
+                    if (-not $polC) { return }
+                    if (-not (Read-IaConfirm "[red]Delete provisioning policy '$polC'? New Cloud PC provisioning will stop using it.[/]")) { return }
                     Remove-IntuneCloudPCProvisioningPolicy -Policy $polC -Confirm:$false
                     Write-IaHost "[$Accent]Deleted[/] $polC"
                 }

@@ -37,8 +37,10 @@ function Get-IntuneUserSignIn {
         [ValidateRange(1, 100)][int]$Top = 20
     )
 
-    $esc  = $User -replace "'", "''"
-    $resp = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "auditLogs/signIns?`$filter=userPrincipalName eq '$esc'&`$top=$Top&`$orderby=createdDateTime desc")
+    # Double the apostrophes (OData literal) AND URL-encode the whole clause so a UPN
+    # containing # / & / % cannot truncate or reshape the query (cross-user disclosure).
+    $f    = "userPrincipalName eq '$($User -replace "'", "''")'"
+    $resp = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "auditLogs/signIns?`$filter=$([uri]::EscapeDataString($f))&`$top=$Top&`$orderby=createdDateTime desc")
 
     foreach ($s in @($resp.value)) {
         $err     = [int]($s.status.errorCode)

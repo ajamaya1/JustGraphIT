@@ -59,9 +59,10 @@ function Get-IntuneAuditLog {
         $dt = ConvertTo-IaDateTime $Since
         $filters += "activityDateTime ge $($dt.ToString('o'))"
     }
-    if ($Category) { $filters += "category eq '$Category'" }
+    if ($Category) { $filters += "category eq '$($Category -replace "'", "''")'" }
     $q = 'deviceManagement/auditEvents?$orderby=activityDateTime desc'
-    if ($filters) { $q += '&$filter=' + ($filters -join ' and ') }
+    # Quote-doubled above (OData literal) + URL-encode the assembled filter (URL structure).
+    if ($filters) { $q += '&$filter=' + [uri]::EscapeDataString($filters -join ' and ') }
 
     $events = Get-IaCollection $q
     $n = 0

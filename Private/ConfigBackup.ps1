@@ -48,7 +48,7 @@ function Get-IaFullResource {
     catch { $full = $Item.Raw }
     $snap = ConvertTo-IaAssignmentSnapshot -Item $Item
     [pscustomobject][ordered]@{
-        schema       = 'intunetide/config-backup/1'
+        schema       = 'justgraphit/config-backup/1'
         resourceType = $Item.ResourceType
         area         = $Item.Area
         id           = $Item.Id
@@ -122,6 +122,6 @@ function Read-IaConfigBackup {
         Where-Object { $_.Name -ne 'manifest.json' }
     foreach ($f in $files) {
         $rec = Get-Content -Path $f.FullName -Raw | ConvertFrom-Json
-        if ($rec.schema -eq 'intunetide/config-backup/1') { $rec }
+        if ($rec.schema -eq 'justgraphit/config-backup/1') { $rec }
     }
 }
