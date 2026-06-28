@@ -201,6 +201,16 @@
         'Grant-EntraAdminConsent',
         'New-EntraGuestInvitation',
         'New-EntraTeam',
+        # --- app-registration lifecycle (Phase 2) ---
+        'New-EntraAppRegistration',
+        'Set-EntraAppRegistration',
+        'Remove-EntraAppRegistration',
+        'New-EntraAppSecret',
+        'Add-EntraAppRedirectUri',
+        'Remove-EntraAppRedirectUri',
+        'Get-EntraAppOwner',
+        'Add-EntraAppOwner',
+        'Remove-EntraAppOwner',
         # --- app governance / hygiene reports ---
         'Get-EntraExpiringSecret',
         'Get-EntraAppWithoutOwner',

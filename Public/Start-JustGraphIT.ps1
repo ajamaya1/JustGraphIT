@@ -1879,7 +1879,8 @@ function Invoke-IaTuiEntraApps {
     # App registration / enterprise-app governance reports.
     param([string]$Accent)
     while ($true) {
-        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 12 -Choices @(
+        $m = Read-IaMenu -Title 'App registrations & governance' -Color $Accent -PageSize 13 -Choices @(
+            'Create a new app registration',
             'Manage an app registration (permissions · consent)',
             'All app registrations (secret/cert expiry)',
             'Expiring secrets & certs (next 30 days)',
@@ -1893,6 +1894,7 @@ function Invoke-IaTuiEntraApps {
         )
         if (-not $m -or $m -eq 'Back') { return }
         switch -Wildcard ($m) {
+            'Create a new app*'          { Invoke-IaTuiEntraCreateApp -Accent $Accent }
             'Manage an app*'             { Invoke-IaTuiEntraAppManage -Accent $Accent }
             'All app*'                   { Invoke-IaTuiReportView -Accent $Accent -Title 'App registrations' -Stem 'entra-appregs' -Loader { Get-EntraAppRegistration } }
             'Expiring secrets*'          { Invoke-IaTuiReportView -Accent $Accent -Title 'Expiring secrets/certs (30d)' -Stem 'entra-expiring' -Loader { Get-EntraExpiringSecret -Days 30 } }
@@ -1971,9 +1973,11 @@ function Invoke-IaTuiEntraAppManage {
         if (-not $picked) { return }
         $appId = $picked.Id; $appName = $picked.DisplayName
         while ($true) {
-            $act = Read-IaMenu -Title "App registration · $appName" -Color $Accent -PageSize 8 -Choices @(
+            $act = Read-IaMenu -Title "App registration · $appName" -Color $Accent -PageSize 13 -Choices @(
                 'View current API permissions', 'Add an API permission', 'Remove an API permission',
-                'Grant admin consent (tenant-wide)', 'Create enterprise app (service principal)', 'Back')
+                'Grant admin consent (tenant-wide)', 'Add a client secret', 'Manage redirect URIs',
+                'Owners (view / add / remove)', 'Update (name / sign-in audience)',
+                'Create enterprise app (service principal)', 'Delete this app registration', 'Back')
             if (-not $act -or $act -eq 'Back') { break }
             try {
                 switch -Wildcard ($act) {
@@ -2016,10 +2020,101 @@ function Invoke-IaTuiEntraAppManage {
                             Write-IaHost "[$Accent]✓ Done.[/]"; Read-IaPause | Out-Null
                         }
                     }
+                    'Add a client secret' {
+                        $life = Read-IaMenu -Title 'Secret lifetime' -Color $Accent -Choices @('6 months', '12 months', '24 months')
+                        if (-not $life) { continue }
+                        $mo  = [int]($life -replace '\D')
+                        $nm  = Read-IaText -Question 'Secret description (blank = default)'
+                        if (Read-IaConfirm "Add a $mo-month client secret to ${appName}?") {
+                            $p = @{ App = $appId; Months = $mo; Confirm = $false }; if ($nm) { $p.DisplayName = $nm }
+                            $sec = New-EntraAppSecret @p
+                            Write-IaHost "[$Accent]✓ Secret created — copy it NOW (Graph won't show it again):[/]"
+                            Write-IaHost "  [yellow]$($sec.Secret)[/]"
+                            Write-IaHost "  [grey]id $($sec.SecretId) · expires $($sec.Expires)[/]"
+                            Read-IaPause | Out-Null
+                        }
+                    }
+                    'Manage redirect*' {
+                        $plat = Read-IaMenu -Title 'Platform' -Color $Accent -Choices @('Web', 'Spa', 'PublicClient')
+                        if (-not $plat) { continue }
+                        $op = Read-IaMenu -Title "Redirect URIs · $plat" -Color $Accent -Choices @('Add a URI', 'Remove a URI', 'Back')
+                        if ($op -eq 'Add a URI') {
+                            $uri = Read-IaText -Question "New $plat redirect URI"
+                            if ($uri -and (Read-IaConfirm "Add '$uri' ($plat) to ${appName}?")) {
+                                Add-EntraAppRedirectUri -App $appId -Uri $uri -Platform $plat -Confirm:$false | Out-Null
+                                Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null
+                            }
+                        } elseif ($op -eq 'Remove a URI') {
+                            $prop = $plat.ToLower()
+                            $cur  = Invoke-IaStatus -Spinner Dots -Title 'Loading redirect URIs…' -ScriptBlock { Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "applications/${appId}?`$select=$prop") }
+                            $uris = @($cur.$prop.redirectUris | ForEach-Object { [pscustomobject]@{ RedirectUri = $_ } })
+                            if (-not $uris) { Write-IaHost "[yellow]No $plat redirect URIs.[/]"; Read-IaPause | Out-Null; continue }
+                            $pk = Read-IaTableInteractive -Data $uris -Color $Accent -Selectable -Title "$plat redirect URIs ($($uris.Count)) · Enter = remove" -Stem 'appreg-uri-rm'
+                            if ($pk -and (Read-IaConfirm "[red]Remove '$($pk.RedirectUri)'?[/]")) {
+                                Remove-EntraAppRedirectUri -App $appId -Uri $pk.RedirectUri -Platform $plat -Confirm:$false | Out-Null
+                                Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null
+                            }
+                        }
+                    }
+                    'Owners*' {
+                        $op = Read-IaMenu -Title "Owners · $appName" -Color $Accent -Choices @('View owners', 'Add an owner', 'Remove an owner', 'Back')
+                        switch -Wildcard ($op) {
+                            'View*' { Invoke-IaTuiReportView -Accent $Accent -Title "Owners · $appName" -Stem 'appreg-owners' -Loader { Get-EntraAppOwner -App $appId } }
+                            'Add*'  {
+                                $u = Select-IaUser -Accent $Accent -Title 'Add which owner?'
+                                if ($u -and (Read-IaConfirm "Make $u an owner of ${appName}?")) { Add-EntraAppOwner -App $appId -Owner $u -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Added.[/]"; Read-IaPause | Out-Null }
+                            }
+                            'Remove*' {
+                                $owners = @(Invoke-IaStatus -Spinner Dots -Title 'Loading owners…' -ScriptBlock { Get-EntraAppOwner -App $appId })
+                                if (-not $owners) { Write-IaHost '[yellow]No owners.[/]'; Read-IaPause | Out-Null; continue }
+                                $od = @($owners | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; UPN = $_.UPN; Id = $_.Id } })
+                                $po = Read-IaTableInteractive -Data $od -Color $Accent -Selectable -Title "Owners ($($od.Count)) · Enter = remove" -Stem 'appreg-owner-rm'
+                                if ($po -and (Read-IaConfirm "[red]Remove owner $($po.Name) from ${appName}?[/]")) { Remove-EntraAppOwner -App $appId -Owner $po.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Removed.[/]"; Read-IaPause | Out-Null }
+                            }
+                        }
+                    }
+                    'Update*' {
+                        $nn = Read-IaText -Question 'New display name (blank = keep)'
+                        if ($nn -and (Read-IaConfirm "Rename '$appName' to '$nn'?")) {
+                            Set-EntraAppRegistration -App $appId -DisplayName $nn -Confirm:$false | Out-Null
+                            $appName = $nn; Write-IaHost "[$Accent]✓ Renamed.[/]"; Read-IaPause | Out-Null
+                        }
+                    }
+                    'Delete this app*' {
+                        if (Read-IaConfirm "[red]Delete app registration '$appName'? This cannot be undone.[/]") {
+                            Remove-EntraAppRegistration -App $appId -Confirm:$false | Out-Null
+                            Write-IaHost "[$Accent]✓ Deleted.[/]"; Read-IaPause | Out-Null; break
+                        }
+                    }
                 }
             } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
         }
     }
+}
+
+function Invoke-IaTuiEntraCreateApp {
+    # Create a new app registration from the CLI.
+    param([string]$Accent)
+    $name = Read-IaText -Question 'App registration name'
+    if ([string]::IsNullOrWhiteSpace($name)) { return }
+    $aud = Read-IaMenu -Title 'Who can sign in?' -Color $Accent -Choices @(
+        'This tenant only', 'Any Entra tenant (multi-tenant)', 'Entra + personal Microsoft accounts', 'Personal Microsoft accounts only')
+    $audience = switch -Wildcard ($aud) {
+        'Any Entra*'   { 'AzureADMultipleOrgs' }
+        'Entra +*'     { 'AzureADandPersonalMicrosoftAccount' }
+        'Personal*'    { 'PersonalMicrosoftAccount' }
+        default        { 'AzureADMyOrg' }
+    }
+    $uri = Read-IaText -Question 'Web redirect URI (blank = none)'
+    if (-not (Read-IaConfirm "Create app registration '$name'?")) { return }
+    try {
+        $p = @{ Name = $name; SignInAudience = $audience; Confirm = $false }
+        if ($uri) { $p.RedirectUri = $uri; $p.Platform = 'Web' }
+        $a = New-EntraAppRegistration @p
+        Write-IaHost "[$Accent]✓ Created[/] '$($a.DisplayName)'  ·  appId $($a.AppId)"
+        Write-IaHost "[grey]Add a secret + API permissions via 'Manage an app registration'.[/]"
+    } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)" }
+    Read-IaPause | Out-Null
 }
 
 function Invoke-IaTuiEntraInviteGuest {
