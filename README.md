@@ -378,8 +378,10 @@ JustGraphIT/
 Every Graph call flows through one seam — `Invoke-IaRequest` in `Private/Graph.ps1` — a
 thin wrapper over `Invoke-MgGraphRequest`. The module standardizes on the **`beta`
 endpoint** everywhere (richer data — extra properties and newer resource types). It
-handles paging and logs each call (method, URL, status, duration, item count) to an in-memory ring
-buffer. That call log powers both the **"Graph calls" screen** and the **live footer** on
+handles paging, **retries throttled / transient failures** (429 / 503 / 504 on any verb,
+500 on idempotent GETs) honoring the server's `Retry-After` header with exponential
+backoff, and records the **real HTTP status** on each call. It logs every call (method,
+URL, status, duration, item count) to an in-memory ring buffer. That call log powers both the **"Graph calls" screen** and the **live footer** on
 the main menu, and it makes the whole suite testable: tests mock `Invoke-IaRequest` and
 run fully offline. Resources are described once in `Resources.ps1` (list path, name field,
 whether to expand assignments) and the inventory sweep iterates that registry, so adding a
