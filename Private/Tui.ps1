@@ -500,7 +500,7 @@ function Write-IaRule {
     $w = Get-IaInnerWidth
     $reset = Get-IaReset
     $fg = Get-IaAnsi $Color
-    $h = [string][char]0x2500
+    $h = [string][char]0x2550
     if ($Title) {
         $plain = Strip-IaMarkup -Text $Title
         $tw = Measure-IaWidth -Text $plain

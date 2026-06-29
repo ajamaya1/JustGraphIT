@@ -53,7 +53,7 @@ function Start-JustGraphIT {
     }
 
     $ctx  = Get-MgContext
-    $elev = try { if (Test-IaPrivileged) { "[green]● elevated[/]" } else { "[yellow]○ not elevated[/]" } } catch { '' }
+    $elev = try { if (Test-IaPrivileged) { "[green]ELEVATED[/]" } else { "[yellow]NOT ELEVATED[/]" } } catch { '' }
     $script:IaTuiAccount = $ctx.Account
     $script:IaTuiElev    = $elev
 
@@ -62,16 +62,16 @@ function Start-JustGraphIT {
     # would erase it).
     $splashHeader = @(
         (Get-IaFigletString -Text 'JUSTGRAPHIT' -Color $accent)
-        (ConvertFrom-IaMarkup "[$accent]>[/] $($ctx.Account)  [dim]//[/]  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  [dim]//[/]  $elev")
-        (ConvertFrom-IaMarkup "[$accent]> Microsoft Intune & Entra [dim]//[/] direct graph access[/]")
+        (ConvertFrom-IaMarkup "[dim][[/][$accent]SYS[/][dim]][/] [white]$($ctx.Account)[/]  [dim]│[/]  [grey]tenant $(Format-IaMaskedId $ctx.TenantId)[/]  [dim]│[/]  $elev")
+        (ConvertFrom-IaMarkup "[dim][[/][$accent]GRF[/][dim]][/] [$accent]Microsoft Intune & Entra[/] [dim]─[/] [grey]direct graph access[/]")
         ''
     ) -join "`n"
 
     function Show-IaTuiSplash {
         Clear-IaHost
         Write-IaFiglet -Text 'JUSTGRAPHIT' -Color $accent
-        Write-IaHost "[$accent]>[/] $($ctx.Account)  [dim]//[/]  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  [dim]//[/]  $elev"
-        Write-IaRule -Title "[$accent][ JustGraphIT ][/] [dim]v1.0.0[/]" -Color $accent
+        Write-IaHost "[dim][[/][$accent]SYS[/][dim]][/] [white]$($ctx.Account)[/]  [dim]│[/]  [grey]tenant $(Format-IaMaskedId $ctx.TenantId)[/]  [dim]│[/]  $elev"
+        Write-IaRule -Color $accent
     }
 
     Show-IaTuiSplash
@@ -395,11 +395,11 @@ function Write-IaTuiHeader {
     param([string]$Screen, [string]$Sub = '', [string]$Accent)
     Clear-IaHost
     try { $host.UI.RawUI.WindowTitle = "JustGraphIT — $Screen" } catch { }
-    Write-IaHost "[$Accent]> JustGraphIT[/]  [bold]:: $Screen[/]"
+    Write-IaHost "[dim][[/][$Accent]JGI[/][dim]][/] [bold]$Screen[/]"
     if ($Sub) {
         Write-IaHost "[grey]$Sub[/]"
     } elseif ($script:IaTuiAccount) {
-        Write-IaHost "[grey]> $($script:IaTuiAccount)  [dim]//[/]  [/]$script:IaTuiElev"
+        Write-IaHost "[dim][[/][grey]USR[/][dim]][/] [grey]$($script:IaTuiAccount)[/]  [dim]│[/]  $script:IaTuiElev"
     }
     Write-IaRule -Color $Accent
 }
@@ -1713,8 +1713,8 @@ function Invoke-IaTuiDeviceCard {
         $cs = "$($detail.ComplianceState)"
         $cc = if ($cs -eq 'compliant') { $Accent } elseif ($cs -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
         $hdr = [System.Collections.Generic.List[string]]::new()
-        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]> JustGraphIT[/]  [bold]:: Device card[/]"))
-        $hdr.Add((ConvertFrom-IaMarkup "[grey]> $($detail.Device)[/]  [dim]//[/]  [$cc]$cs[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Device card[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[grey]$($detail.Device)[/]  [dim]│[/]  [$cc]$cs[/]"))
         $hdr.Add('')
         $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'OS',      "$($detail.OS) $($detail.OSVersion)")))
         $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'Model',   "$($detail.Manufacturer) $($detail.Model)")))
@@ -3276,7 +3276,7 @@ function Invoke-IaTuiUserLookup {
             $compliant = @($uDevices | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
 
             $hdr = [System.Collections.Generic.List[string]]::new()
-            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]> JustGraphIT[/]  [bold]:: User lookup[/]"))
+            $hdr.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]User lookup[/]"))
             $hdr.Add((ConvertFrom-IaMarkup "[grey]$upn[/]"))
             $hdr.Add('')
             $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]  [grey]({2} compliant)[/]" -f 'Devices',  $uDevices.Count, $compliant)))
@@ -3577,7 +3577,7 @@ function Invoke-IaTuiReports {
                         # Render the detail block into the menu's -Header so it stays on
                         # screen — Read-IaMenu repaints full-screen and would otherwise wipe it.
                         $hdr = [System.Collections.Generic.List[string]]::new()
-                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]> JustGraphIT[/]  [bold]:: Device detail[/]"))
+                        $hdr.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Device detail[/]"))
                         $hdr.Add((ConvertFrom-IaMarkup "[grey]$devName[/]"))
                         $hdr.Add('')
                         foreach ($kv in $fields.GetEnumerator()) {
@@ -4046,9 +4046,9 @@ function Get-IaReportPanel {
     # Build the recipe-summary header repainted above the builder menu each frame.
     param([string]$Accent, [string]$SourceName, [int]$RowCount, $Recipe)
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add((ConvertFrom-IaMarkup "[$Accent]> JustGraphIT[/]  [bold]:: Custom report builder[/]"))
-    $lines.Add((ConvertFrom-IaMarkup "[grey]> select // where // sort // group // export[/]"))
-    $lines.Add((ConvertFrom-IaMarkup ("[darkslategray1]" + ('─' * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
+    $lines.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Custom report builder[/]"))
+    $lines.Add((ConvertFrom-IaMarkup "[grey]select │ where │ sort │ group │ export[/]"))
+    $lines.Add((ConvertFrom-IaMarkup ("[$Accent]" + ([char]0x2550 * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
 
     $cols = if (@($Recipe.Select).Count -gt 0) { (@($Recipe.Select) -join ', ') } else { '(all)' }
     $filt = if (@($Recipe.Where | Where-Object { $_ -and $_.Prop }).Count -gt 0) {
