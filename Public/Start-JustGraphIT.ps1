@@ -14,7 +14,7 @@ function Start-JustGraphIT {
         selection lists, not free-text fields — pick from what's there instead
         of typing names that might 404.
     .EXAMPLE
-        Connect-JustGraphIT -UseDeviceCode; Start-JustGraphIT
+        Connect-JustGraphIT; Start-JustGraphIT
     #>
     [CmdletBinding()]
     param([ValidateSet('green', 'amber', 'lego', 'deepsea', 'sunset', 'ocean', 'forest', 'mono')][string]$Theme = 'deepsea')
@@ -26,8 +26,8 @@ function Start-JustGraphIT {
         throw "JustGraphIT needs the Microsoft Graph authentication module. Install it once:`n    Install-Module Microsoft.Graph.Authentication -Scope CurrentUser"
     }
     if (-not (Get-MgContext)) {
-        Write-IaHost "[yellow]Not connected.[/] Starting device-code sign-in…"
-        Connect-JustGraphIT -UseDeviceCode | Out-Null
+        Write-IaHost "[yellow]Not connected.[/] Signing in…"
+        Connect-JustGraphIT | Out-Null
     }
 
     $accent = switch ($Theme) {
