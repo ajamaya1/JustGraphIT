@@ -63,7 +63,7 @@ function Start-JustGraphIT {
     $splashHeader = @(
         (Get-IaFigletString -Text 'JUSTGRAPHIT' -Color $accent)
         (ConvertFrom-IaMarkup "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev")
-        (ConvertFrom-IaMarkup "[$accent]≈ microsoft intune & entra management[/]")
+        (ConvertFrom-IaMarkup "[$accent]≈ Microsoft Intune & Entra · stop clicking through portals[/]")
         ''
     ) -join "`n"
 
@@ -71,7 +71,7 @@ function Start-JustGraphIT {
         Clear-IaHost
         Write-IaFiglet -Text 'JUSTGRAPHIT' -Color $accent
         Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev"
-        Write-IaRule -Title 'JustGraphIT · microsoft intune & entra management' -Color $accent
+        Write-IaRule -Title 'JustGraphIT · just graph it' -Color $accent
     }
 
     Show-IaTuiSplash
