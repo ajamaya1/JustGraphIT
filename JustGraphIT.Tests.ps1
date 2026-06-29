@@ -2139,7 +2139,7 @@ Describe 'TUI engine · output primitives do not throw' {
         InModuleScope JustGraphIT {
             $banner = Get-IaFigletString -Text 'JUSTGRAPHIT' -Color turquoise2
             $banner | Should -Not -BeNullOrEmpty
-            @($banner -split "`n").Count | Should -Be 5 -Because 'the line-art font is five rows tall'
+            @($banner -split "`n").Count | Should -Be 5 -Because 'the block font is five rows tall'
         }
     }
 
