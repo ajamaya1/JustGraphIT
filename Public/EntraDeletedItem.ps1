@@ -24,7 +24,7 @@ function Get-EntraDeletedItem {
             DisplayName = $_.displayName
             Identifier  = if ($Type -eq 'User') { $_.userPrincipalName } elseif ($Type -eq 'Application') { $_.appId } else { $_.mail }
             Deleted     = $_.deletedDateTime
-            DaysLeft    = if ($_.deletedDateTime) { [Math]::Max(0, 30 - [int]([DateTime]::UtcNow - [DateTime]$_.deletedDateTime).TotalDays) } else { $null }
+            DaysLeft    = & { $dt = ConvertTo-IaSafeDateTime $_.deletedDateTime; if ($dt) { [Math]::Max(0, 30 - [int]([DateTime]::UtcNow - $dt).TotalDays) } else { $null } }
             Id          = $_.id
         }
     } | Sort-Object Deleted -Descending)

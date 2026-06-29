@@ -21,7 +21,11 @@ function Get-EntraRoleAssignment {
     #>
     [CmdletBinding()]
     param([switch]$Raw)
-    $rows = @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignments?`$expand=principal,roleDefinition"))
+    $rows = try {
+        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignments?`$expand=principal,roleDefinition"))
+    } catch {
+        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignments"))
+    }
     if ($Raw) { return $rows }
     @($rows | ForEach-Object { ConvertTo-IaRoleRow $_ 'Permanent' } | Sort-Object Role, Principal)
 }
@@ -34,7 +38,11 @@ function Get-EntraPimEligibility {
     #>
     [CmdletBinding()]
     param([switch]$Raw)
-    $rows = @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleEligibilityScheduleInstances?`$expand=principal,roleDefinition"))
+    $rows = try {
+        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleEligibilityScheduleInstances?`$expand=principal,roleDefinition"))
+    } catch {
+        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleEligibilityScheduleInstances"))
+    }
     if ($Raw) { return $rows }
     @($rows | ForEach-Object { ConvertTo-IaRoleRow $_ 'Eligible' } | Sort-Object Role, Principal)
 }
@@ -47,7 +55,11 @@ function Get-EntraPimActive {
     #>
     [CmdletBinding()]
     param([switch]$Raw)
-    $rows = @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignmentScheduleInstances?`$expand=principal,roleDefinition"))
+    $rows = try {
+        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignmentScheduleInstances?`$expand=principal,roleDefinition"))
+    } catch {
+        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignmentScheduleInstances"))
+    }
     if ($Raw) { return $rows }
     @($rows | ForEach-Object {
         $r = ConvertTo-IaRoleRow $_ 'Active'
@@ -59,10 +71,10 @@ function Get-EntraPimActive {
 function ConvertTo-IaRoleRow {
     param($r, [string]$Kind)
     [pscustomobject][ordered]@{
-        Role          = $r.roleDefinition.displayName
-        Principal     = ($r.principal.displayName ?? $r.principal.userPrincipalName)
-        PrincipalUPN  = $r.principal.userPrincipalName
-        PrincipalType = (($r.principal.'@odata.type' -replace '#microsoft\.graph\.', ''))
+        Role          = if ($r.roleDefinition) { $r.roleDefinition.displayName } else { $r.roleDefinitionId }
+        Principal     = if ($r.principal) { ($r.principal.displayName ?? $r.principal.userPrincipalName) } else { $r.principalId }
+        PrincipalUPN  = if ($r.principal) { $r.principal.userPrincipalName } else { $null }
+        PrincipalType = if ($r.principal) { ($r.principal.'@odata.type' -replace '#microsoft\.graph\.', '') } else { $null }
         Assignment    = $Kind
         Scope         = $r.directoryScopeId
         Id            = $r.id

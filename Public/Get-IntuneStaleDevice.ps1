@@ -28,12 +28,13 @@ function Get-IntuneStaleDevice {
     $now = (Get-Date).ToUniversalTime()
     @($devices | ForEach-Object {
         $last  = $_.lastSyncDateTime
-        $stale = if ($last) { [int][math]::Floor(($now - ([datetime]$last).ToUniversalTime()).TotalDays) } else { $null }
+        $lastDt = ConvertTo-IaSafeDateTime $last
+        $stale = if ($lastDt) { [int][math]::Floor(($now - $lastDt.ToUniversalTime()).TotalDays) } else { $null }
         [pscustomobject][ordered]@{
             DeviceName      = $_.deviceName
             OS              = $_.operatingSystem
             OSVersion       = $_.osVersion
-            LastSync        = if ($last) { ([datetime]$last).ToString('yyyy-MM-dd') } else { 'never' }
+            LastSync        = if ($lastDt) { $lastDt.ToString('yyyy-MM-dd') } else { 'never' }
             DaysStale       = $stale
             User            = $_.userPrincipalName
             Ownership       = $_.managedDeviceOwnerType

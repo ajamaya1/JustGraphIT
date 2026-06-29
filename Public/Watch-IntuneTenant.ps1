@@ -137,8 +137,8 @@ function Watch-IntuneTenant {
                 # ---- pull current compliance summary --------------------------
                 $summary = Get-IntuneTenantSummary
 
-                $totalDevices       = [int]$summary.DeviceCount
-                $nonCompliantCount  = [int]$summary.NonCompliantCount
+                $totalDevices       = ConvertTo-IaSafeInt $summary.DeviceCount 0
+                $nonCompliantCount  = ConvertTo-IaSafeInt $summary.NonCompliantCount 0
                 $nonCompliantPct    = if ($totalDevices -gt 0) {
                     [math]::Round(($nonCompliantCount / $totalDevices) * 100, 1)
                 } else { 0 }

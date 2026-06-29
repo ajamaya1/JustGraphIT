@@ -33,16 +33,16 @@ function Get-EntraLicense {
     }
 
     @($skus | ForEach-Object {
-        $enabled = [int]$_.prepaidUnits.enabled
-        $used    = [int]$_.consumedUnits
+        $enabled = ConvertTo-IaSafeInt (@($_.prepaidUnits.enabled)[0]) 0
+        $used    = ConvertTo-IaSafeInt (@($_.consumedUnits)[0]) 0
         [pscustomobject][ordered]@{
             DisplayName   = (Get-IaLicenseName -SkuPartNumber $_.skuPartNumber)
             SkuPartNumber = $_.skuPartNumber
             Consumed      = $used
             Enabled       = $enabled
             Available     = ($enabled - $used)
-            Warning       = [int]$_.prepaidUnits.warning
-            Suspended     = [int]$_.prepaidUnits.suspended
+            Warning       = ConvertTo-IaSafeInt (@($_.prepaidUnits.warning)[0]) 0
+            Suspended     = ConvertTo-IaSafeInt (@($_.prepaidUnits.suspended)[0]) 0
             Status        = $_.capabilityStatus
             ServicePlans  = (@($_.servicePlans | ForEach-Object { $_.servicePlanName }) -join ', ')
             SkuId         = $_.skuId
