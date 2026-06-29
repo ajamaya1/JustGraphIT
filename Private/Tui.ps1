@@ -362,7 +362,7 @@ function Read-IaInputEvent {
         bare Esc.
     #>
     $k = [Console]::ReadKey($true)
-    if ($k.Key -ne [ConsoleKey]::Escape) {
+    if ($k.Key -ne [ConsoleKey]::Escape -and [int]$k.KeyChar -ne 27) {
         # Under ENABLE_VIRTUAL_TERMINAL_INPUT (Windows mouse mode) some keys arrive as
         # raw control chars with Key=0; map the ones the menus check so VT and cooked
         # delivery behave identically.
@@ -929,7 +929,7 @@ function Read-IaMenuArrow {
             else { $lines.Add('') }
         }
         $lines.Add($(if (($vp.top + $page) -lt $count) { "$dim   ↓ more$reset" } else { '' }))
-        $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc back$reset")
+        $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc/Q back$reset")
         if ($ShowGraphFooter) {
             # Fill the rest of the screen with a copy-pasteable Graph-call log (recomputed
             # each frame so it stays live). Sized to whatever space is left below the menu.
@@ -979,6 +979,8 @@ function Read-IaMenuArrow {
                 'PageDown'  { $sel = [Math]::Min($count - 1, $sel + $page); & $render }
                 'Enter'     { return $sel }
                 'Escape'    { return -1 }
+                'Backspace' { return -1 }
+                default     { if ($ev.KeyChar -eq 'q' -or $ev.KeyChar -eq 'Q') { return -1 } }
             }
         }
     }
@@ -1110,6 +1112,7 @@ function Read-IaMultiMenuArrow {
                 'A'         { $all = (@($checked | Where-Object { $_ }).Count -eq $count); for ($i = 0; $i -lt $count; $i++) { $checked[$i] = -not $all }; & $render }
                 'Enter'     { $out = @(); for ($i = 0; $i -lt $count; $i++) { if ($checked[$i]) { $out += $i } }; return $out }
                 'Escape'    { return @() }
+                'Backspace' { return @() }
             }
         }
     }
@@ -1559,6 +1562,10 @@ function Read-IaTableInteractive {
                     'Home'      { if ($Selectable) { $st.sel = 0 } else { $st.top = 0 };                                   $moved = $true }
                     'End'       { if ($Selectable) { $st.sel = [Math]::Max(0, $total - 1) } else { $st.top = $total };     $moved = $true }
                     'Escape'    {
+                        if ($st.query) { $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
+                        else           { return $null }
+                    }
+                    'Backspace' {
                         if ($st.query) { $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
                         else           { return $null }
                     }
