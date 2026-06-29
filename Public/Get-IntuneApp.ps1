@@ -73,7 +73,7 @@ function Get-IntuneApp {
         'VPP'      { "isOf('microsoft.graph.iosVppApp')" }
         'iOS'      { "isOf('microsoft.graph.iosStoreApp')" }
         'Android'  { "isOf('microsoft.graph.managedAndroidStoreApp')" }
-        'macOS'    { "isOf('microsoft.graph.macOSOfficeSuiteApp')" }
+        'macOS'    { "isOf('microsoft.graph.macOSLobApp') or isOf('microsoft.graph.macOSOfficeSuiteApp') or isOf('microsoft.graph.macOSVppApp') or isOf('microsoft.graph.macOSMicrosoftEdgeApp') or isOf('microsoft.graph.macOSMicrosoftDefenderApp') or isOf('microsoft.graph.macOSMdatpApp')" }
         'Office365'{ "isOf('microsoft.graph.officeSuiteApp')" }
         default    { $null }
     }

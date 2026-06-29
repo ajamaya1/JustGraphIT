@@ -117,6 +117,7 @@ function Start-JustGraphIT {
             'Refresh data',
             'Quit'
         )
+        if (-not $choice) { return }
         try {
             switch -Wildcard ($choice) {
                 'View all*'       { Invoke-IaTuiViewAll     -Accent $accent }
@@ -458,6 +459,7 @@ function Invoke-IaTuiViewAll {
 function Invoke-IaTuiGroupLookup {
     param([string]$Accent)
     $g = Select-IaGroup -Accent $Accent -Title 'Group to look up'
+    if (-not $g) { return }
     Write-IaTuiHeader -Screen 'Group lookup' -Sub "assignments for $($g.DisplayName)" -Accent $Accent
     $hits = foreach ($it in (Get-IaTuiInventory)) {
         foreach ($e in (Get-IaItemGroupEdges -Item $it -GroupId $g.Id)) {
@@ -478,7 +480,9 @@ function Invoke-IaTuiGroupLookup {
 function Invoke-IaTuiCompare {
     param([string]$Accent)
     $a = Select-IaGroup -Accent $Accent -Title 'Group A'
+    if (-not $a) { return }
     $b = Select-IaGroup -Accent $Accent -Title 'Group B'
+    if (-not $b) { return }
     Write-IaTuiHeader -Screen 'Compare two groups' -Sub "A = $($a.DisplayName)  ·  B = $($b.DisplayName)" -Accent $Accent
 
     # Clean rows for export (no markup); display rows get the colour.
@@ -565,6 +569,7 @@ function Invoke-IaTuiWhatIf {
 function Invoke-IaTuiMirror {
     param([string]$Accent)
     $src   = Select-IaGroup -Accent $Accent -Title 'Source group (copy FROM)'
+    if (-not $src) { return }
     $items = Get-IaTuiInventory
     $cands = Get-IaCopyCandidates -Items $items -SrcId $src.Id
     if (-not $cands) { Write-IaHost "[yellow]$($src.DisplayName) has no assignments to mirror.[/]"; return }
@@ -577,6 +582,7 @@ function Invoke-IaTuiMirror {
     $ids = @($picked | ForEach-Object { $map[$_] })
 
     $dst = Select-IaGroup -Accent $Accent -Title 'Destination group (copy TO)'
+    if (-not $dst) { return }
     Write-IaTuiHeader -Screen 'Mirror assignments' -Sub "from $($src.DisplayName)  →  $($dst.DisplayName)" -Accent $Accent
     $confirm = Read-IaMenu `
         -Title "Apply $($ids.Count) assignment(s) to [$Accent]$($dst.DisplayName)[/]?" `
@@ -695,6 +701,7 @@ function Invoke-IaTuiGraphCalls {
 function Invoke-IaTuiBulkAssign {
     param([string]$Accent)
     $g     = Select-IaGroup -Accent $Accent -Title 'Group to assign'
+    if (-not $g) { return }
     $areas = @('All areas') + (@(Get-IaResourceRegistry | ForEach-Object Area | Select-Object -Unique | Sort-Object))
     $area  = Read-IaSelection -Title 'Which area?' -Choices $areas -Color $Accent
 
@@ -770,6 +777,7 @@ function Invoke-IaTuiTemplates {
     )
     if ($action -like 'Capture*') {
         $g    = Select-IaGroup -Accent $Accent -Title 'Group to capture'
+        if (-not $g) { return }
         $name = Read-IaText -Question 'Template name' -DefaultAnswer 'baseline'
         $path = Read-IaText -Question 'Save to path' -DefaultAnswer "$name.json"
         Write-IaTuiHeader -Screen 'Templates · capture' -Sub "group: $($g.DisplayName)" -Accent $Accent
@@ -782,6 +790,7 @@ function Invoke-IaTuiTemplates {
         if (-not (Test-Path $path)) { Write-IaHost "[red]Not found:[/] $path"; return }
         $tmpl = Get-Content $path -Raw | ConvertFrom-Json
         $g    = Select-IaGroup -Accent $Accent -Title 'Device group to stamp on'
+        if (-not $g) { return }
         Write-IaTuiHeader -Screen 'Templates · apply' -Sub "template: $($tmpl.name)  ·  target: $($g.DisplayName)" -Accent $Accent
         $keys  = @($tmpl.resources | ForEach-Object resource_type | Select-Object -Unique)
         $items = Get-IaInventory -Type $keys
@@ -882,7 +891,7 @@ function Invoke-IaTuiApps {
             }
             'App details*' {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
-                if (-not $app) { return }
+                if (-not $app) { break }
                 $name = $app.Id
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading app…' -Color $Accent -ScriptBlock {
                     $script:_appRaw = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$name")
@@ -913,7 +922,7 @@ function Invoke-IaTuiApps {
             }
             'Assign app*' {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
-                if (-not $app) { return }
+                if (-not $app) { break }
                 $appName = $app.Id
                 $mode    = Read-IaMenu -Title 'Assign to' -Color $Accent -Choices @('All Devices','All Users','Specific group','Clear all assignments')
                 switch ($mode) {
@@ -2893,6 +2902,7 @@ function Invoke-IaTuiEntraCreateTeam {
     if (-not $owner) { return }
     $desc = Read-IaText -Question 'Description (blank = none)'
     $vis  = Read-IaMenu -Title 'Visibility' -Color $Accent -Choices @('Private', 'Public')
+    if (-not $vis) { return }
     if (-not (Read-IaConfirm "Create $vis Team '$name' owned by ${owner}?")) { return }
     try {
         $p = @{ Name = $name; Owner = $owner; Visibility = $vis; Confirm = $false }
@@ -3480,6 +3490,7 @@ function Invoke-IaTuiReports {
                 'By compliance state',
                 'Group by a column (count per value)'
             )
+            if (-not $filt) { break }
             $invParams = @{}
             $groupProp = $null
             $subTitle  = $filt.ToLower()
@@ -3800,6 +3811,7 @@ function Invoke-IaTuiReports {
         }
         'Compliance*' {
             $mode = Read-IaMenu -Title 'Compliance by' -Choices @('Tenant summary', 'Policy', 'Device') -Color $Accent
+            if (-not $mode) { break }
             Write-IaTuiHeader -Screen 'Compliance status' -Sub $mode.ToLower() -Accent $Accent
             $rows = @(switch -Wildcard ($mode) {
                 'Policy'  {
@@ -3832,7 +3844,11 @@ function Invoke-IaTuiReports {
         'Deployment*' {
             $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
             $grp   = $null
-            if ($scope -like 'Scope*') { $grp = (Select-IaGroup -Accent $Accent -Title 'Scope to group').DisplayName }
+            if ($scope -like 'Scope*') {
+                $grpObj = Select-IaGroup -Accent $Accent -Title 'Scope to group'
+                if (-not $grpObj) { break }
+                $grp = $grpObj.DisplayName
+            }
             Write-IaTuiHeader -Screen 'Deployment summary' `
                 -Sub "for everything assigned to '$(if ($grp) { $grp } else { 'all resources' })'" -Accent $Accent
             $data = @(Invoke-IaStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
