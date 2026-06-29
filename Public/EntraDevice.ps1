@@ -64,7 +64,7 @@ function Get-EntraDevice {
             Compliant   = $_.isCompliant
             Managed     = $_.isManaged
             LastSignIn  = if ($lastDt) { $lastDt.ToString('yyyy-MM-dd') } else { $null }
-            DaysStale   = if ($lastDt) { [int]([DateTime]::UtcNow - $lastDt).TotalDays } else { $null }
+            DaysStale   = if ($lastDt) { [int]([DateTime]::UtcNow - $lastDt.ToUniversalTime()).TotalDays } else { $null }
             DeviceId    = $_.deviceId
             Id          = $_.id
         }

@@ -45,16 +45,11 @@ function ConvertTo-IaSafeDateTime {
     try { [datetime]$v } catch { $null }
 }
 
-function ConvertTo-IaSafeDateString {
-    param($Value, [string]$Format = 'yyyy-MM-dd')
-    $dt = ConvertTo-IaSafeDateTime $Value
-    if ($dt) { $dt.ToString($Format) } else { $null }
-}
-
 function ConvertTo-IaSafeInt {
     param($Value, $Default = $null)
     if ($null -eq $Value) { return $Default }
     $v = if ($Value -is [array]) { $Value[0] } else { $Value }
+    if ($null -eq $v -or "$v" -eq '') { return $Default }
     try { [int]$v } catch { $Default }
 }
 

@@ -20,7 +20,7 @@ function Get-EntraAppRegistration {
     @($apps | ForEach-Object {
         $creds = @($_.passwordCredentials) + @($_.keyCredentials)
         $next  = $null
-        foreach ($c in $creds) { if ($c.endDateTime) { $d = ConvertTo-IaSafeDateTime $c.endDateTime; if ($d -and (-not $next -or $d -lt $next)) { $next = $d } } }
+        foreach ($c in $creds) { $d = ConvertTo-IaSafeDateTime $c.endDateTime; if ($d -and (-not $next -or $d -lt $next)) { $next = $d } }
         $days = if ($next) { [int][math]::Floor(($next.ToUniversalTime() - $now).TotalDays) } else { $null }
         [pscustomobject][ordered]@{
             DisplayName  = $_.displayName

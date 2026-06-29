@@ -2712,7 +2712,12 @@ function Invoke-IaTuiEntraPim {
                 "Remove a user's*" {
                     $elig = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading eligibilities…' -ScriptBlock { Get-EntraPimEligibility -Raw }) } catch { @() }
                     if (-not $elig) { Write-IaHost '[yellow]No PIM eligibilities.[/]'; Read-IaPause | Out-Null; continue }
-                    $ed = @($elig | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.roleDefinition.displayName; Principal = ($_.principal.displayName ?? $_.principal.userPrincipalName); Type = ($_.principal.'@odata.type' -replace '#microsoft\.graph\.', ''); PrincipalId = $_.principal.id } })
+                    $ed = @($elig | ForEach-Object { [pscustomobject][ordered]@{
+                        Role        = if ($_.roleDefinition) { $_.roleDefinition.displayName } else { $_.roleDefinitionId }
+                        Principal   = if ($_.principal) { ($_.principal.displayName ?? $_.principal.userPrincipalName) } else { $_.principalId }
+                        Type        = if ($_.principal) { ($_.principal.'@odata.type' -replace '#microsoft\.graph\.', '') } else { $null }
+                        PrincipalId = if ($_.principal) { $_.principal.id } else { $_.principalId }
+                    } })
                     $ep = Read-IaTableInteractive -Data $ed -Color $Accent -Selectable -Title "PIM eligibilities ($($ed.Count)) · Enter = remove" -Stem 'pim-elig-rm'
                     if ($ep -and (Read-IaConfirm "[red]Remove $($ep.Principal)'s eligibility for '$($ep.Role)'?[/]")) {
                         Remove-EntraPimEligibility -User $ep.PrincipalId -Role $ep.Role -Confirm:$false | Out-Null

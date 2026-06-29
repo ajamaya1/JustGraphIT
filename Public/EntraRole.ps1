@@ -24,7 +24,7 @@ function Get-EntraRoleAssignment {
     $rows = try {
         @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignments?`$expand=principal,roleDefinition"))
     } catch {
-        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignments"))
+        try { @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignments")) } catch { @() }
     }
     if ($Raw) { return $rows }
     @($rows | ForEach-Object { ConvertTo-IaRoleRow $_ 'Permanent' } | Sort-Object Role, Principal)
@@ -41,7 +41,7 @@ function Get-EntraPimEligibility {
     $rows = try {
         @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleEligibilityScheduleInstances?`$expand=principal,roleDefinition"))
     } catch {
-        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleEligibilityScheduleInstances"))
+        try { @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleEligibilityScheduleInstances")) } catch { @() }
     }
     if ($Raw) { return $rows }
     @($rows | ForEach-Object { ConvertTo-IaRoleRow $_ 'Eligible' } | Sort-Object Role, Principal)
@@ -58,12 +58,12 @@ function Get-EntraPimActive {
     $rows = try {
         @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignmentScheduleInstances?`$expand=principal,roleDefinition"))
     } catch {
-        @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignmentScheduleInstances"))
+        try { @(Get-IaCollection (Resolve-IaUri -Path "roleManagement/directory/roleAssignmentScheduleInstances")) } catch { @() }
     }
     if ($Raw) { return $rows }
     @($rows | ForEach-Object {
         $r = ConvertTo-IaRoleRow $_ 'Active'
-        $r | Add-Member -NotePropertyName EndsAt -NotePropertyValue $_.endDateTime -Force
+        $r | Add-Member -NotePropertyName EndsAt -NotePropertyValue (ConvertTo-IaSafeDateTime $_.endDateTime) -Force
         $r
     } | Sort-Object Role, Principal)
 }
