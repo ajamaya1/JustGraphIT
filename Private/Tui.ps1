@@ -513,32 +513,30 @@ function Write-IaRule {
     }
 }
 
-# 5-row block glyphs for the JustGraphIT banner; anything else falls back to a bold rule.
+# 5-row box-drawing glyphs for the JustGraphIT banner; anything else falls back to a bold rule.
 $script:IaFiglet = @{
-    'T' = @('█████', '  █  ', '  █  ', '  █  ', '  █  ')
-    'I' = @('█████', '  █  ', '  █  ', '  █  ', '█████')
-    'D' = @('████ ', '█   █', '█   █', '█   █', '████ ')
-    'E' = @('█████', '█    ', '███  ', '█    ', '█████')
-    'G' = @('█████', '█    ', '█  ██', '█   █', '█████')
-    'R' = @('████ ', '█   █', '████ ', '█  █ ', '█   █')
-    'A' = @('█████', '█   █', '█████', '█   █', '█   █')
-    'P' = @('████ ', '█   █', '████ ', '█    ', '█    ')
-    'H' = @('█   █', '█   █', '█████', '█   █', '█   █')
-    'J' = @('█████', '    █', '    █', '█   █', ' ███ ')
-    'U' = @('█   █', '█   █', '█   █', '█   █', '█████')
-    'S' = @('█████', '█    ', '█████', '    █', '█████')
+    'J' = @('╺━━━┓', '    ┃', '    ┃', '┃   ┃', '┗━━━┛')
+    'U' = @('┃   ┃', '┃   ┃', '┃   ┃', '┃   ┃', '┗━━━┛')
+    'S' = @('┏━━━╸', '┃    ', '┗━━━┓', '    ┃', '╺━━━┛')
+    'T' = @('━━┳━━', '  ┃  ', '  ┃  ', '  ┃  ', '  ╹  ')
+    'G' = @('┏━━━╸', '┃    ', '┃ ━━┓', '┃   ┃', '┗━━━┛')
+    'R' = @('┏━━━┓', '┃   ┃', '┣━━━┛', '┃ ╺┓ ', '╹  ╹ ')
+    'A' = @('┏━━━┓', '┃   ┃', '┣━━━┫', '┃   ┃', '╹   ╹')
+    'P' = @('┏━━━┓', '┃   ┃', '┣━━━┛', '┃    ', '╹    ')
+    'H' = @('┃   ┃', '┃   ┃', '┣━━━┫', '┃   ┃', '╹   ╹')
+    'I' = @('━━┳━━', '  ┃  ', '  ┃  ', '  ┃  ', '━━┻━━')
     ' ' = @('   ', '   ', '   ', '   ', '   ')
 }
 
 function Write-IaFiglet {
-    # Big block-letter banner. Replaces Write-SpectreFigletText.
+    # Big line-art banner using heavy box-drawing characters.
     [CmdletBinding()]
     param([Parameter(Position = 0)][string]$Text = '', [string]$Color = 'green')
     Write-IaRaw (Get-IaFigletString -Text $Text -Color $Color)
 }
 
 function Get-IaFigletString {
-    # Return the block-letter banner as a (multi-line, ANSI-coloured) string instead
+    # Return the line-art banner as a (multi-line, ANSI-coloured) string instead
     # of writing it — used to embed the banner in a menu frame's header.
     [CmdletBinding()]
     param([Parameter(Position = 0)][string]$Text = '', [string]$Color = 'green')
