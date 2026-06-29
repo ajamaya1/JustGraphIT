@@ -820,6 +820,7 @@ function Invoke-IaTuiElevate {
     }
     $role    = Read-IaSelection -Title 'Activate which eligible role?' -Color $Accent `
         -Choices @($eligible | ForEach-Object Role)
+    if (-not $role) { return }
     $just    = Read-IaText -Question 'Justification'
     $durPick = Read-IaMenu -Title 'Duration' -Color $Accent -Choices @('30m','1h','2h','4h','8h','✎ Custom…')
     $dur     = if ($durPick -eq '✎ Custom…') { Read-IaText -Question 'Duration (e.g. 2h, 30m, 8h)' -DefaultAnswer '2h' } else { $durPick }
@@ -865,9 +866,13 @@ function Invoke-IaTuiApps {
             }
             'Filter by type*' {
                 $type = Read-IaMenu -Title 'App type' -Color $Accent -Choices @('Win32','Store','iOS','Android','macOS','WebApp','LOB','VPP','Office365')
-                Invoke-IaStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
-                    $script:_apps = @(Get-IntuneApp -AppType $type)
-                }
+                if (-not $type) { break }
+                try {
+                    Invoke-IaStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
+                        $script:_apps = @(Get-IntuneApp -AppType $type)
+                    }
+                } catch { $script:_apps = @() }
+                if (-not $script:_apps) { Write-IaHost "[yellow]No $type apps found.[/]"; Read-IaPause | Out-Null; break }
                 $rows = @($script:_apps | ForEach-Object {
                     [pscustomobject][ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; Modified = $_.Modified }
                 })
@@ -1840,9 +1845,9 @@ function Invoke-IaTuiDashboard {
     # Live device-management overview for the first-page menu: KPI tiles plus
     # colour-graded bar charts, all computed from a single managedDevices read.
     param([string]$Accent)
-    $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Building device management dashboard…' -ScriptBlock {
+    $devs = try { @(Invoke-IaStatus -Spinner Dots -Title 'Building device management dashboard…' -ScriptBlock {
         Get-IntuneDeviceInventory -Top 5000
-    })
+    }) } catch { @() }
     Write-IaTuiHeader -Screen 'Device management dashboard' -Sub 'live overview · managed devices' -Accent $Accent
     if (-not $devs) { Write-IaHost '[yellow]No managed devices found.[/]'; Read-IaPause | Out-Null; return }
 
@@ -2003,7 +2008,7 @@ function Invoke-IaTuiEntraDeletedItems {
                 elseif ($act -eq 'Purge permanently' -and (Read-IaConfirm "[red]Permanently purge '$($pk.DisplayName)'? This cannot be undone.[/]")) { Remove-EntraDeletedItem -Id $pk.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Purged.[/]"; Read-IaPause | Out-Null; $changed = $true }
             } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
             if ($changed) {
-                $items = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraDeletedItem -Type $t })
+                $items = try { @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraDeletedItem -Type $t }) } catch { @() }
                 if (-not $items) { break }
             }
         }
