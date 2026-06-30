@@ -1792,9 +1792,9 @@ function Invoke-IaTuiDeviceCard {
                 Read-IaTablePause -Data $rows -Stem "devcard-$Device-cfg" -Color $Accent -Title "Configuration states · $Device ($($st.Count))"
             }
             'Detected apps*' {
-                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeApps).Apps })
-                $rows = $st | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } }
-                Read-IaTablePause -Data $rows -Stem "devcard-$Device-apps" -Color $Accent -Title "Detected apps · $Device ($($st.Count))"
+                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeApps }
+                $rows = @($detail.Apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } })
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-apps" -Color $Accent -Title "Detected apps · $Device ($($rows.Count))"
             }
             'Action: Sync*'    { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Sync' }
             'Action: Restart*' { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Reboot' }
@@ -3685,12 +3685,11 @@ function Invoke-IaTuiReports {
                                 }
                             }
                             'Detected apps*' {
-                                $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
-                                    (Get-IntuneDeviceDetail -Device $devName -IncludeApps).Apps
-                                })
-                                # Drop the raw detected-app Id (GUID) column — App + Version is what reads.
-                                $rows = $apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } }
-                                Read-IaTablePause -Data $rows -Stem "device-$devName-apps" -Color $Accent -Title "Detected apps · $devName ($($apps.Count))"
+                                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
+                                    Get-IntuneDeviceDetail -Device $devName -IncludeApps
+                                }
+                                $rows = @($detail.Apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } })
+                                Read-IaTablePause -Data $rows -Stem "device-$devName-apps" -Color $Accent -Title "Detected apps · $devName ($($rows.Count))"
                             }
                             'Managed apps*' {
                                 $mapps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading managed apps…' -ScriptBlock {

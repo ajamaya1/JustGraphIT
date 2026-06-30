@@ -1222,7 +1222,7 @@ function Read-IaTableInteractive {
     <#
     .SYNOPSIS
         Scrollable, searchable, exportable interactive table viewer.
-        ↑/↓/PgUp/PgDn scroll · / search · e export · p push to Teams · ? help · q back.
+        ↑/↓/PgUp/PgDn scroll · / search · e export · ? help · q back.
         With -Selectable, Enter returns the chosen row for drill-down.
     #>
     [CmdletBinding()]
@@ -1236,9 +1236,9 @@ function Read-IaTableInteractive {
         # object selection returns — e.g. hide a real grant id (show a masked one) but
         # still hand the true id to the revoke action. Sensitive values never leave here.
         [string[]]$HideColumns = @(),
-        # Disable the file-export ('e') and push-to-Teams ('p') actions entirely. Use for
+        # Disable the file-export ('e') action entirely. Use for
         # secret-bearing views (BitLocker keys, LAPS passwords) so a revealed secret can
-        # never be written to a temp file or shipped to a webhook.
+        # never be written to a temp file.
         [switch]$NoExport
     )
 
@@ -1253,7 +1253,7 @@ function Read-IaTableInteractive {
     $isDictionary = $rows[0] -is [System.Collections.IDictionary]
     $cols = if ($isDictionary) { @($rows[0].Keys) } else { @($rows[0].PSObject.Properties.Name) }
     if ($HideColumns) { $cols = @($cols | Where-Object { $_ -notin $HideColumns }) }
-    # Display projection (visible columns only) used for export / Teams push / the
+    # Display projection (visible columns only) used for export / the
     # non-interactive fallback, so hidden columns never leave this function.
     $exportRows = @($rows | ForEach-Object {
         $r = $_; $isDict = $r -is [System.Collections.IDictionary]; $o = [ordered]@{}
@@ -1450,7 +1450,7 @@ function Read-IaTableInteractive {
         else {
             $cnt    = "$dim[$reset$rs-$re of $total$dim]$reset"
             $selTip = if ($Selectable) { ' · Enter select' } else { '' }
-            $expTip = if ($NoExport) { '' } else { ' · e export · p Teams' }
+            $expTip = if ($NoExport) { '' } else { ' · e export' }
             $clrTip = if ($st.query) { "  $dim(filter: $reset$border$($st.query)$reset$dim · Esc clear)$reset" } else { '' }
             [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search$expTip · ? help$selTip · q back$reset$clrTip")
         }
@@ -1577,7 +1577,6 @@ function Read-IaTableInteractive {
                         switch ($ev.KeyChar) {
                             '/'  { $st.searching = $true; & $renderFrame }
                             'e'  { if (-not $NoExport) { Invoke-IaExport -Data $exportRows -Stem $Stem -Color $Color; & $renderFrame } }
-                            'p'  { if (-not $NoExport) { Invoke-IaPushToTeams -Data $exportRows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame } }
                             '?'  { & $showHelp }
                             'q'  { return $null }
                             'j'  { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ }; & $renderFrame }
