@@ -4179,3 +4179,63 @@ Describe 'Entra usage reports (CSV → objects)' {
         }
     }
 }
+
+Describe 'Get-IaCollection enumeration contract (array-as-single-item regression)' {
+    # Locks the fix for the collapse bug: Get-IaCollection must emit rows element-by-element
+    # so @(...), `| ForEach { transform }`, `| Where` and `| Select` each see every row. A
+    # `, $items.ToArray()` return makes the whole collection arrive as ONE pipeline object —
+    # the count-1 table whose cells are all the values concatenated (the detected-apps bug).
+
+    It '@(Get-IaCollection ...) yields every element, not one' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a' }, [pscustomobject]@{ id = 'b' }, [pscustomobject]@{ id = 'c' }) } }
+            (@(Get-IaCollection -Path 'x')).Count | Should -Be 3
+        }
+    }
+
+    It 'piping into ForEach-Object { transform } enumerates per item' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ displayName = 'Alpha' }, [pscustomobject]@{ displayName = 'Bravo' }, [pscustomobject]@{ displayName = 'Charlie' }) } }
+            $rows = @(Get-IaCollection -Path 'x' | ForEach-Object { [pscustomobject]@{ N = $_.displayName } })
+            $rows.Count | Should -Be 3
+            $rows[1].N  | Should -Be 'Bravo'
+        }
+    }
+
+    It 'assignment then foreach enumerates per item' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a' }, [pscustomobject]@{ id = 'b' }, [pscustomobject]@{ id = 'c' }) } }
+            $v = Get-IaCollection -Path 'x'
+            (@(foreach ($i in $v) { $i })).Count | Should -Be 3
+        }
+    }
+
+    It 'Where / Select-Object -First operate on individual rows' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a' }, [pscustomobject]@{ id = 'b' }, [pscustomobject]@{ id = 'c' }) } }
+            $hit = Get-IaCollection -Path 'x' | Where-Object { $_.id -eq 'b' } | Select-Object -First 1
+            $hit.id | Should -Be 'b'
+        }
+    }
+
+    It 'an empty collection yields zero rows (no phantom single element)' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @() } }
+            (@(Get-IaCollection -Path 'x')).Count | Should -Be 0
+        }
+    }
+
+    It 'a real consumer (Get-EntraDirectoryRole) returns every row' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a'; displayName = 'Global Administrator'; description = 'd'; isBuiltIn = $true; isEnabled = $true; templateId = 't1' },
+                [pscustomobject]@{ id = 'b'; displayName = 'Intune Administrator';  description = 'd'; isBuiltIn = $true; isEnabled = $true; templateId = 't2' },
+                [pscustomobject]@{ id = 'c'; displayName = 'Security Reader';        description = 'd'; isBuiltIn = $true; isEnabled = $true; templateId = 't3' }) } }
+            (@(Get-EntraDirectoryRole)).Count | Should -Be 3
+        }
+    }
+}

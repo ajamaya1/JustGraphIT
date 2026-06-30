@@ -169,7 +169,15 @@ function Get-IaCollection {
         if ($resp.value) { foreach ($v in $resp.value) { [void]$items.Add($v) } }
         $uri = $resp.'@odata.nextLink'
     }
-    , $items.ToArray()
+    # Emit the collection normally (no leading unary comma). A `, $arr` return keeps an
+    # assignment like `$x = Get-IaCollection` intact, but it forces the function to emit the
+    # WHOLE collection as a single pipeline object — so `@(Get-IaCollection …)`,
+    # `Get-IaCollection … | ForEach-Object { … }` and `… | Where/Select` all collapse to one
+    # element (a count-1 table whose cells are the values concatenated). Those wrap/pipe forms
+    # are the dominant idiom across the module, so we emit element-by-element and let the
+    # pipeline enumerate. Assignment-then-foreach consumers still work in PowerShell 7, where
+    # both $null and a scalar answer .Count and `foreach` correctly.
+    $items.ToArray()
 }
 
 function Get-IaCount {
