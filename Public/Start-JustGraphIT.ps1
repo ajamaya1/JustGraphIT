@@ -1776,20 +1776,20 @@ function Invoke-IaTuiDeviceCard {
                 Read-IaTablePause -Data $rows.ToArray() -Stem "devcard-$Device" -Color $Accent -Title "All fields & hardware · $Device ($($rows.Count))"
             }
             'Compliance policy*' {
-                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeComplianceState).ComplianceStates })
-                $rows = $st | ForEach-Object {
+                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeComplianceState }
+                $rows = @($detail.ComplianceStates | ForEach-Object {
                     $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
                     [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$c]$($_.state)[/]"; Platform = $_.platformType }
-                }
-                Read-IaTablePause -Data $rows -Stem "devcard-$Device-comp" -Color $Accent -Title "Compliance states · $Device ($($st.Count))"
+                })
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-comp" -Color $Accent -Title "Compliance states · $Device ($($rows.Count))"
             }
             'Configuration profile*' {
-                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeConfigState).ConfigStates })
-                $rows = $st | ForEach-Object {
+                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeConfigState }
+                $rows = @($detail.ConfigStates | ForEach-Object {
                     $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error', 'conflict') { 'coral' } else { 'grey' }
                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$c]$($_.state)[/]"; Version = $_.version }
-                }
-                Read-IaTablePause -Data $rows -Stem "devcard-$Device-cfg" -Color $Accent -Title "Configuration states · $Device ($($st.Count))"
+                })
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-cfg" -Color $Accent -Title "Configuration states · $Device ($($rows.Count))"
             }
             'Detected apps*' {
                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeApps }
@@ -3627,16 +3627,16 @@ function Invoke-IaTuiReports {
                           if (-not $sub -or $sub -eq 'Back to device list') { break }
                           switch -Wildcard ($sub) {
                             'Compliance pol*' {
-                                $cs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
-                                    (Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState).ComplianceStates
-                                })
+                                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
+                                    Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState
+                                }
                                 # Project to a narrow, readable table — the raw Graph state
                                 # objects carry id/userId/settingStates GUID columns that wrap.
-                                $rows = $cs | ForEach-Object {
+                                $rows = @($detail.ComplianceStates | ForEach-Object {
                                     $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant','error') { 'coral' } else { 'grey' }
                                     [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$sc]$($_.state)[/]"; Platform = $_.platformType }
-                                }
-                                Read-IaTablePause -Data $rows -Stem "device-$devName-compliance" -Color $Accent -Title "Compliance policy states · $devName ($($cs.Count))"
+                                })
+                                Read-IaTablePause -Data $rows -Stem "device-$devName-compliance" -Color $Accent -Title "Compliance policy states · $devName ($($rows.Count))"
                             }
                             'Compliance failures*' {
                                 $cf = @(Invoke-IaStatus -Spinner Dots -Title 'Loading failing compliance settings…' -ScriptBlock {
@@ -3658,14 +3658,14 @@ function Invoke-IaTuiReports {
                                 }
                             }
                             'Configuration profile*' {
-                                $cfg = @(Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
-                                    (Get-IntuneDeviceDetail -Device $devName -IncludeConfigState).ConfigStates
-                                })
-                                $rows = $cfg | ForEach-Object {
+                                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
+                                    Get-IntuneDeviceDetail -Device $devName -IncludeConfigState
+                                }
+                                $rows = @($detail.ConfigStates | ForEach-Object {
                                     $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error','conflict') { 'coral' } else { 'grey' }
                                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$sc]$($_.state)[/]"; Version = $_.version }
-                                }
-                                Read-IaTablePause -Data $rows -Stem "device-$devName-config" -Color $Accent -Title "Configuration profile states · $devName ($($cfg.Count))"
+                                })
+                                Read-IaTablePause -Data $rows -Stem "device-$devName-config" -Color $Accent -Title "Configuration profile states · $devName ($($rows.Count))"
                             }
                             'Configuration conflict*' {
                                 $cc = @(Invoke-IaStatus -Spinner Dots -Title 'Looking for configuration conflicts…' -ScriptBlock {

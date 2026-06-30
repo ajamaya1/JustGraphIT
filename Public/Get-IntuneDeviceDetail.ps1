@@ -98,12 +98,12 @@ function Get-IntuneDeviceDetail {
     }
 
     if ($IncludeConfigState) {
-        $cs = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceConfigurationStates"))
+        $cs = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceConfigurationStates") | ForEach-Object { $_ })
         $result | Add-Member -NotePropertyName ConfigStates -NotePropertyValue $cs
     }
 
     if ($IncludeComplianceState) {
-        $cp = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates"))
+        $cp = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates") | ForEach-Object { $_ })
         $result | Add-Member -NotePropertyName ComplianceStates -NotePropertyValue $cp
     }
 
