@@ -350,7 +350,7 @@ if (-not $AutoOnly) {
     Section "CMDLET OUTPUTS (PowerShell only — no TUI)"
     Manual 29 "Get-IntuneApp -AppType macOS | Select-Object AppType | Sort-Object AppType -Unique" `
         "Should show multiple types (macOSLobApp, macOSOfficeSuiteApp, etc.) not just OfficeSuiteApp."
-    Manual 30 "Get-IntuneDeviceDetail -DeviceId <id> | Select-Object EnrolledAt, LastSyncAt, ComplianceGracePeriodEnd" `
+    Manual 30 "Get-IntuneDeviceDetail -Device <name> | Select-Object EnrolledAt, LastSyncAt, ComplianceGracePeriodEnd" `
         "All three should be [datetime] objects (not strings). Run: `$d.EnrolledAt.GetType().Name` → 'DateTime'."
     Manual 31 "(Get-EntraPimEligibility).Role — on tenant without PIM P2 license" `
         "Returns empty array @(). Does not throw."
