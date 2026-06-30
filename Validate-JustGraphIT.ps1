@@ -158,9 +158,9 @@ if (-not $ManualOnly) {
     }
 
     Warn "Get-IntuneDeviceDetail — datetime fields are real datetime objects" {
-        $devs = Get-IntuneDeviceInventory -Top 3
+        $devs = @(Get-IntuneDeviceInventory -Top 3)
         if (-not $devs) { Write-Host "     (no devices)" -ForegroundColor Gray; return $true }
-        $detail = Get-IntuneDeviceDetail -DeviceId $devs[0].DeviceId
+        $detail = Get-IntuneDeviceDetail -Device $devs[0].Device
         $fields = @{ EnrolledAt = $detail.EnrolledAt; LastSyncAt = $detail.LastSyncAt }
         $bad = $fields.GetEnumerator() | Where-Object { $_.Value -and $_.Value -isnot [datetime] }
         if ($bad) { throw "String instead of datetime: $(($bad | ForEach-Object { "$($_.Key)=$($_.Value.GetType().Name)" }) -join ', ')" }
@@ -218,6 +218,47 @@ if (-not $ManualOnly) {
         if ($before -ne $after) {
             throw "implicitGrantSettings changed! Before: $before  After: $after"
         }
+        $true
+    }
+
+    Section "STABILITY FIXES (this pass)"
+
+    Warn "Collection enumerates — Get-EntraDirectoryRole returns every row (not 1 merged)" {
+        $roles = @(Get-EntraDirectoryRole)
+        Write-Host "     directory roles returned: $($roles.Count)" -ForegroundColor Gray
+        $roles.Count -gt 1
+    }
+
+    Warn "Detected apps enumerate per item (not one concatenated row)" {
+        $devs = @(Get-IntuneDeviceInventory -Top 3)
+        if (-not $devs) { Write-Host "     (no devices)" -ForegroundColor Gray; return $true }
+        $apps = @((Get-IntuneDeviceDetail -Device $devs[0].Device -IncludeApps).Apps)
+        Write-Host "     detected apps on $($devs[0].Device): $($apps.Count) row(s)" -ForegroundColor Gray
+        if ($apps.Count -ge 1 -and "$($apps[0].App)" -match '\S+\s+\S+\s+\S+\s+\S+\s+\S+') {
+            throw "App cell looks concatenated (collapse not fixed): $($apps[0].App)"
+        }
+        $true
+    }
+
+    Check "Get-EntraExpiringSecret is implemented with the documented shape" {
+        $cmd = Get-Command Get-EntraExpiringSecret -ErrorAction Stop
+        foreach ($p in 'Days','IncludeExpired','IncludeServicePrincipals') {
+            if ($p -notin $cmd.Parameters.Keys) { throw "missing -$p parameter" }
+        }
+        $exp = @(Get-EntraExpiringSecret -Days 365 -IncludeExpired)
+        if ($exp.Count -gt 0) {
+            $f = $exp[0]
+            foreach ($col in 'App','Kind','Expires','DaysLeft','Status') {
+                if ($col -notin $f.PSObject.Properties.Name) { throw "missing column $col" }
+            }
+            if ($f.DaysLeft -isnot [int]) { throw "DaysLeft is $($f.DaysLeft.GetType().Name), expected Int32" }
+        }
+        $true
+    }
+
+    Warn "Expiring-secret dashboard tile resolves (was silently 0 — function was missing)" {
+        $n = @(Get-EntraExpiringSecret -Days 30 -IncludeExpired).Count
+        Write-Host "     secrets/certs expiring within 30 days (incl. expired): $n" -ForegroundColor Gray
         $true
     }
 
@@ -323,6 +364,30 @@ if (-not $AutoOnly) {
         "Returns to the table, not to the parent menu."
     Manual 35 "Export any table (press 'e' in a selectable view)" `
         "Saves a CSV/HTML. Filename shows in status bar."
+
+    Section "CANCEL-PATH HARDENING (this pass)"
+    Manual 36 "Apps → Assign app → pick app → see the replace warning → Esc on 'Assign to'" `
+        "A yellow 'replaces every current assignment' note shows; Esc returns to Apps menu, no action."
+    Manual 37 "Apps → Assign app → Specific group → Esc on Include/Exclude" `
+        "Cancels — must NOT silently EXCLUDE the group. Returns to Apps menu."
+    Manual 38 "Cloud PC → Actions → Esc on the Cloud PC picker (or the action picker)" `
+        "Returns cleanly. No empty 'Run on ?' confirm, no Mandatory-parameter binding error."
+    Manual 39 "Cloud PC → Network connections → Run health check → Esc on connection picker" `
+        "Cancels. Must NOT print 'Health check triggered' nor a -Connection null error."
+    Manual 40 "Cloud PC → Images / Snapshots → Esc on the type/scope picker" `
+        "Returns to the Cloud PC menu. No ValidateSet binding error."
+    Manual 41 "Reports → App install status → pick app → Esc on 'Pivot by'" `
+        "Cancels. Must NOT error on -By null."
+    Manual 42 "What-if → Esc on 'Subject type'" `
+        "Returns immediately. Must NOT load the device picker unbidden."
+
+    Section "EXPIRING SECRETS (restored feature)"
+    Manual 43 "Dashboard → check the 'expiring' tile" `
+        "Shows the real count of secrets/certs expiring in 30 days (coral if >0) — not always 0."
+    Manual 44 "Identity → Reports → 'Expiring secrets & certs (next 30 days)'" `
+        "Loads a table (App, Kind, Name, Expires, DaysLeft, Status). No 'command not found' error."
+    Manual 45 "Identity → Reports → 'Expiring incl. enterprise apps (90d)'" `
+        "Loads and includes service-principal credentials and already-expired entries."
 
     Write-Host "`n─── End of validation checklist ─────────────────────────────────────────────`n"
 }
