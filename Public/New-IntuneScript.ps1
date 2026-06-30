@@ -89,7 +89,7 @@ function New-IntuneScript {
             description                  = $Description ?? ''
             fileName                     = $file.Name
             scriptContent                = $encoded
-            executionContext             = $RunAs
+            runAsAccount                 = $RunAs   # deviceShellScript uses runAsAccount, not executionContext
             retryCount                   = $RetryCount
             blockExecutionNotifications  = [bool]$BlockExecutionNotifications
         }

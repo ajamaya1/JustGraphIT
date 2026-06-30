@@ -4239,3 +4239,45 @@ Describe 'Get-IaCollection enumeration contract (array-as-single-item regression
         }
     }
 }
+
+Describe 'Get-EntraExpiringSecret' {
+    It 'returns secrets+certs within the window and excludes those beyond it, expired first' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                $now = (Get-Date).ToUniversalTime()
+                @{ value = @(
+                    [pscustomobject]@{
+                        id = 'app1'; appId = 'c1'; displayName = 'Pipeline'
+                        passwordCredentials = @(
+                            @{ displayName = 'old';   endDateTime = $now.AddDays(-5).ToString('o');  keyId = 'k1' },
+                            @{ displayName = 'soon';  endDateTime = $now.AddDays(3).ToString('o');   keyId = 'k2' },
+                            @{ displayName = 'later'; endDateTime = $now.AddDays(200).ToString('o'); keyId = 'k3' }
+                        )
+                        keyCredentials = @(
+                            @{ displayName = 'cert'; endDateTime = $now.AddDays(20).ToString('o'); keyId = 'k4' }
+                        )
+                    }
+                ) }
+            }
+            $r = @(Get-EntraExpiringSecret -Days 30 -IncludeExpired)
+            $r.Count                                         | Should -Be 3      # 200-day cred excluded
+            $r[0].Status                                     | Should -Be 'Expired'   # sorted soonest/most-overdue first
+            ($r | Where-Object Name -eq 'soon').Status       | Should -Be 'Critical'  # <= 7 days
+            ($r | Where-Object Kind -eq 'Certificate').Status| Should -Be 'Warning'   # keyCredentials surfaced
+        }
+    }
+
+    It 'returns nothing when no credential is inside the window' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                $now = (Get-Date).ToUniversalTime()
+                @{ value = @([pscustomobject]@{
+                    id = 'app2'; appId = 'c2'; displayName = 'Fresh'
+                    passwordCredentials = @(@{ displayName = 'new'; endDateTime = $now.AddDays(180).ToString('o'); keyId = 'k9' })
+                    keyCredentials = @()
+                }) }
+            }
+            (@(Get-EntraExpiringSecret -Days 30)).Count | Should -Be 0
+        }
+    }
+}

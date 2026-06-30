@@ -926,7 +926,9 @@ function Invoke-IaTuiApps {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
                 if (-not $app) { break }
                 $appName = $app.Id
+                Write-IaHost "[yellow]Note:[/] this [bold]replaces[/] every current assignment on [$Accent]$($app.Name)[/] with your choice below."
                 $mode    = Read-IaMenu -Title 'Assign to' -Color $Accent -Choices @('All Devices','All Users','Specific group','Clear all assignments')
+                if (-not $mode) { break }
                 switch ($mode) {
                     'All Devices' {
                         Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
@@ -2138,7 +2140,7 @@ function Invoke-IaTuiEntraDashboard {
             apps     = Get-IaCount -Path 'applications/$count'
             sps      = Get-IaCount -Path 'servicePrincipals/$count'
             devices  = Get-IaCount -Path 'devices/$count'
-            expiring = @(try { Get-EntraExpiringSecret -Days 30 } catch { @() }).Count
+            expiring = @(try { Get-EntraExpiringSecret -Days 30 -IncludeExpired } catch { @() }).Count
             risky    = $risky
             score    = $score
             ca       = @(try { Get-EntraConditionalAccessPolicy } catch { @() })
@@ -3775,6 +3777,7 @@ function Invoke-IaTuiReports {
             $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
             if (-not $app) { return }
             $by  = Read-IaMenu -Title 'Pivot by' -Choices @('Device', 'User') -Color $Accent
+            if (-not $by) { return }   # Esc → cancel (else -By $null fails the ValidateSet)
             Write-IaTuiHeader -Screen 'App install status' -Sub "app: $($app.Name)  ·  by: $by" -Accent $Accent
             $name = $app.Name
             $rows = Invoke-IaStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
@@ -3851,6 +3854,7 @@ function Invoke-IaTuiReports {
         }
         'Deployment*' {
             $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
+            if (-not $scope) { break }   # Esc → cancel (else silently runs the all-resources summary)
             $grp   = $null
             if ($scope -like 'Scope*') {
                 $grpObj = Select-IaGroup -Accent $Accent -Title 'Scope to group'
@@ -4474,6 +4478,7 @@ function Invoke-IaTuiCloudPC {
                 'Restart', 'Reprovision', 'Troubleshoot', 'EndGracePeriod',
                 'CreateSnapshot', 'Resize', 'Rename', 'Restore', 'PowerOn', 'PowerOff'
             )
+            if (-not $pcName -or -not $action) { return }   # Esc → cancel (else empty-subject confirm + Mandatory binding error)
             $extraParams = @{}
             switch ($action) {
                 'Resize' {
@@ -4583,6 +4588,7 @@ function Invoke-IaTuiCloudPC {
                     $conns = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
                     $connC = Read-IaMenu -Title 'Select connection' -Color $Accent `
                         -Choices @($conns | ForEach-Object { $_.Name })
+                    if (-not $connC) { return }   # Esc → cancel (else -Connection $null binding error + false success message)
                     Test-IntuneCloudPCConnection -Connection $connC
                     Write-IaHost "[$Accent]Health check triggered.[/] Check connection status in a few minutes."
                 }
@@ -4597,6 +4603,7 @@ function Invoke-IaTuiCloudPC {
         'Images*' {
             Write-IaTuiHeader -Screen 'Cloud PC Images' -Sub 'gallery · custom' -Accent $Accent
             $type = Read-IaMenu -Title 'Image type' -Choices @('All','Gallery','Custom') -Color $Accent
+            if (-not $type) { return }   # Esc → cancel (else -Type $null fails the ValidateSet)
             Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock {
                 Get-IntuneCloudPCImage -Type $type
             } | Format-IaTable -Color $Accent
@@ -4611,6 +4618,7 @@ function Invoke-IaTuiCloudPC {
             Write-IaTuiHeader -Screen 'Cloud PC Snapshots' -Accent $Accent
             $pcs   = Invoke-IaStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
             $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices (@('All Cloud PCs') + @($pcs | ForEach-Object { $_.CloudPC }))
+            if (-not $scope) { return }   # Esc → cancel
             $snaps = Invoke-IaStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
                 if ($scope -eq 'All Cloud PCs') { Get-IntuneCloudPCSnapshot }
                 else { Get-IntuneCloudPCSnapshot -CloudPC $scope }

@@ -10,8 +10,11 @@ function Set-IntuneAppAssignment {
 
         Use -Clear to remove every existing assignment from the app.
 
-        Note: this cmdlet performs a full replace — it overwrites any assignments
-        already on the app with the ones you supply.
+        Note: this cmdlet performs a FULL REPLACE — it overwrites every assignment
+        already on the app with the ones you supply (the Graph /assign action replaces
+        the whole set). To keep existing assignments, include them in this call. Because
+        a single -Include can therefore wipe unrelated targets, the operation is treated
+        as high-impact and prompts unless you pass -Confirm:$false.
 
     .PARAMETER AppId
         App display name or GUID (mandatory).
@@ -61,7 +64,7 @@ function Set-IntuneAppAssignment {
     .OUTPUTS
         PSCustomObject with properties: AppId, AssignedTo (count), Submitted.
     #>
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory, Position = 0)][string]$AppId,
 

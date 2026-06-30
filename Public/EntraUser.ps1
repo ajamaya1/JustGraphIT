@@ -210,7 +210,7 @@ function Reset-EntraUserMfa {
         Removes phone, email, Authenticator, FIDO2/passkey, software OATH, Temporary
         Access Pass and Windows Hello methods. The password method is never touched.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([Parameter(Mandatory, Position = 0)][string]$User)
     $id      = Resolve-EntraUserId -User $User
     $methods = @(Get-IaCollection (Resolve-IaUri -Path "users/$id/authentication/methods"))

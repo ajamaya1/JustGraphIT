@@ -61,6 +61,9 @@ function Set-EntraAuthorizationPolicy {
         allowedToReadOtherUsers                  = [bool]$c.allowedToReadOtherUsers
         allowedToReadBitlockerKeysForOwnedDevice = [bool]$c.allowedToReadBitlockerKeysForOwnedDevice
     }
+    # PATCH replaces the whole object, so carry the sibling sub-properties we don't expose —
+    # otherwise flipping a boolean silently nulls the tenant's user app-consent policy.
+    if ($null -ne $c.permissionGrantPoliciesAssigned) { $durp['permissionGrantPoliciesAssigned'] = @($c.permissionGrantPoliciesAssigned) }
     $touched = $false
     if ($PSBoundParameters.ContainsKey('UsersCanCreateApps'))           { $durp.allowedToCreateApps = [bool]$UsersCanCreateApps; $touched = $true }
     if ($PSBoundParameters.ContainsKey('UsersCanCreateSecurityGroups')) { $durp.allowedToCreateSecurityGroups = [bool]$UsersCanCreateSecurityGroups; $touched = $true }
