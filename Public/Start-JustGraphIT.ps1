@@ -4076,7 +4076,7 @@ function Get-IaReportPanel {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Custom report builder[/]"))
     $lines.Add((ConvertFrom-IaMarkup "[grey]select │ where │ sort │ group │ export[/]"))
-    $lines.Add((ConvertFrom-IaMarkup ("[$Accent]" + ([char]0x2550 * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
+    $lines.Add((ConvertFrom-IaMarkup ("[$Accent]" + ([string][char]0x2550 * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
 
     $cols = if (@($Recipe.Select).Count -gt 0) { (@($Recipe.Select) -join ', ') } else { '(all)' }
     $filt = if (@($Recipe.Where | Where-Object { $_ -and $_.Prop }).Count -gt 0) {
