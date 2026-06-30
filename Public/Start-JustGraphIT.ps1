@@ -542,6 +542,7 @@ function Invoke-IaTuiCompare {
 function Invoke-IaTuiWhatIf {
     param([string]$Accent)
     $kind = Read-IaMenu -Title 'Subject type' -Choices @('user', 'device') -Color $Accent
+    if (-not $kind) { return }   # Esc → cancel (else the device picker loads unbidden)
     $val  = if ($kind -eq 'user') { Select-IaUser -Accent $Accent -Title 'Which user?' }
             else { Select-IaManagedDevice -Accent $Accent -Title 'Which device?' }
     if ([string]::IsNullOrWhiteSpace($val)) { return }
@@ -723,9 +724,10 @@ function Invoke-IaTuiBulkAssign {
     if ($filters) {
         $fchoice = Read-IaSelection -Title 'Assignment filter' -Color $Accent `
             -Choices (@('(no filter)') + @($filters | ForEach-Object Name))
-        if ($fchoice -ne '(no filter)') {
-            $filterId   = ($filters | Where-Object Name -eq $fchoice | Select-Object -First 1).Id
-            $filterType = Read-IaMenu -Title "Filter mode for '$fchoice'" -Choices @('include', 'exclude') -Color $Accent
+        if ($fchoice -and $fchoice -ne '(no filter)') {   # $null -ne '(no filter)' is TRUE — guard Esc
+            $filterId = ($filters | Where-Object Name -eq $fchoice | Select-Object -First 1).Id
+            $ftPick   = Read-IaMenu -Title "Filter mode for '$fchoice'" -Choices @('include', 'exclude') -Color $Accent
+            if ($ftPick) { $filterType = $ftPick }   # keep the 'include' default if cancelled
         }
     }
 
@@ -940,8 +942,9 @@ function Invoke-IaTuiApps {
                         $grpObj = $null
                         try { $grpObj = Select-IaGroup -Accent $Accent -Title 'Which group?' } catch { }
                         $grp = if ($grpObj -and $grpObj.Id) { $grpObj.Id } else { Read-IaText -Question 'Group name or GUID' }
-                        if ([string]::IsNullOrWhiteSpace($grp)) { return }
+                        if ([string]::IsNullOrWhiteSpace($grp)) { break }   # cancel → stay in Apps menu, not exit it
                         $excl = Read-IaMenu -Title 'Include or exclude?' -Color $Accent -Choices @('Include','Exclude')
+                        if (-not $excl) { break }   # Esc must NOT fall through to the 'exclude' branch
                         Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
                             if ($excl -eq 'Include') {
                                 Set-IntuneAppAssignment -AppId $appName -Include @($grp) -Confirm:$false
@@ -1777,6 +1780,7 @@ function Invoke-IaTuiDeviceCard {
             }
             'Compliance policy*' {
                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeComplianceState }
+                if (-not $detail) { Write-IaHost '[yellow]Could not reload device detail — try again.[/]'; Read-IaPause | Out-Null; break }
                 $rows = @($detail.ComplianceStates | ForEach-Object {
                     $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
                     [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$c]$($_.state)[/]"; Platform = $_.platformType }
@@ -1785,6 +1789,7 @@ function Invoke-IaTuiDeviceCard {
             }
             'Configuration profile*' {
                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeConfigState }
+                if (-not $detail) { Write-IaHost '[yellow]Could not reload device detail — try again.[/]'; Read-IaPause | Out-Null; break }
                 $rows = @($detail.ConfigStates | ForEach-Object {
                     $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error', 'conflict') { 'coral' } else { 'grey' }
                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$c]$($_.state)[/]"; Version = $_.version }
@@ -1793,6 +1798,7 @@ function Invoke-IaTuiDeviceCard {
             }
             'Detected apps*' {
                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeApps }
+                if (-not $detail) { Write-IaHost '[yellow]Could not reload device detail — try again.[/]'; Read-IaPause | Out-Null; break }
                 $rows = @($detail.Apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } })
                 Read-IaTablePause -Data $rows -Stem "devcard-$Device-apps" -Color $Accent -Title "Detected apps · $Device ($($rows.Count))"
             }
@@ -3630,6 +3636,7 @@ function Invoke-IaTuiReports {
                                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
                                     Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState
                                 }
+                                if (-not $detail) { Write-IaHost '[yellow]Could not load compliance states — try again.[/]'; Read-IaPause | Out-Null; break }
                                 # Project to a narrow, readable table — the raw Graph state
                                 # objects carry id/userId/settingStates GUID columns that wrap.
                                 $rows = @($detail.ComplianceStates | ForEach-Object {
@@ -3661,6 +3668,7 @@ function Invoke-IaTuiReports {
                                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
                                     Get-IntuneDeviceDetail -Device $devName -IncludeConfigState
                                 }
+                                if (-not $detail) { Write-IaHost '[yellow]Could not load configuration states — try again.[/]'; Read-IaPause | Out-Null; break }
                                 $rows = @($detail.ConfigStates | ForEach-Object {
                                     $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error','conflict') { 'coral' } else { 'grey' }
                                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$sc]$($_.state)[/]"; Version = $_.version }
@@ -3688,6 +3696,7 @@ function Invoke-IaTuiReports {
                                 $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
                                     Get-IntuneDeviceDetail -Device $devName -IncludeApps
                                 }
+                                if (-not $detail) { Write-IaHost '[yellow]Could not load detected apps — try again.[/]'; Read-IaPause | Out-Null; break }
                                 $rows = @($detail.Apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } })
                                 Read-IaTablePause -Data $rows -Stem "device-$devName-apps" -Color $Accent -Title "Detected apps · $devName ($($rows.Count))"
                             }
@@ -4515,6 +4524,7 @@ function Invoke-IaTuiCloudPC {
                 }
                 'Create*' {
                     $name  = Read-IaText -Question 'Policy name'
+                    if ([string]::IsNullOrWhiteSpace($name)) { return }   # no name → cancel
                     $imgs  = Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock { Get-IntuneCloudPCImage }
                     $imgC  = Read-IaMenu -Title 'OS image' -Color $Accent `
                         -Choices @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" })
@@ -4523,6 +4533,7 @@ function Invoke-IaTuiCloudPC {
                     $img   = $imgs[$imgIdx]
                     $join  = Read-IaMenu -Title 'Azure AD join type' -Color $Accent `
                         -Choices @('azureADJoin', 'hybridAzureADJoin')
+                    if (-not $join) { return }   # Esc → cancel (else -DomainJoinType $null fails binding)
                     Write-IaTuiHeader -Screen 'Create provisioning policy' -Sub $name -Accent $Accent
                     New-IntuneCloudPCProvisioningPolicy -Name $name -ImageId $img.Id `
                         -ImageType ($img.Type.ToLower()) -DomainJoinType $join -WhatIf
