@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-334%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-338%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
@@ -56,6 +56,11 @@ over Microsoft Graph.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
   multi-admin approvals, **expiring secrets & certificates** (app registrations and
   enterprise apps, with days-to-expiry), and HTML / CSV / JSON / Excel exports.
+- **Health check & change receipt** - `Invoke-IntuneHealthCheck` runs the "is anything
+  on fire?" morning sweep headlessly (compliance %, stale devices, encryption, expiring
+  app credentials, risky users, Conditional Access coverage) — schedule it and alert on
+  anything not `Pass`. `Export-IntuneChangeLog` writes an audit receipt of every change
+  the session made (method, path, status) for the change ticket.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
   (one file per object), and diff current state against a snapshot.
 - **Live Graph-call log** - The bottom of the main menu is a copy-pasteable log of the

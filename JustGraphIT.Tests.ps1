@@ -4216,3 +4216,77 @@ Describe 'Get-EntraExpiringSecret' {
         }
     }
 }
+
+Describe 'Invoke-IntuneHealthCheck' {
+    It 'emits six rows and computes Pass/Warn/Fail from mocked data' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory { @(
+                [pscustomobject]@{ Device = 'A'; Compliance = 'compliant';    DaysSinceSync = 1;  Encrypted = $true  }
+                [pscustomobject]@{ Device = 'B'; Compliance = 'noncompliant'; DaysSinceSync = 61; Encrypted = $false }
+                [pscustomobject]@{ Device = 'C'; Compliance = 'compliant';    DaysSinceSync = 2;  Encrypted = $true  }
+            ) }
+            Mock Get-EntraExpiringSecret { @(
+                [pscustomobject]@{ App = 'Pipeline'; DaysLeft = -2; Status = 'Expired' }
+            ) }
+            Mock Get-EntraRiskyUser { @() }
+            Mock Get-EntraConditionalAccessPolicy { @(
+                [pscustomobject]@{ Name = 'MFA all'; State = 'enabled' }
+                [pscustomobject]@{ Name = 'Legacy block'; State = 'enabled' }
+            ) }
+            $r = @(Invoke-IntuneHealthCheck -StaleDays 30 -MinCompliancePercent 90)
+            $r.Count | Should -Be 6
+            ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Fail'      # 67% < 90
+            ($r | Where-Object Check -like 'Stale devices*').Status  | Should -Be 'Fail'      # 1/3 > 10%
+            ($r | Where-Object Check -like 'App credentials*').Status| Should -Be 'Fail'      # expired cred
+            ($r | Where-Object Check -like 'Risky users*').Status    | Should -Be 'Pass'
+            ($r | Where-Object Check -like 'Conditional Access*').Status | Should -Be 'Pass'  # 2 enabled
+        }
+    }
+
+    It 'reports Error rows instead of throwing when a probe fails' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory { throw 'boom' }
+            Mock Get-EntraExpiringSecret { throw '403' }
+            Mock Get-EntraRiskyUser { throw 'needs P2' }
+            Mock Get-EntraConditionalAccessPolicy { throw '403' }
+            $r = @(Invoke-IntuneHealthCheck)
+            $r.Count | Should -Be 6
+            @($r | Where-Object Status -eq 'Error').Count | Should -Be 6
+        }
+    }
+}
+
+Describe 'Export-IntuneChangeLog' {
+    It 'exports only writes as CSV and returns the path' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneCallLog { @(
+                [pscustomobject]@{ Time = Get-Date; Method = 'GET';    Uri = '/beta/x?…'; Full = '/beta/x?$top=5'; Status = 200; Ms = 12; Error = $null }
+                [pscustomobject]@{ Time = Get-Date; Method = 'PATCH';  Uri = '/beta/y?…'; Full = '/beta/y';        Status = 204; Ms = 30; Error = $null }
+                [pscustomobject]@{ Time = Get-Date; Method = 'DELETE'; Uri = '/beta/z?…'; Full = '/beta/z';        Status = 204; Ms = 22; Error = $null }
+            ) }
+            $out = Join-Path ([IO.Path]::GetTempPath()) "jgi-test-changes-$PID.csv"
+            try {
+                $p = Export-IntuneChangeLog -Path $out
+                $p | Should -Be $out
+                $rows = @(Import-Csv $out)
+                $rows.Count | Should -Be 2                       # GET excluded
+                @($rows | Where-Object Method -eq 'GET').Count | Should -Be 0
+                $rows[0].Uri | Should -Be '/beta/y'              # Full (query kept) preferred
+            } finally { Remove-Item $out -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'warns and exports nothing when the session made no writes' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneCallLog { @(
+                [pscustomobject]@{ Time = Get-Date; Method = 'GET'; Uri = '/beta/x?…'; Full = '/beta/x'; Status = 200; Ms = 5; Error = $null }
+            ) }
+            $out = Join-Path ([IO.Path]::GetTempPath()) "jgi-test-empty-$PID.csv"
+            try {
+                $p = Export-IntuneChangeLog -Path $out -WarningAction SilentlyContinue
+                $p | Should -BeNullOrEmpty
+                Test-Path $out | Should -BeFalse
+            } finally { Remove-Item $out -ErrorAction SilentlyContinue }
+        }
+    }
+}

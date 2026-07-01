@@ -88,8 +88,12 @@ function Get-IntunePatchReport {
 
     $all = foreach ($j in $jobs) {
         $kind = $j.Kind
-        $rows = @(Invoke-IaReportExport -ReportName $j.Report -TimeoutSec $TimeoutSec `
-            -OnStatus { param($s) Write-Verbose "$($j.Report): $s" })
+        # Assign-then-@(): Invoke-IaReportExport returns the rows array as ONE object
+        # (comma-protected by ConvertFrom-IaReportZip); wrapping the CALL in @() nests it
+        # so the loop below would see a single Object[] "row" with every column null.
+        $rows = Invoke-IaReportExport -ReportName $j.Report -TimeoutSec $TimeoutSec `
+            -OnStatus { param($s) Write-Verbose "$($j.Report): $s" }
+        $rows = @($rows)
         foreach ($r in $rows) {
             if ($Raw) {
                 [void]($r | Add-Member -NotePropertyName UpdateType -NotePropertyValue $kind -Force)

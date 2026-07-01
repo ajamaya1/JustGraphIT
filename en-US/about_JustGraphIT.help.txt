@@ -16,9 +16,9 @@ LONG DESCRIPTION
 
     The interactive UI is rendered by a self-contained ANSI engine (in
     Private/Tui.ps1) — there is NO Spectre.Console or other external terminal-UI
-    dependency. Tables scroll and search, export (CSV / Excel / JSON), and push
-    to a Teams webhook; secret-bearing views (BitLocker keys, LAPS passwords)
-    deliberately disable export.
+    dependency. Tables scroll and search, and export (CSV / Excel / JSON);
+    secret-bearing views (BitLocker keys, LAPS passwords) deliberately
+    disable export.
 
     Launch the TUI with `Start-JustGraphIT` or the alias `jgi`.
 
@@ -67,7 +67,6 @@ AUDITING & EXPORT
     Get-IntuneAuditLog -Since 7d -Activity Assign
     Get-IntuneAssignmentAudit -CheckEmptyGroups
     Export-IntuneAssignmentReport -Format Html -Path assignments.html
-    Send-IntuneReportToTeams -Data $rows -Title 'Weekly drift'   # Teams webhook
 
 GRAPH PERMISSIONS
     Reads need DeviceManagementConfiguration.Read.All,
