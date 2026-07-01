@@ -74,7 +74,7 @@ Audit log — into a report across every property, with 16 filter operators and
 count/sum/avg/min/max aggregation:
 
 <p align="center">
-  <img src="docs/img/report-builder.png" width="760" alt="The custom report builder: select, where, sort, group, export">
+  <img src="docs/img/custom-report-builder.png" width="760" alt="The custom report builder: select, where, sort, group, export">
 </p>
 
 ## Common workflows
@@ -86,7 +86,7 @@ licenses on a single **Overview** page (friendly SKU names like *Microsoft 365 E
 half-provisioned service plans flagged).
 
 <p align="center">
-  <img src="docs/img/user-lookup-overview.png" width="820" alt="User lookup Overview: devices, Entra groups and licenses on one page">
+  <img src="docs/img/helpdesk-overview.png" width="820" alt="User lookup Overview: devices, Entra groups and licenses on one page">
 </p>
 
 **2. Sign-in & MFA diagnostics** — "why can't they log in?" Recent sign-ins with the result,
@@ -94,7 +94,7 @@ the failure reason, the **Conditional Access policy that blocked** the attempt, 
 user's registered MFA methods.
 
 <p align="center">
-  <img src="docs/img/user-signin-diagnostics.png" width="820" alt="Recent sign-ins with result, reason and the blocking Conditional Access policy">
+  <img src="docs/img/helpdesk-signins.png" width="820" alt="Recent sign-ins with result, reason and the blocking Conditional Access policy">
 </p>
 
 **3. Compliance failures** — drill past the `noncompliant` label to the exact settings that
