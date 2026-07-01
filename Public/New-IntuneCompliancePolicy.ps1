@@ -54,12 +54,29 @@ function New-IntuneCompliancePolicy {
         $body = switch ($PSCmdlet.ParameterSetName) {
             'CopyFrom' {
                 $srcId = Resolve-IaCompliancePolicyId -Value $CopyFrom
-                $src   = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/deviceCompliancePolicies/$srcId")
+                # Expand the noncompliance schedule so the clone keeps the source's real
+                # actions (grace period, retire, notify) instead of the block/0h default
+                # the fallback below would inject.
+                $src   = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceManagement/deviceCompliancePolicies/${srcId}?`$expand=scheduledActionsForRule(`$expand=scheduledActionConfigurations)")
                 $clone = $src | ConvertTo-Json -Depth 20 | ConvertFrom-Json -AsHashtable
                 $clone['displayName'] = $Name
                 if ($Description) { $clone['description'] = $Description }
                 $clone.Remove('id'); $clone.Remove('createdDateTime'); $clone.Remove('lastModifiedDateTime')
-                $clone.Remove('version'); $clone.Remove('assignments'); $clone.Remove('scheduledActionsForRule')
+                $clone.Remove('version'); $clone.Remove('assignments')
+                foreach ($k in @($clone.Keys | Where-Object { $_ -like '*@odata*' })) { $clone.Remove($k) }
+                if ($clone['scheduledActionsForRule']) {
+                    # strip server-assigned ids/annotations; keep ruleName + action configs
+                    $clone['scheduledActionsForRule'] = @(foreach ($rule in @($clone['scheduledActionsForRule'])) {
+                        foreach ($k in @($rule.Keys | Where-Object { $_ -eq 'id' -or $_ -like '*@odata*' })) { $rule.Remove($k) }
+                        if ($rule['scheduledActionConfigurations']) {
+                            $rule['scheduledActionConfigurations'] = @(foreach ($cfg in @($rule['scheduledActionConfigurations'])) {
+                                foreach ($k in @($cfg.Keys | Where-Object { $_ -eq 'id' -or $_ -like '*@odata*' })) { $cfg.Remove($k) }
+                                $cfg
+                            })
+                        }
+                        $rule
+                    })
+                }
                 $clone
             }
             'FromJson' {

@@ -45,9 +45,11 @@ function Start-JustGraphIT {
 
     function Get-IaTuiInventory {
         if ($null -eq $script:IaTuiInventory) {
-            $script:IaTuiInventory = Invoke-IaStatus -Spinner Dots -Title 'Reading Intune assignments…' -ScriptBlock {
+            # @() so an EMPTY tenant caches as @() — a bare $null result would fail the
+            # cache check above and re-run the full inventory sweep on every action.
+            $script:IaTuiInventory = @(Invoke-IaStatus -Spinner Dots -Title 'Reading Intune assignments…' -ScriptBlock {
                 Get-IaInventory
-            }
+            })
         }
         $script:IaTuiInventory
     }
@@ -272,7 +274,7 @@ function Select-IaManagedDevice {
     $disp = @($devs | ForEach-Object {
         [pscustomobject][ordered]@{ Device = $_.Device; User = $_.User; OS = $_.OS; Compliance = $_.Compliance; LastSync = $_.LastSync }
     })
-    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  type to search" -Stem 'device-pick'
+    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  / to search" -Stem 'device-pick'
     if (-not $picked) { return $null }
     $picked.Device
 }
@@ -294,7 +296,7 @@ function Select-IaAutopilotDevice {
     $disp = @($devs | ForEach-Object {
         [pscustomobject][ordered]@{ Serial = $_.SerialNumber; Model = $_.Model; Manufacturer = $_.Manufacturer; GroupTag = $_.GroupTag; State = $_.EnrollmentState }
     })
-    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  type to search" -Stem 'autopilot-pick'
+    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  / to search" -Stem 'autopilot-pick'
     if (-not $picked) { return $null }
     $picked.Serial
 }
@@ -321,7 +323,7 @@ function Select-IaUser {
     $disp = @($users | ForEach-Object {
         [pscustomobject][ordered]@{ User = $_.displayName; UPN = $_.userPrincipalName }
     } | Sort-Object User)
-    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  type to search" -Stem 'user-pick'
+    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  / to search" -Stem 'user-pick'
     if (-not $picked) { return $null }
     $picked.UPN
 }
@@ -361,7 +363,7 @@ function Select-IaLoadedItem {
     $disp = @($items | ForEach-Object {
         $src = $_; $o = [ordered]@{}; foreach ($c in $cols) { $o[$c] = $src.$c }; [pscustomobject]$o
     })
-    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  type to search" -Stem $Stem
+    $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "$Title ($($disp.Count))  ·  / to search" -Stem $Stem
     if (-not $picked) { return $null }
     $items | Where-Object { "$($_.$KeyProp)" -eq "$($picked.$KeyProp)" } | Select-Object -First 1
 }

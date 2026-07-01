@@ -54,6 +54,8 @@
         'Get-IntunePimActivation',
         # --- diagnostics ---
         'Get-IntuneCallLog',
+        'Invoke-IntuneHealthCheck',
+        'Export-IntuneChangeLog',
         'Clear-IntuneCallLog',
         # --- Teams push ---
         # --- device actions & detail ---

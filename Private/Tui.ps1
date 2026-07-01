@@ -295,6 +295,12 @@ function Start-IaMouse {
     # ENABLE_QUICK_EDIT_MODE (0x40) or the mouse bytes never reach [Console]::ReadKey.
     # The previous mode is saved and restored by Stop-IaMouse. Read-IaInputEvent
     # decodes VT-encoded arrows/Enter so cooked-vs-VT delivery both work.
+    # Depth-counted: nested consumers (a menu opened from inside a table, e.g. the
+    # export-format picker) must not turn reporting off for the outer view, and must
+    # not overwrite the saved Windows mode with an already-modified one.
+    if (-not $script:IaMouseDepth) { $script:IaMouseDepth = 0 }
+    $script:IaMouseDepth++
+    if ($script:IaMouseDepth -gt 1) { return }
     Write-IaRaw $script:IaMouseOn -NoNewline
     if ($IsWindows) {
         try {
@@ -311,7 +317,11 @@ function Start-IaMouse {
 }
 
 function Stop-IaMouse {
-    # Restore the saved Windows console mode and turn SGR mouse reporting off.
+    # Restore the saved Windows console mode and turn SGR mouse reporting off —
+    # only when the outermost consumer exits (see the depth note in Start-IaMouse).
+    if (-not $script:IaMouseDepth) { return }
+    $script:IaMouseDepth--
+    if ($script:IaMouseDepth -gt 0) { return }
     if ($IsWindows -and $null -ne $script:IaWinPrevInMode) {
         try {
             $h = [IaConsoleNative.WinConsole]::GetStdHandle(-10)
@@ -922,7 +932,7 @@ function Read-IaMenuArrow {
         $lines.Add($(if ($vp.top -gt 0) { "$dim   ↑ more$reset" } else { '' }))
         for ($i = $vp.top; $i -lt ($vp.top + $page); $i++) {
             if ($i -lt $count) {
-                $label = ConvertFrom-IaMarkup -Text $Choices[$i]
+                $label = ConvertFrom-IaMarkup -Text (Protect-IaMarkup $Choices[$i])   # escape data — a name like '[Test]' must render literally
                 if ($i -eq $sel) { $lines.Add("$accent ❯ $bold$label$reset") }
                 else { $lines.Add("   $label$reset") }
             }
@@ -1070,7 +1080,7 @@ function Read-IaMultiMenuArrow {
         for ($i = $vp.top; $i -lt ($vp.top + $page); $i++) {
             if ($i -lt $count) {
                 $box = if ($checked[$i]) { "$green[x]$reset" } else { "$dim[ ]$reset" }
-                $label = ConvertFrom-IaMarkup -Text $Choices[$i]
+                $label = ConvertFrom-IaMarkup -Text (Protect-IaMarkup $Choices[$i])   # escape data — a name like '[Test]' must render literally
                 if ($i -eq $sel) { $lines.Add("$accent ❯ $box $bold$label$reset") }
                 else { $lines.Add("   $box $label$reset") }
             }

@@ -58,7 +58,12 @@ function Get-EntraExpiringSecret {
     # Build the (object, kind-label) work list.
     $sources = [System.Collections.Generic.List[object]]::new()
     if ($App) {
-        $sources.Add([pscustomobject]@{ Type = 'App registration'; Obj = (Get-EntraApplicationObject -App $App) })
+        # Get-EntraApplicationObject resolves name/appId/object-id (and errors on ambiguity),
+        # but its $select omits the credential collections — re-fetch by id with ours or the
+        # scan below iterates $null and silently reports nothing expiring.
+        $resolved = Get-EntraApplicationObject -App $App
+        $obj = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "applications/$($resolved.id)?`$select=$sel")
+        $sources.Add([pscustomobject]@{ Type = 'App registration'; Obj = $obj })
     } else {
         foreach ($a in (Get-IaCollection (Resolve-IaUri -Path "applications?`$select=$sel"))) {
             $sources.Add([pscustomobject]@{ Type = 'App registration'; Obj = $a })
