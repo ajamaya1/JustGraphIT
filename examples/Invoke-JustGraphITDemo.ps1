@@ -48,7 +48,9 @@ function page($v) { [pscustomobject]@{ value = @($v); '@odata.nextLink' = $null 
 
 function global:Invoke-MgGraphRequest {
     param($Method, $Uri, $Body, $Headers, $OutputType, $ContentType, $ErrorAction)
-    $u = [string]$Uri
+    # The module URL-encodes $filter values; decode so the fixture regexes below
+    # (e.g. "deviceName eq 'X'") match the way they read.
+    $u = [uri]::UnescapeDataString([string]$Uri)
     if ($u -match '/assignments(\?|$)') { return page @() }
     if ($u -match 'assignmentFilters') { return page (items @('Corporate Windows', 'Personal iOS', 'macOS Lab') 'displayName') }
     if ($u -match '/groups/(g\d)') {
@@ -129,7 +131,7 @@ function global:Invoke-MgGraphRequest {
         [pscustomobject]@{ id = 'bk1'; createdDateTime = '2026-05-01T10:00:00Z'; volumeType = 'operatingSystemVolume'; deviceId = 'aad-0001' }
         [pscustomobject]@{ id = 'bk2'; createdDateTime = '2026-06-15T10:00:00Z'; volumeType = 'fixedDataVolume'; deviceId = 'aad-0001' }) }
     if ($u -match 'deviceLocalCredentials/') { return [pscustomobject]@{ credentials = @(
-        [pscustomobject]@{ accountName = 'Administrator'; accountSid = 'S-1-5-21-1602...-500'; backupDateTime = '2026-06-26T03:00:00Z'; passwordBase64 = ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('T1de!Local#Adm-7vQ2pX'))) }
+        [pscustomobject]@{ accountName = 'Administrator'; accountSid = 'S-1-5-21-1602...-500'; backupDateTime = '2026-06-26T03:00:00Z'; passwordBase64 = ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('jG!t-L0cal#Adm-7vQ2pX'))) }
         [pscustomobject]@{ accountName = 'Administrator'; accountSid = 'S-1-5-21-1602...-500'; backupDateTime = '2026-05-26T03:00:00Z'; passwordBase64 = ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('Old-Rotated#2026-05'))) }) } }
     if ($u -match 'virtualEndpoint/reports/') { return [pscustomobject]@{
         totalRowCount = 3
