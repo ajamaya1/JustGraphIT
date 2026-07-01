@@ -57,8 +57,10 @@ function Set-IntuneConfigurationPolicy {
     }
 
     if ($Settings) {
+        # Each settings-catalog element must carry its @odata.type or the PUT 400s
+        # (matches New-IaConfigCreateBody in ConfigBackup.ps1).
         $settingsBody = @{ value = @($Settings | ForEach-Object {
-            if ($_.settingInstance) { @{ settingInstance = $_.settingInstance } }
+            if ($_.settingInstance) { @{ '@odata.type' = '#microsoft.graph.deviceManagementConfigurationSetting'; settingInstance = $_.settingInstance } }
             else                    { $_ }
         }) }
         Invoke-IaRequest -Method PUT -Uri (Resolve-IaUri "deviceManagement/configurationPolicies/$resolved/settings") -Body $settingsBody | Out-Null

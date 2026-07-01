@@ -78,6 +78,18 @@ function New-IntuneCompliancePolicy {
             }
         }
 
+        # Graph rejects a compliance-policy create that has no scheduledActionsForRule
+        # ("The scheduled actions for this rule is required"). Manual shells never set it,
+        # and the CopyFrom clone strips it (the plain GET doesn't return it anyway), so
+        # supply a minimal block-on-noncompliance schedule when one is missing.
+        if (-not $body['scheduledActionsForRule']) {
+            $body['scheduledActionsForRule'] = @(
+                @{ ruleName = 'PasswordRequired'; scheduledActionConfigurations = @(
+                    @{ actionType = 'block'; gracePeriodHours = 0 }
+                ) }
+            )
+        }
+
         if (-not $PSCmdlet.ShouldProcess($Name, 'New-IntuneCompliancePolicy')) { return }
 
         $created = Invoke-IaRequest -Method POST -Uri (Resolve-IaUri 'deviceManagement/deviceCompliancePolicies') -Body $body

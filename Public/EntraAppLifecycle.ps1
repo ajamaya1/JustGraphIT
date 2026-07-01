@@ -89,7 +89,10 @@ function Add-EntraAppRedirectUri {
     $cur    = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "applications/$($appObj.id)?`$select=$prop")
     $merged = @(@($cur.$prop.redirectUris) + $Uri | Where-Object { $_ } | Select-Object -Unique)
     if ($PSCmdlet.ShouldProcess($appObj.displayName, "Add $Platform redirect URI(s): $($Uri -join ', ')")) {
-        Invoke-IaRequest -Method PATCH -Uri (Resolve-IaUri -Path "applications/$($appObj.id)") -Body @{ $prop = @{ redirectUris = $merged } } | Out-Null
+        $platformPatch = [ordered]@{}
+        if ($cur.$prop) { $cur.$prop.PSObject.Properties | ForEach-Object { $platformPatch[$_.Name] = $_.Value } }
+        $platformPatch['redirectUris'] = $merged
+        Invoke-IaRequest -Method PATCH -Uri (Resolve-IaUri -Path "applications/$($appObj.id)") -Body @{ $prop = $platformPatch } | Out-Null
         [pscustomobject]@{ App = $appObj.displayName; Platform = $Platform; RedirectUris = $merged }
     }
 }
@@ -110,7 +113,10 @@ function Remove-EntraAppRedirectUri {
     $cur    = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri -Path "applications/$($appObj.id)?`$select=$prop")
     $kept   = @(@($cur.$prop.redirectUris) | Where-Object { $Uri -notcontains $_ })
     if ($PSCmdlet.ShouldProcess($appObj.displayName, "Remove $Platform redirect URI(s)")) {
-        Invoke-IaRequest -Method PATCH -Uri (Resolve-IaUri -Path "applications/$($appObj.id)") -Body @{ $prop = @{ redirectUris = $kept } } | Out-Null
+        $platformPatch = [ordered]@{}
+        if ($cur.$prop) { $cur.$prop.PSObject.Properties | ForEach-Object { $platformPatch[$_.Name] = $_.Value } }
+        $platformPatch['redirectUris'] = $kept
+        Invoke-IaRequest -Method PATCH -Uri (Resolve-IaUri -Path "applications/$($appObj.id)") -Body @{ $prop = $platformPatch } | Out-Null
         [pscustomobject]@{ App = $appObj.displayName; Platform = $Platform; RedirectUris = $kept }
     }
 }

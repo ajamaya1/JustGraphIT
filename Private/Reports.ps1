@@ -110,20 +110,20 @@ function ConvertTo-IaDeploymentCounts {
     param([Parameter(Mandatory)][object]$Overview, [ValidateSet('app', 'config')][string]$Kind = 'config')
     if ($Kind -eq 'app') {
         [pscustomobject][ordered]@{
-            Success       = [int]$Overview.installedDeviceCount
-            Failed        = [int]$Overview.failedDeviceCount
-            NotApplicable = [int]$Overview.notApplicableDeviceCount
-            Pending       = [int]$Overview.pendingInstallDeviceCount
-            NotInstalled  = [int]$Overview.notInstalledDeviceCount
+            Success       = ConvertTo-IaSafeInt $Overview.installedDeviceCount 0
+            Failed        = ConvertTo-IaSafeInt $Overview.failedDeviceCount 0
+            NotApplicable = ConvertTo-IaSafeInt $Overview.notApplicableDeviceCount 0
+            Pending       = ConvertTo-IaSafeInt $Overview.pendingInstallDeviceCount 0
+            NotInstalled  = ConvertTo-IaSafeInt $Overview.notInstalledDeviceCount 0
         }
     } else {
         [pscustomobject][ordered]@{
-            Success       = [int]$Overview.successCount
-            Error         = [int]$Overview.errorCount
-            Failed        = [int]$Overview.failedCount
-            Conflict      = [int]$Overview.conflictCount
-            NotApplicable = [int]$Overview.notApplicableCount
-            Pending       = [int]$Overview.pendingCount
+            Success       = ConvertTo-IaSafeInt $Overview.successCount 0
+            Error         = ConvertTo-IaSafeInt $Overview.errorCount 0
+            Failed        = ConvertTo-IaSafeInt $Overview.failedCount 0
+            Conflict      = ConvertTo-IaSafeInt $Overview.conflictCount 0
+            NotApplicable = ConvertTo-IaSafeInt $Overview.notApplicableCount 0
+            Pending       = ConvertTo-IaSafeInt $Overview.pendingCount 0
         }
     }
 }
@@ -195,7 +195,7 @@ function Get-IaDeviceSummary {
         $o = if ($d.managedDeviceOwnerType) { "$($d.managedDeviceOwnerType)" } else { 'unknown' }
         $ownership[$o] = 1 + ($ownership[$o] ?? 0)
         if ($d.lastSyncDateTime) {
-            try { if (($now - ([datetime]$d.lastSyncDateTime).ToUniversalTime()).TotalDays -ge $StaleDays) { $stale++ } } catch { }
+            $syncDt = ConvertTo-IaSafeDateTime $d.lastSyncDateTime; if ($syncDt -and ($now - $syncDt.ToUniversalTime()).TotalDays -ge $StaleDays) { $stale++ }
         }
     }
     $total = @($devices).Count

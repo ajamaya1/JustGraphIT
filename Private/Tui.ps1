@@ -362,7 +362,7 @@ function Read-IaInputEvent {
         bare Esc.
     #>
     $k = [Console]::ReadKey($true)
-    if ($k.Key -ne [ConsoleKey]::Escape) {
+    if ($k.Key -ne [ConsoleKey]::Escape -and [int]$k.KeyChar -ne 27) {
         # Under ENABLE_VIRTUAL_TERMINAL_INPUT (Windows mouse mode) some keys arrive as
         # raw control chars with Key=0; map the ones the menus check so VT and cooked
         # delivery behave identically.
@@ -500,7 +500,7 @@ function Write-IaRule {
     $w = Get-IaInnerWidth
     $reset = Get-IaReset
     $fg = Get-IaAnsi $Color
-    $h = [string][char]0x2500
+    $h = [string][char]0x2550
     if ($Title) {
         $plain = Strip-IaMarkup -Text $Title
         $tw = Measure-IaWidth -Text $plain
@@ -515,23 +515,21 @@ function Write-IaRule {
 
 # 5-row block glyphs for the JustGraphIT banner; anything else falls back to a bold rule.
 $script:IaFiglet = @{
+    'J' = @('█████', '    █', '    █', '█   █', ' ███ ')
+    'U' = @('█   █', '█   █', '█   █', '█   █', '█████')
+    'S' = @('█████', '█    ', '█████', '    █', '█████')
     'T' = @('█████', '  █  ', '  █  ', '  █  ', '  █  ')
-    'I' = @('█████', '  █  ', '  █  ', '  █  ', '█████')
-    'D' = @('████ ', '█   █', '█   █', '█   █', '████ ')
-    'E' = @('█████', '█    ', '███  ', '█    ', '█████')
     'G' = @('█████', '█    ', '█  ██', '█   █', '█████')
     'R' = @('████ ', '█   █', '████ ', '█  █ ', '█   █')
     'A' = @('█████', '█   █', '█████', '█   █', '█   █')
     'P' = @('████ ', '█   █', '████ ', '█    ', '█    ')
     'H' = @('█   █', '█   █', '█████', '█   █', '█   █')
-    'J' = @('█████', '    █', '    █', '█   █', ' ███ ')
-    'U' = @('█   █', '█   █', '█   █', '█   █', '█████')
-    'S' = @('█████', '█    ', '█████', '    █', '█████')
+    'I' = @('█████', '  █  ', '  █  ', '  █  ', '█████')
     ' ' = @('   ', '   ', '   ', '   ', '   ')
 }
 
 function Write-IaFiglet {
-    # Big block-letter banner. Replaces Write-SpectreFigletText.
+    # Big block-letter banner.
     [CmdletBinding()]
     param([Parameter(Position = 0)][string]$Text = '', [string]$Color = 'green')
     Write-IaRaw (Get-IaFigletString -Text $Text -Color $Color)
@@ -931,7 +929,7 @@ function Read-IaMenuArrow {
             else { $lines.Add('') }
         }
         $lines.Add($(if (($vp.top + $page) -lt $count) { "$dim   ↓ more$reset" } else { '' }))
-        $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc back$reset")
+        $lines.Add("$dim   ↑/↓ move · Enter select · click/wheel · Esc/Q back$reset")
         if ($ShowGraphFooter) {
             # Fill the rest of the screen with a copy-pasteable Graph-call log (recomputed
             # each frame so it stays live). Sized to whatever space is left below the menu.
@@ -981,6 +979,8 @@ function Read-IaMenuArrow {
                 'PageDown'  { $sel = [Math]::Min($count - 1, $sel + $page); & $render }
                 'Enter'     { return $sel }
                 'Escape'    { return -1 }
+                'Backspace' { return -1 }
+                default     { if ($ev.KeyChar -eq 'q' -or $ev.KeyChar -eq 'Q') { return -1 } }
             }
         }
     }
@@ -1112,6 +1112,7 @@ function Read-IaMultiMenuArrow {
                 'A'         { $all = (@($checked | Where-Object { $_ }).Count -eq $count); for ($i = 0; $i -lt $count; $i++) { $checked[$i] = -not $all }; & $render }
                 'Enter'     { $out = @(); for ($i = 0; $i -lt $count; $i++) { if ($checked[$i]) { $out += $i } }; return $out }
                 'Escape'    { return @() }
+                'Backspace' { return @() }
             }
         }
     }
@@ -1221,7 +1222,7 @@ function Read-IaTableInteractive {
     <#
     .SYNOPSIS
         Scrollable, searchable, exportable interactive table viewer.
-        ↑/↓/PgUp/PgDn scroll · / search · e export · p push to Teams · ? help · q back.
+        ↑/↓/PgUp/PgDn scroll · / search · e export · ? help · q back.
         With -Selectable, Enter returns the chosen row for drill-down.
     #>
     [CmdletBinding()]
@@ -1235,9 +1236,9 @@ function Read-IaTableInteractive {
         # object selection returns — e.g. hide a real grant id (show a masked one) but
         # still hand the true id to the revoke action. Sensitive values never leave here.
         [string[]]$HideColumns = @(),
-        # Disable the file-export ('e') and push-to-Teams ('p') actions entirely. Use for
+        # Disable the file-export ('e') action entirely. Use for
         # secret-bearing views (BitLocker keys, LAPS passwords) so a revealed secret can
-        # never be written to a temp file or shipped to a webhook.
+        # never be written to a temp file.
         [switch]$NoExport
     )
 
@@ -1252,7 +1253,7 @@ function Read-IaTableInteractive {
     $isDictionary = $rows[0] -is [System.Collections.IDictionary]
     $cols = if ($isDictionary) { @($rows[0].Keys) } else { @($rows[0].PSObject.Properties.Name) }
     if ($HideColumns) { $cols = @($cols | Where-Object { $_ -notin $HideColumns }) }
-    # Display projection (visible columns only) used for export / Teams push / the
+    # Display projection (visible columns only) used for export / the
     # non-interactive fallback, so hidden columns never leave this function.
     $exportRows = @($rows | ForEach-Object {
         $r = $_; $isDict = $r -is [System.Collections.IDictionary]; $o = [ordered]@{}
@@ -1449,7 +1450,7 @@ function Read-IaTableInteractive {
         else {
             $cnt    = "$dim[$reset$rs-$re of $total$dim]$reset"
             $selTip = if ($Selectable) { ' · Enter select' } else { '' }
-            $expTip = if ($NoExport) { '' } else { ' · e export · p Teams' }
+            $expTip = if ($NoExport) { '' } else { ' · e export' }
             $clrTip = if ($st.query) { "  $dim(filter: $reset$border$($st.query)$reset$dim · Esc clear)$reset" } else { '' }
             [void]$buf.Append("  $cnt  $dim↑/↓ scroll · PgUp/PgDn · / search$expTip · ? help$selTip · q back$reset$clrTip")
         }
@@ -1564,6 +1565,10 @@ function Read-IaTableInteractive {
                         if ($st.query) { $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
                         else           { return $null }
                     }
+                    'Backspace' {
+                        if ($st.query) { $st.query = ''; $st.sel = 0; $st.top = 0; & $renderFrame }
+                        else           { return $null }
+                    }
                     'Enter'     {
                         if ($Selectable -and $total -gt 0) { return $rows[$filtered[$st.sel]] }
                         else                               { return $null }
@@ -1572,7 +1577,6 @@ function Read-IaTableInteractive {
                         switch ($ev.KeyChar) {
                             '/'  { $st.searching = $true; & $renderFrame }
                             'e'  { if (-not $NoExport) { Invoke-IaExport -Data $exportRows -Stem $Stem -Color $Color; & $renderFrame } }
-                            'p'  { if (-not $NoExport) { Invoke-IaPushToTeams -Data $exportRows -Title ($Title -replace '\s*\(\d.*$','') -Color $Color; & $renderFrame } }
                             '?'  { & $showHelp }
                             'q'  { return $null }
                             'j'  { if ($Selectable) { if ($st.sel -lt ($total - 1)) { $st.sel++ } } else { $st.top++ }; & $renderFrame }

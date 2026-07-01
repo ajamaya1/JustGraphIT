@@ -210,7 +210,7 @@ function Reset-EntraUserMfa {
         Removes phone, email, Authenticator, FIDO2/passkey, software OATH, Temporary
         Access Pass and Windows Hello methods. The password method is never touched.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([Parameter(Mandatory, Position = 0)][string]$User)
     $id      = Resolve-EntraUserId -User $User
     $methods = @(Get-IaCollection (Resolve-IaUri -Path "users/$id/authentication/methods"))
@@ -353,13 +353,13 @@ function Get-EntraInactiveUser {
     @($users | ForEach-Object {
         if (-not $IncludeDisabled -and -not $_.accountEnabled) { return }
         $last = $_.signInActivity.lastSignInDateTime
-        # NB: $idle, not $days — $days would alias the $Days parameter (case-insensitive).
-        $idle = if ($last) { [int][math]::Floor(($now - ([datetime]$last).ToUniversalTime()).TotalDays) } else { [int]::MaxValue }
+        $lastDt = ConvertTo-IaSafeDateTime $last
+        $idle = if ($lastDt) { [int][math]::Floor(($now - $lastDt.ToUniversalTime()).TotalDays) } else { [int]::MaxValue }
         if ($idle -lt $Days) { return }
         [pscustomobject][ordered]@{
             User         = $_.userPrincipalName
             DisplayName  = $_.displayName
-            LastSignIn   = if ($last) { ([datetime]$last).ToString('yyyy-MM-dd') } else { 'never' }
+            LastSignIn   = if ($lastDt) { $lastDt.ToString('yyyy-MM-dd') } else { 'never' }
             DaysInactive = if ($idle -eq [int]::MaxValue) { 'never' } else { $idle }
             Enabled      = [bool]$_.accountEnabled
             Department   = $_.department
@@ -388,12 +388,13 @@ function Get-EntraGuestUser {
     if ($Raw) { return $users }
     @($users | ForEach-Object {
         $last = $_.signInActivity.lastSignInDateTime
+        $lastDt = ConvertTo-IaSafeDateTime $last
         [pscustomobject][ordered]@{
             DisplayName  = $_.displayName
             Mail         = $_.mail
             State        = $_.externalUserState
             Enabled      = [bool]$_.accountEnabled
-            LastSignIn   = if ($last) { ([datetime]$last).ToString('yyyy-MM-dd') } else { 'never' }
+            LastSignIn   = if ($lastDt) { $lastDt.ToString('yyyy-MM-dd') } else { 'never' }
             Invited      = $_.createdDateTime
             UPN          = $_.userPrincipalName
             Id           = $_.id

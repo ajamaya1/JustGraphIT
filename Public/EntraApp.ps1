@@ -20,7 +20,7 @@ function Get-EntraAppRegistration {
     @($apps | ForEach-Object {
         $creds = @($_.passwordCredentials) + @($_.keyCredentials)
         $next  = $null
-        foreach ($c in $creds) { if ($c.endDateTime) { $d = [datetime]$c.endDateTime; if (-not $next -or $d -lt $next) { $next = $d } } }
+        foreach ($c in $creds) { $d = ConvertTo-IaSafeDateTime $c.endDateTime; if ($d -and (-not $next -or $d -lt $next)) { $next = $d } }
         $days = if ($next) { [int][math]::Floor(($next.ToUniversalTime() - $now).TotalDays) } else { $null }
         [pscustomobject][ordered]@{
             DisplayName  = $_.displayName
@@ -49,8 +49,8 @@ function Get-EntraAppCredential {
     if (-not $app) { Write-Warning "No app registration named '$Name'."; return }
     $a = $app[0]; $now = (Get-Date).ToUniversalTime()
     $rows = @()
-    foreach ($c in @($a.passwordCredentials)) { $rows += [pscustomobject][ordered]@{ Kind = 'Secret'; Name = $c.displayName; Start = $c.startDateTime; Expires = $c.endDateTime; DaysLeft = $(if ($c.endDateTime) { [int][math]::Floor(([datetime]$c.endDateTime).ToUniversalTime().Subtract($now).TotalDays) }); KeyId = $c.keyId } }
-    foreach ($c in @($a.keyCredentials))      { $rows += [pscustomobject][ordered]@{ Kind = 'Certificate'; Name = $c.displayName; Start = $c.startDateTime; Expires = $c.endDateTime; DaysLeft = $(if ($c.endDateTime) { [int][math]::Floor(([datetime]$c.endDateTime).ToUniversalTime().Subtract($now).TotalDays) }); KeyId = $c.keyId } }
+    foreach ($c in @($a.passwordCredentials)) { $dt = ConvertTo-IaSafeDateTime $c.endDateTime; $rows += [pscustomobject][ordered]@{ Kind = 'Secret'; Name = $c.displayName; Start = $c.startDateTime; Expires = $c.endDateTime; DaysLeft = $(if ($dt) { [int][math]::Floor($dt.ToUniversalTime().Subtract($now).TotalDays) }); KeyId = $c.keyId } }
+    foreach ($c in @($a.keyCredentials))      { $dt = ConvertTo-IaSafeDateTime $c.endDateTime; $rows += [pscustomobject][ordered]@{ Kind = 'Certificate'; Name = $c.displayName; Start = $c.startDateTime; Expires = $c.endDateTime; DaysLeft = $(if ($dt) { [int][math]::Floor($dt.ToUniversalTime().Subtract($now).TotalDays) }); KeyId = $c.keyId } }
     @($rows | Sort-Object DaysLeft)
 }
 

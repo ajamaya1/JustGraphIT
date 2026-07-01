@@ -54,16 +54,16 @@ function Get-IntuneDeploymentSummary {
         $c = $null
         try { $c = Get-IaResourceDeploymentCounts -Item $it } catch { continue }
         if (-not $c) { continue }
-        $failed = ([int]$c.Failed) + ([int]$c.Error)
-        $total = 0; foreach ($p in $c.PSObject.Properties) { $total += [int]$p.Value }
+        $failed = (ConvertTo-IaSafeInt $c.Failed 0) + (ConvertTo-IaSafeInt $c.Error 0)
+        $total = 0; foreach ($p in $c.PSObject.Properties) { $total += ConvertTo-IaSafeInt $p.Value 0 }
         $row = [ordered]@{
             Area = $it.Area; ResourceType = $it.ResourceType; Resource = $it.Name
-            Success = [int]$c.Success; Failed = [int]$c.Failed
+            Success = ConvertTo-IaSafeInt $c.Success 0; Failed = ConvertTo-IaSafeInt $c.Failed 0
         }
-        if ($null -ne $c.Error) { $row.Error = [int]$c.Error }
-        if ($null -ne $c.Conflict) { $row.Conflict = [int]$c.Conflict }
-        $row.NotApplicable = [int]$c.NotApplicable
-        if ($null -ne $c.Pending) { $row.Pending = [int]$c.Pending }
+        if ($null -ne $c.Error) { $row.Error = ConvertTo-IaSafeInt $c.Error 0 }
+        if ($null -ne $c.Conflict) { $row.Conflict = ConvertTo-IaSafeInt $c.Conflict 0 }
+        $row.NotApplicable = ConvertTo-IaSafeInt $c.NotApplicable 0
+        if ($null -ne $c.Pending) { $row.Pending = ConvertTo-IaSafeInt $c.Pending 0 }
         $row.Total = $total
         $row.FailRate = if ($total) { [math]::Round($failed / $total * 100, 1) } else { 0 }
         if ($FailuresOnly -and $failed -eq 0) { continue }

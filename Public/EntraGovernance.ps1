@@ -23,7 +23,9 @@ function Get-EntraExpiringSecret {
         foreach ($pair in @(@{ K = 'Secret'; C = $obj.passwordCredentials }, @{ K = 'Certificate'; C = $obj.keyCredentials })) {
             foreach ($c in @($pair.C)) {
                 if (-not $c.endDateTime) { continue }
-                $d = [int][math]::Floor(([datetime]$c.endDateTime).ToUniversalTime().Subtract($now).TotalDays)
+                $endDt = ConvertTo-IaSafeDateTime $c.endDateTime
+                if (-not $endDt) { continue }
+                $d = [int][math]::Floor($endDt.ToUniversalTime().Subtract($now).TotalDays)
                 if ($d -le $Days -and ($IncludeExpired -or $d -ge 0)) {
                     $rows.Add([pscustomobject][ordered]@{
                         Object     = $label
@@ -78,7 +80,7 @@ function Get-EntraAppCredentialSummary {
     @(Get-IaCollection (Resolve-IaUri -Path "applications?`$select=id,displayName,appId,passwordCredentials,keyCredentials&`$top=500") | ForEach-Object {
         $creds = @($_.passwordCredentials) + @($_.keyCredentials)
         $next  = $null
-        foreach ($c in $creds) { if ($c.endDateTime) { $dt = [datetime]$c.endDateTime; if (-not $next -or $dt -lt $next) { $next = $dt } } }
+        foreach ($c in $creds) { if ($c.endDateTime) { $dt = ConvertTo-IaSafeDateTime $c.endDateTime; if ($dt -and (-not $next -or $dt -lt $next)) { $next = $dt } } }
         $days = if ($next) { [int][math]::Floor($next.ToUniversalTime().Subtract($now).TotalDays) } else { $null }
         $status = if (-not $creds.Count) { 'None' } elseif ($null -eq $days) { 'NoExpiry' } elseif ($days -lt 0) { 'Expired' } elseif ($days -le $WarnDays) { 'Expiring' } else { 'OK' }
         [pscustomobject][ordered]@{

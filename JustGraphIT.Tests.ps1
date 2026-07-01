@@ -1414,68 +1414,6 @@ Describe 'Public cmdlets — null @odata.type robustness (no hashtable null-inde
     }
 }
 
-Describe 'Public cmdlets — Send-IntuneReportToTeams (Adaptive Card)' {
-
-    BeforeAll {
-        $script:tRows = @(
-            [pscustomobject]@{ Device = 'LAPTOP-01'; State = '[coral]noncompliant[/]' }
-            [pscustomobject]@{ Device = 'LAPTOP-02'; State = '[accent]compliant[/]' }
-        )
-    }
-
-    It 'builds the Workflows message envelope wrapping an AdaptiveCard 1.5 table' {
-        $m = ($script:tRows | Send-IntuneReportToTeams -Title 'Devices' -PassThru) | ConvertFrom-Json
-        $m.type                       | Should -Be 'message'
-        $m.attachments[0].contentType | Should -Be 'application/vnd.microsoft.card.adaptive'
-        $card = $m.attachments[0].content
-        $card.type    | Should -Be 'AdaptiveCard'
-        $card.version | Should -Be '1.5'
-        $card.body[0].text | Should -Be 'Devices'
-        $table = $card.body | Where-Object { $_.type -eq 'Table' }
-        $table.firstRowAsHeaders | Should -BeTrue
-        $table.rows.Count        | Should -Be 3      # header + 2 data
-    }
-
-    It 'strips JustGraphIT markup from cell values' {
-        $json = $script:tRows | Send-IntuneReportToTeams -Title 'X' -PassThru
-        $json | Should -Not -Match '\[coral\]'
-        $json | Should -Match 'noncompliant'
-    }
-
-    It 'caps rows at -MaxRows and notes the remainder' {
-        $many = 1..20 | ForEach-Object { [pscustomobject]@{ N = $_ } }
-        $card = (($many | Send-IntuneReportToTeams -Title 'Many' -MaxRows 5 -PassThru) | ConvertFrom-Json).attachments[0].content
-        $table = $card.body | Where-Object { $_.type -eq 'Table' }
-        $table.rows.Count | Should -Be 6             # header + 5
-        (($card.body | ForEach-Object { $_.text }) -join ' ') | Should -Match 'and 15 more'
-    }
-
-    It 'restricts + orders columns with -Column' {
-        $json  = ([pscustomobject]@{ A = 1; B = 2; C = 3 }) | Send-IntuneReportToTeams -Title 'Cols' -Column A, C -PassThru
-        $table = ($json | ConvertFrom-Json).attachments[0].content.body | Where-Object { $_.type -eq 'Table' }
-        (($table.rows[0].cells | ForEach-Object { $_.items[0].text }) -join ',') | Should -Be 'A,C'
-    }
-
-    It 'POSTs the JSON to the webhook when a URL is supplied' {
-        InModuleScope JustGraphIT {
-            $script:posted = $null
-            Mock Invoke-IaWebhookPost { $script:posted = [pscustomobject]@{ Uri = $Uri; Json = $Json } }
-            [pscustomobject]@{ X = 1 } | Send-IntuneReportToTeams -Title 'Push' -WebhookUrl 'https://hook.example/abc' -Confirm:$false
-            $script:posted.Uri  | Should -Be 'https://hook.example/abc'
-            $script:posted.Json | Should -Match 'AdaptiveCard'
-            Should -Invoke Invoke-IaWebhookPost -Times 1 -Exactly
-        }
-    }
-
-    It 'throws when no webhook URL is available and not -PassThru' {
-        InModuleScope JustGraphIT {
-            $saved = $env:JUSTGRAPHIT_TEAMS_WEBHOOK; $env:JUSTGRAPHIT_TEAMS_WEBHOOK = ''
-            try { { [pscustomobject]@{ X = 1 } | Send-IntuneReportToTeams -Title 'NoUrl' -Confirm:$false } | Should -Throw '*webhook*' }
-            finally { $env:JUSTGRAPHIT_TEAMS_WEBHOOK = $saved }
-        }
-    }
-}
-
 Describe 'Reporting · ConvertTo-IaDateTime (locale-robust date parsing)' {
 
     It 'parses relative spans (7d / 24h / 2w)' {
@@ -3411,21 +3349,18 @@ Describe 'Consolidation review fixes' {
             }
         }
 
-        It 'a -NoExport table never exports or pushes to Teams even when e / p are pressed' {
+        It 'a -NoExport table never exports even when e is pressed' {
             InModuleScope JustGraphIT {
                 $script:q = [System.Collections.Queue]::new()
                 $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::E; KeyChar = [char]'e' })
-                $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::P; KeyChar = [char]'p' })
                 $script:q.Enqueue(@{ Type = 'key'; Key = [ConsoleKey]::Q; KeyChar = [char]'q' })
                 Mock Test-IaArrowSupport { $true }   # force the interactive key loop (redirected I/O would skip it)
                 Mock Read-IaInputEvent { if ($script:q.Count) { $script:q.Dequeue() } else { @{ Type = 'key'; Key = [ConsoleKey]::Q; KeyChar = [char]'q' } } }
                 Mock Write-IaRaw {}; Mock Start-IaMouse {}; Mock Stop-IaMouse {}
                 Mock Invoke-IaExport { $script:exported = $true }
-                Mock Invoke-IaPushToTeams { $script:pushed = $true }
-                $script:exported = $false; $script:pushed = $false
+                $script:exported = $false
                 Read-IaTableInteractive -Data @([pscustomobject]@{ Secret = 'abc' }) -NoExport | Out-Null
                 $script:exported | Should -BeFalse -Because 'a revealed recovery key must never reach a temp file'
-                $script:pushed   | Should -BeFalse -Because 'a revealed recovery key must never reach a webhook'
             }
         }
 
@@ -4176,6 +4111,108 @@ Describe 'Entra usage reports (CSV → objects)' {
             Mock Get-IaGraphReportCsv { $script:p=$Path; @() }
             Get-EntraMailboxUsage -Period D7 | Out-Null
             $script:p | Should -Be "reports/getMailboxUsageDetail(period='D7')"
+        }
+    }
+}
+
+Describe 'Get-IaCollection enumeration contract (array-as-single-item regression)' {
+    # Locks the fix for the collapse bug: Get-IaCollection must emit rows element-by-element
+    # so @(...), `| ForEach { transform }`, `| Where` and `| Select` each see every row. A
+    # `, $items.ToArray()` return makes the whole collection arrive as ONE pipeline object —
+    # the count-1 table whose cells are all the values concatenated (the detected-apps bug).
+
+    It '@(Get-IaCollection ...) yields every element, not one' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a' }, [pscustomobject]@{ id = 'b' }, [pscustomobject]@{ id = 'c' }) } }
+            (@(Get-IaCollection -Path 'x')).Count | Should -Be 3
+        }
+    }
+
+    It 'piping into ForEach-Object { transform } enumerates per item' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ displayName = 'Alpha' }, [pscustomobject]@{ displayName = 'Bravo' }, [pscustomobject]@{ displayName = 'Charlie' }) } }
+            $rows = @(Get-IaCollection -Path 'x' | ForEach-Object { [pscustomobject]@{ N = $_.displayName } })
+            $rows.Count | Should -Be 3
+            $rows[1].N  | Should -Be 'Bravo'
+        }
+    }
+
+    It 'assignment then foreach enumerates per item' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a' }, [pscustomobject]@{ id = 'b' }, [pscustomobject]@{ id = 'c' }) } }
+            $v = Get-IaCollection -Path 'x'
+            (@(foreach ($i in $v) { $i })).Count | Should -Be 3
+        }
+    }
+
+    It 'Where / Select-Object -First operate on individual rows' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a' }, [pscustomobject]@{ id = 'b' }, [pscustomobject]@{ id = 'c' }) } }
+            $hit = Get-IaCollection -Path 'x' | Where-Object { $_.id -eq 'b' } | Select-Object -First 1
+            $hit.id | Should -Be 'b'
+        }
+    }
+
+    It 'an empty collection yields zero rows (no phantom single element)' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @() } }
+            (@(Get-IaCollection -Path 'x')).Count | Should -Be 0
+        }
+    }
+
+    It 'a real consumer (Get-EntraDirectoryRole) returns every row' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a'; displayName = 'Global Administrator'; description = 'd'; isBuiltIn = $true; isEnabled = $true; templateId = 't1' },
+                [pscustomobject]@{ id = 'b'; displayName = 'Intune Administrator';  description = 'd'; isBuiltIn = $true; isEnabled = $true; templateId = 't2' },
+                [pscustomobject]@{ id = 'c'; displayName = 'Security Reader';        description = 'd'; isBuiltIn = $true; isEnabled = $true; templateId = 't3' }) } }
+            (@(Get-EntraDirectoryRole)).Count | Should -Be 3
+        }
+    }
+}
+
+Describe 'Get-EntraExpiringSecret' {
+    It 'returns secrets+certs within the window and excludes those beyond it, expired first' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                $now = (Get-Date).ToUniversalTime()
+                @{ value = @(
+                    [pscustomobject]@{
+                        id = 'app1'; appId = 'c1'; displayName = 'Pipeline'
+                        passwordCredentials = @(
+                            @{ displayName = 'old';   endDateTime = $now.AddDays(-5).ToString('o');  keyId = 'k1' },
+                            @{ displayName = 'soon';  endDateTime = $now.AddDays(3).ToString('o');   keyId = 'k2' },
+                            @{ displayName = 'later'; endDateTime = $now.AddDays(200).ToString('o'); keyId = 'k3' }
+                        )
+                        keyCredentials = @(
+                            @{ displayName = 'cert'; endDateTime = $now.AddDays(20).ToString('o'); keyId = 'k4' }
+                        )
+                    }
+                ) }
+            }
+            $r = @(Get-EntraExpiringSecret -Days 30 -IncludeExpired)
+            $r.Count                                         | Should -Be 3      # 200-day cred excluded
+            $r[0].Status                                     | Should -Be 'Expired'   # sorted soonest/most-overdue first
+            ($r | Where-Object Name -eq 'soon').Status       | Should -Be 'Critical'  # <= 7 days
+            ($r | Where-Object Kind -eq 'Certificate').Status| Should -Be 'Warning'   # keyCredentials surfaced
+        }
+    }
+
+    It 'returns nothing when no credential is inside the window' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                $now = (Get-Date).ToUniversalTime()
+                @{ value = @([pscustomobject]@{
+                    id = 'app2'; appId = 'c2'; displayName = 'Fresh'
+                    passwordCredentials = @(@{ displayName = 'new'; endDateTime = $now.AddDays(180).ToString('o'); keyId = 'k9' })
+                    keyCredentials = @()
+                }) }
+            }
+            (@(Get-EntraExpiringSecret -Days 30)).Count | Should -Be 0
         }
     }
 }
