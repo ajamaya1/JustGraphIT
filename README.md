@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-327%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-340%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
@@ -56,7 +56,8 @@ on macOS, Windows and Linux.
   page. Groups, licenses and sign-ins come from the **beta `/users`** and **`auditLogs`**
   endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
-  multi-admin approvals, and HTML / CSV / JSON / Excel exports.
+  multi-admin approvals, **expiring secrets & certificates** (app registrations and
+  enterprise apps, with days-to-expiry), and HTML / CSV / JSON / Excel exports.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
   (one file per object), and diff current state against a snapshot.
 - **Live Graph-call log** - The bottom of the main menu is a copy-pasteable log of the
@@ -153,6 +154,14 @@ Install-Module PSWriteHTML -Scope CurrentUser                      # optional
 ```
 
 ## Installation
+
+**From the PowerShell Gallery** (once published):
+
+```powershell
+Install-Module JustGraphIT -Scope CurrentUser
+```
+
+**From source:**
 
 ```powershell
 git clone https://github.com/ajamaya1/JustGraphIT.git
@@ -513,7 +522,7 @@ dependency is ever introduced.
 Invoke-Pester ./JustGraphIT/JustGraphIT.Tests.ps1
 ```
 
-327 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps, TUI write-menu smoke tests, and regression guards that prove secret-bearing views (BitLocker keys / LAPS passwords) cannot be exported to disk or pushed to Teams.
+340 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps, TUI write-menu smoke tests, an enumeration-contract guard that pins `Get-IaCollection` against the array-as-single-item collapse, and regression guards that prove secret-bearing views (BitLocker keys / LAPS passwords) cannot be exported to disk or pushed to Teams.
 
 ## Roadmap
 
