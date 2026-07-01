@@ -11,9 +11,7 @@
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
 **Microsoft Intune and Entra ID (Azure AD)** — assignments, policies, apps, devices, Windows 365,
 plus users, groups, app consent, directory roles, Conditional Access and identity security — straight
-over Microsoft Graph. The UI is rendered by a **self-contained ANSI engine** (no Spectre.Console, no
-WPF, no `Out-GridView`), so the full mouse-driven, scrollable, clickable experience works identically
-on macOS, Windows and Linux.
+over Microsoft Graph.
 
 <p align="center">
   <img src="docs/img/main-menu.png" width="760" alt="JustGraphIT main menu with the live Graph-call log">
