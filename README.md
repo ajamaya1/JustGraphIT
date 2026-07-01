@@ -101,21 +101,21 @@ user's registered MFA methods.
 failed (BitLocker, minimum OS), so the tech sees *what to fix*.
 
 <p align="center">
-  <img src="docs/img/device-compliance-failures.png" width="760" alt="Per-setting compliance failures for a device: BitLocker and minimum OS version">
+  <img src="docs/img/helpdesk-compliance-failures.png" width="760" alt="Per-setting compliance failures for a device: BitLocker and minimum OS version">
 </p>
 
 **4. Device recovery** — the **Windows LAPS local-admin password** (decoded, newest backup
 first) and **BitLocker recovery keys**, straight from the device console.
 
 <p align="center">
-  <img src="docs/img/device-laps-recovery.png" width="820" alt="Windows LAPS local-admin password, decoded, newest backup first">
+  <img src="docs/img/helpdesk-laps.png" width="820" alt="Windows LAPS local-admin password, decoded, newest backup first">
 </p>
 
 **5. Cloud PC usage** — total active hours and connection counts per Cloud PC (spot the
 heavily-used and the idle), plus daily / quality / frontline / inaccessible reports.
 
 <p align="center">
-  <img src="docs/img/cloudpc-total-usage.png" width="820" alt="Cloud PC total usage: active hours and connection counts per Cloud PC">
+  <img src="docs/img/cloudpc-usage.png" width="820" alt="Cloud PC total usage: active hours and connection counts per Cloud PC">
 </p>
 
 
