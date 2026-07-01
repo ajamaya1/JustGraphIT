@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-340%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-334%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
@@ -120,25 +120,6 @@ heavily-used and the idle), plus daily / quality / frontline / inaccessible repo
   <img src="docs/img/cloudpc-total-usage.png" width="820" alt="Cloud PC total usage: active hours and connection counts per Cloud PC">
 </p>
 
-## Push reports to Teams
-
-Any report can be pushed to a Teams channel as an **Adaptive Card** — interactively (press
-**`p`** in any table view) or from a script / scheduled runbook:
-
-```powershell
-Get-IntuneComplianceStatus | Where-Object State -eq noncompliant |
-    Send-IntuneReportToTeams -Title 'Non-compliant devices' -WebhookUrl $url
-```
-
-<p align="center">
-  <img src="docs/img/teams-card.png" width="760" alt="A JustGraphIT report pushed to Teams as an Adaptive Card">
-</p>
-
-It posts to a Power Automate **Workflows** incoming webhook (the supported successor to the
-retired O365 connector webhooks) — **no extra Graph scopes**. The URL comes from
-`-WebhookUrl` or `$env:JUSTGRAPHIT_TEAMS_WEBHOOK`, so the *same* cmdlet runs unattended from an
-**Azure Automation runbook** (with `Connect-JustGraphIT` app-only auth) for nightly digests.
-`-PassThru` returns the card JSON for preview without posting.
 
 ## Prerequisites
 
@@ -249,7 +230,15 @@ Connect-JustGraphIT -TenantId contoso.com -ClientId <id> -CertificateThumbprint 
 | `AuditLog.Read.All` | User sign-in diagnostics (needs an Entra ID P1/P2 tenant) |
 | `UserAuthenticationMethod.Read.All` | A user's registered MFA methods |
 | `Group.Read.All`, `Directory.Read.All` | Resolve group/user/device names; user/device group memberships |
-| `*.ReadWrite.All` (matching) | Any write / mirror / assign / remediate |
+| `DeviceManagementConfiguration.ReadWrite.All` | Create / edit / **assign** config, compliance, scripts, baselines, update rings; remediations |
+| `DeviceManagementApps.ReadWrite.All` | Assign apps; app protection / configuration |
+| `DeviceManagementServiceConfig.ReadWrite.All` | Enrollment, Autopilot and ESP changes |
+| `DeviceManagementManagedDevices.PrivilegedOperations.All` | Device actions — wipe, retire, fresh start |
+| `CloudPC.ReadWrite.All` | Windows 365 provisioning policies and Cloud PC actions |
+| `Group.ReadWrite.All`, `GroupMember.ReadWrite.All` | Create groups; **mirror / bulk-assign** by adding & removing members |
+| `User.ReadWrite.All` | Enable / disable users; licence assignment |
+| `UserAuthenticationMethod.ReadWrite.All` | Reset MFA, issue a Temporary Access Pass, add phone methods |
+| `IdentityRiskyUser.ReadWrite.All` | Dismiss or confirm risky users |
 
 A `403` on one area is treated as "no permission / not licensed" for that area and
 skipped — the rest of the sweep continues.
@@ -301,7 +290,6 @@ skipped — the rest of the sweep continues.
 | `Get-IntunePatchReport` | Windows patch status (quality + feature updates) from Intune report exports |
 | `Get-IntuneReportCatalog` / `Export-IntuneReport` | Native Intune report exports |
 | `Export-IntuneAssignmentReport` / `Export-IntuneHtmlReport` / `Export-IntuneExcel` | HTML / CSV / JSON / Excel |
-| `Send-IntuneReportToTeams` | Push any report to a Teams channel as an Adaptive Card (Workflows webhook) |
 | `Get-IntuneBitLockerKey` | BitLocker recovery keys for a device |
 | `Get-IntuneLapsCredential` | Windows LAPS local-admin account + password (decoded) |
 | `Get-IntuneDeviceGroupMembership` | Entra groups a device belongs to (assigned + dynamic) |
@@ -506,32 +494,6 @@ new assignable area is a one-line registry entry.
 Windows 365 Cloud PCs have their own set via `Invoke-IntuneCloudPCAction`: `Reprovision`,
 `Resize`, `Restart`, `Rename`, `Restore`, `Troubleshoot`, `EndGracePeriod`,
 `CreateSnapshot`, `PowerOn`, `PowerOff`.
-
-## Cross-platform
-
-No Windows-only dependencies — no `Out-GridView`, WPF/WinForms, COM, WMI, registry or
-clipboard cmdlets; every path uses `Join-Path`; exports are UTF-8 no-BOM. On macOS,
-**iTerm2** is recommended (full truecolor + mouse; hold **⌥ Option** to select text while
-mouse mode is on); **Terminal.app** works with approximated 256-colour accents (hold
-**Fn** to select). The Pester suite includes guards that fail the build if a Windows-only
-dependency is ever introduced.
-
-## Tests
-
-```powershell
-Invoke-Pester ./JustGraphIT/JustGraphIT.Tests.ps1
-```
-
-340 tests, fully offline (Graph mocked at the `Invoke-IaRequest` seam). Includes a source-hygiene guard against string-interpolation traps, TUI write-menu smoke tests, an enumeration-contract guard that pins `Get-IaCollection` against the array-as-single-item collapse, and regression guards that prove secret-bearing views (BitLocker keys / LAPS passwords) cannot be exported to disk or pushed to Teams.
-
-## Roadmap
-
-- [ ] Publish to the PowerShell Gallery
-- [ ] Click a column header to sort tables (last bit of `Out-GridView` parity)
-- [ ] "Save Graph log to file" for untruncated full URLs
-- [ ] Toggle the Graph footer on data screens
-- [ ] asciinema / GIF demo in the README
-- [ ] CI workflow (lint + Pester on push)
 
 ## License
 
