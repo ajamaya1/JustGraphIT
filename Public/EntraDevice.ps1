@@ -54,6 +54,7 @@ function Get-EntraDevice {
     if ($Raw) { return $rows }
     @($rows | ForEach-Object {
         $last = $_.approximateLastSignInDateTime
+        $lastDt = ConvertTo-IaSafeDateTime $last
         [pscustomobject][ordered]@{
             DisplayName = $_.displayName
             Enabled     = $_.accountEnabled
@@ -62,8 +63,8 @@ function Get-EntraDevice {
             Trust       = $_.trustType
             Compliant   = $_.isCompliant
             Managed     = $_.isManaged
-            LastSignIn  = $last
-            DaysStale   = if ($last) { [int]([DateTime]::UtcNow - [DateTime]$last).TotalDays } else { $null }
+            LastSignIn  = if ($lastDt) { $lastDt.ToString('yyyy-MM-dd') } else { $null }
+            DaysStale   = if ($lastDt) { [int]([DateTime]::UtcNow - $lastDt.ToUniversalTime()).TotalDays } else { $null }
             DeviceId    = $_.deviceId
             Id          = $_.id
         }

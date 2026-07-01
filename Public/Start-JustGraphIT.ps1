@@ -14,7 +14,7 @@ function Start-JustGraphIT {
         selection lists, not free-text fields — pick from what's there instead
         of typing names that might 404.
     .EXAMPLE
-        Connect-JustGraphIT -UseDeviceCode; Start-JustGraphIT
+        Connect-JustGraphIT; Start-JustGraphIT
     #>
     [CmdletBinding()]
     param([ValidateSet('green', 'amber', 'lego', 'deepsea', 'sunset', 'ocean', 'forest', 'mono')][string]$Theme = 'deepsea')
@@ -26,8 +26,8 @@ function Start-JustGraphIT {
         throw "JustGraphIT needs the Microsoft Graph authentication module. Install it once:`n    Install-Module Microsoft.Graph.Authentication -Scope CurrentUser"
     }
     if (-not (Get-MgContext)) {
-        Write-IaHost "[yellow]Not connected.[/] Starting device-code sign-in…"
-        Connect-JustGraphIT -UseDeviceCode | Out-Null
+        Write-IaHost "[yellow]Not connected.[/] Signing in…"
+        Connect-JustGraphIT | Out-Null
     }
 
     $accent = switch ($Theme) {
@@ -53,7 +53,7 @@ function Start-JustGraphIT {
     }
 
     $ctx  = Get-MgContext
-    $elev = try { if (Test-IaPrivileged) { "[green]● elevated[/]" } else { "[yellow]○ not elevated[/]" } } catch { '' }
+    $elev = try { if (Test-IaPrivileged) { "[green]ELEVATED[/]" } else { "[yellow]NOT ELEVATED[/]" } } catch { '' }
     $script:IaTuiAccount = $ctx.Account
     $script:IaTuiElev    = $elev
 
@@ -62,16 +62,16 @@ function Start-JustGraphIT {
     # would erase it).
     $splashHeader = @(
         (Get-IaFigletString -Text 'JUSTGRAPHIT' -Color $accent)
-        (ConvertFrom-IaMarkup "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev")
-        (ConvertFrom-IaMarkup "[$accent]≈ microsoft intune & entra management[/]")
+        (ConvertFrom-IaMarkup "[dim][[/][$accent]SYS[/][dim]][/] [white]$($ctx.Account)[/]  [dim]│[/]  [grey]tenant $(Format-IaMaskedId $ctx.TenantId)[/]  [dim]│[/]  $elev")
+        (ConvertFrom-IaMarkup "[dim][[/][$accent]GRF[/][dim]][/] [$accent]Microsoft Intune & Entra[/] [dim]─[/] [grey]direct graph access[/]")
         ''
     ) -join "`n"
 
     function Show-IaTuiSplash {
         Clear-IaHost
         Write-IaFiglet -Text 'JUSTGRAPHIT' -Color $accent
-        Write-IaHost "[$accent]●[/] $($ctx.Account)  ·  tenant [grey]$(Format-IaMaskedId $ctx.TenantId)[/]  ·  $elev"
-        Write-IaRule -Title 'JustGraphIT · microsoft intune & entra management' -Color $accent
+        Write-IaHost "[dim][[/][$accent]SYS[/][dim]][/] [white]$($ctx.Account)[/]  [dim]│[/]  [grey]tenant $(Format-IaMaskedId $ctx.TenantId)[/]  [dim]│[/]  $elev"
+        Write-IaRule -Color $accent
     }
 
     Show-IaTuiSplash
@@ -117,6 +117,7 @@ function Start-JustGraphIT {
             'Refresh data',
             'Quit'
         )
+        if (-not $choice) { return }
         try {
             switch -Wildcard ($choice) {
                 'View all*'       { Invoke-IaTuiViewAll     -Accent $accent }
@@ -395,13 +396,13 @@ function Write-IaTuiHeader {
     param([string]$Screen, [string]$Sub = '', [string]$Accent)
     Clear-IaHost
     try { $host.UI.RawUI.WindowTitle = "JustGraphIT — $Screen" } catch { }
-    Write-IaHost "[$Accent]≈ JustGraphIT[/]  [bold]· $Screen[/]"
+    Write-IaHost "[dim][[/][$Accent]JGI[/][dim]][/] [bold]$Screen[/]"
     if ($Sub) {
         Write-IaHost "[grey]$Sub[/]"
     } elseif ($script:IaTuiAccount) {
-        Write-IaHost "[grey]● $($script:IaTuiAccount)  ·  [/]$script:IaTuiElev"
+        Write-IaHost "[dim][[/][grey]USR[/][dim]][/] [grey]$($script:IaTuiAccount)[/]  [dim]│[/]  $script:IaTuiElev"
     }
-    Write-IaRule -Color darkslategray1
+    Write-IaRule -Color $Accent
 }
 
 # ─── shared change-plan renderer ──────────────────────────────────────────────
@@ -458,6 +459,7 @@ function Invoke-IaTuiViewAll {
 function Invoke-IaTuiGroupLookup {
     param([string]$Accent)
     $g = Select-IaGroup -Accent $Accent -Title 'Group to look up'
+    if (-not $g) { return }
     Write-IaTuiHeader -Screen 'Group lookup' -Sub "assignments for $($g.DisplayName)" -Accent $Accent
     $hits = foreach ($it in (Get-IaTuiInventory)) {
         foreach ($e in (Get-IaItemGroupEdges -Item $it -GroupId $g.Id)) {
@@ -478,7 +480,9 @@ function Invoke-IaTuiGroupLookup {
 function Invoke-IaTuiCompare {
     param([string]$Accent)
     $a = Select-IaGroup -Accent $Accent -Title 'Group A'
+    if (-not $a) { return }
     $b = Select-IaGroup -Accent $Accent -Title 'Group B'
+    if (-not $b) { return }
     Write-IaTuiHeader -Screen 'Compare two groups' -Sub "A = $($a.DisplayName)  ·  B = $($b.DisplayName)" -Accent $Accent
 
     # Clean rows for export (no markup); display rows get the colour.
@@ -538,6 +542,7 @@ function Invoke-IaTuiCompare {
 function Invoke-IaTuiWhatIf {
     param([string]$Accent)
     $kind = Read-IaMenu -Title 'Subject type' -Choices @('user', 'device') -Color $Accent
+    if (-not $kind) { return }   # Esc → cancel (else the device picker loads unbidden)
     $val  = if ($kind -eq 'user') { Select-IaUser -Accent $Accent -Title 'Which user?' }
             else { Select-IaManagedDevice -Accent $Accent -Title 'Which device?' }
     if ([string]::IsNullOrWhiteSpace($val)) { return }
@@ -565,6 +570,7 @@ function Invoke-IaTuiWhatIf {
 function Invoke-IaTuiMirror {
     param([string]$Accent)
     $src   = Select-IaGroup -Accent $Accent -Title 'Source group (copy FROM)'
+    if (-not $src) { return }
     $items = Get-IaTuiInventory
     $cands = Get-IaCopyCandidates -Items $items -SrcId $src.Id
     if (-not $cands) { Write-IaHost "[yellow]$($src.DisplayName) has no assignments to mirror.[/]"; return }
@@ -577,6 +583,7 @@ function Invoke-IaTuiMirror {
     $ids = @($picked | ForEach-Object { $map[$_] })
 
     $dst = Select-IaGroup -Accent $Accent -Title 'Destination group (copy TO)'
+    if (-not $dst) { return }
     Write-IaTuiHeader -Screen 'Mirror assignments' -Sub "from $($src.DisplayName)  →  $($dst.DisplayName)" -Accent $Accent
     $confirm = Read-IaMenu `
         -Title "Apply $($ids.Count) assignment(s) to [$Accent]$($dst.DisplayName)[/]?" `
@@ -695,6 +702,7 @@ function Invoke-IaTuiGraphCalls {
 function Invoke-IaTuiBulkAssign {
     param([string]$Accent)
     $g     = Select-IaGroup -Accent $Accent -Title 'Group to assign'
+    if (-not $g) { return }
     $areas = @('All areas') + (@(Get-IaResourceRegistry | ForEach-Object Area | Select-Object -Unique | Sort-Object))
     $area  = Read-IaSelection -Title 'Which area?' -Choices $areas -Color $Accent
 
@@ -716,9 +724,10 @@ function Invoke-IaTuiBulkAssign {
     if ($filters) {
         $fchoice = Read-IaSelection -Title 'Assignment filter' -Color $Accent `
             -Choices (@('(no filter)') + @($filters | ForEach-Object Name))
-        if ($fchoice -ne '(no filter)') {
-            $filterId   = ($filters | Where-Object Name -eq $fchoice | Select-Object -First 1).Id
-            $filterType = Read-IaMenu -Title "Filter mode for '$fchoice'" -Choices @('include', 'exclude') -Color $Accent
+        if ($fchoice -and $fchoice -ne '(no filter)') {   # $null -ne '(no filter)' is TRUE — guard Esc
+            $filterId = ($filters | Where-Object Name -eq $fchoice | Select-Object -First 1).Id
+            $ftPick   = Read-IaMenu -Title "Filter mode for '$fchoice'" -Choices @('include', 'exclude') -Color $Accent
+            if ($ftPick) { $filterType = $ftPick }   # keep the 'include' default if cancelled
         }
     }
 
@@ -770,6 +779,7 @@ function Invoke-IaTuiTemplates {
     )
     if ($action -like 'Capture*') {
         $g    = Select-IaGroup -Accent $Accent -Title 'Group to capture'
+        if (-not $g) { return }
         $name = Read-IaText -Question 'Template name' -DefaultAnswer 'baseline'
         $path = Read-IaText -Question 'Save to path' -DefaultAnswer "$name.json"
         Write-IaTuiHeader -Screen 'Templates · capture' -Sub "group: $($g.DisplayName)" -Accent $Accent
@@ -782,6 +792,7 @@ function Invoke-IaTuiTemplates {
         if (-not (Test-Path $path)) { Write-IaHost "[red]Not found:[/] $path"; return }
         $tmpl = Get-Content $path -Raw | ConvertFrom-Json
         $g    = Select-IaGroup -Accent $Accent -Title 'Device group to stamp on'
+        if (-not $g) { return }
         Write-IaTuiHeader -Screen 'Templates · apply' -Sub "template: $($tmpl.name)  ·  target: $($g.DisplayName)" -Accent $Accent
         $keys  = @($tmpl.resources | ForEach-Object resource_type | Select-Object -Unique)
         $items = Get-IaInventory -Type $keys
@@ -820,6 +831,7 @@ function Invoke-IaTuiElevate {
     }
     $role    = Read-IaSelection -Title 'Activate which eligible role?' -Color $Accent `
         -Choices @($eligible | ForEach-Object Role)
+    if (-not $role) { return }
     $just    = Read-IaText -Question 'Justification'
     $durPick = Read-IaMenu -Title 'Duration' -Color $Accent -Choices @('30m','1h','2h','4h','8h','✎ Custom…')
     $dur     = if ($durPick -eq '✎ Custom…') { Read-IaText -Question 'Duration (e.g. 2h, 30m, 8h)' -DefaultAnswer '2h' } else { $durPick }
@@ -850,7 +862,7 @@ function Invoke-IaTuiApps {
             'Delete an app',
             'Back'
         )
-        switch -Wildcard ($pick) {
+        try { switch -Wildcard ($pick) {
             'List all*' {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading apps…' -Color $Accent -ScriptBlock {
                     $script:_apps = @(Get-IntuneApp)
@@ -865,9 +877,13 @@ function Invoke-IaTuiApps {
             }
             'Filter by type*' {
                 $type = Read-IaMenu -Title 'App type' -Color $Accent -Choices @('Win32','Store','iOS','Android','macOS','WebApp','LOB','VPP','Office365')
-                Invoke-IaStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
-                    $script:_apps = @(Get-IntuneApp -AppType $type)
-                }
+                if (-not $type) { break }
+                try {
+                    Invoke-IaStatus -Spinner 'Dots2' -Title "Loading $type apps…" -Color $Accent -ScriptBlock {
+                        $script:_apps = @(Get-IntuneApp -AppType $type)
+                    }
+                } catch { $script:_apps = @() }
+                if (-not $script:_apps) { Write-IaHost "[yellow]No $type apps found.[/]"; Read-IaPause | Out-Null; break }
                 $rows = @($script:_apps | ForEach-Object {
                     [pscustomobject][ordered]@{ Name = $_.Name; Publisher = $_.Publisher; Version = $_.Version; Modified = $_.Modified }
                 })
@@ -877,7 +893,7 @@ function Invoke-IaTuiApps {
             }
             'App details*' {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
-                if (-not $app) { return }
+                if (-not $app) { break }
                 $name = $app.Id
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading app…' -Color $Accent -ScriptBlock {
                     $script:_appRaw = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "deviceAppManagement/mobileApps/$name")
@@ -908,9 +924,11 @@ function Invoke-IaTuiApps {
             }
             'Assign app*' {
                 $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
-                if (-not $app) { return }
+                if (-not $app) { break }
                 $appName = $app.Id
+                Write-IaHost "[yellow]Note:[/] this [bold]replaces[/] every current assignment on [$Accent]$($app.Name)[/] with your choice below."
                 $mode    = Read-IaMenu -Title 'Assign to' -Color $Accent -Choices @('All Devices','All Users','Specific group','Clear all assignments')
+                if (-not $mode) { break }
                 switch ($mode) {
                     'All Devices' {
                         Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
@@ -926,8 +944,9 @@ function Invoke-IaTuiApps {
                         $grpObj = $null
                         try { $grpObj = Select-IaGroup -Accent $Accent -Title 'Which group?' } catch { }
                         $grp = if ($grpObj -and $grpObj.Id) { $grpObj.Id } else { Read-IaText -Question 'Group name or GUID' }
-                        if ([string]::IsNullOrWhiteSpace($grp)) { return }
+                        if ([string]::IsNullOrWhiteSpace($grp)) { break }   # cancel → stay in Apps menu, not exit it
                         $excl = Read-IaMenu -Title 'Include or exclude?' -Color $Accent -Choices @('Include','Exclude')
+                        if (-not $excl) { break }   # Esc must NOT fall through to the 'exclude' branch
                         Invoke-IaStatus -Spinner 'Dots2' -Title 'Assigning…' -Color $Accent -ScriptBlock {
                             if ($excl -eq 'Include') {
                                 Set-IntuneAppAssignment -AppId $appName -Include @($grp) -Confirm:$false
@@ -961,7 +980,7 @@ function Invoke-IaTuiApps {
                 }
             }
             'Back' { return }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1045,7 +1064,7 @@ function Invoke-IaTuiWindowsUpdate {
             'Delete driver update profile',
             'Back'
         )
-        switch -Wildcard ($pick) {
+        try { switch -Wildcard ($pick) {
             'Patch report*' { Invoke-IaTuiPatchReport -Accent $Accent }
             'List update rings' {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
@@ -1059,8 +1078,8 @@ function Invoke-IaTuiWindowsUpdate {
             }
             'Create update ring' {
                 $name    = Read-IaText -Question 'Ring name'
-                $qDefer  = [int](Read-IaText -Question 'Quality deferral days (0-30)')
-                $fDefer  = [int](Read-IaText -Question 'Feature deferral days (0-365)')
+                $qDefer  = ConvertTo-IaSafeInt (Read-IaText -Question 'Quality deferral days (0-30)') 0
+                $fDefer  = ConvertTo-IaSafeInt (Read-IaText -Question 'Feature deferral days (0-365)') 0
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Creating…' -Color $Accent -ScriptBlock {
                     $script:_ring = New-IntuneUpdateRing -Name $name -QualityDeferralDays $qDefer -FeatureDeferralDays $fDefer -Confirm:$false
                 }
@@ -1146,7 +1165,7 @@ function Invoke-IaTuiWindowsUpdate {
                 }
             }
             'Back' { return }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1165,7 +1184,7 @@ function Invoke-IaTuiAutopilot {
             'Enrollment Status Pages (ESP)',
             'Back'
         )
-        switch -Wildcard ($pick) {
+        try { switch -Wildcard ($pick) {
             'List Autopilot devices' {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_apdevs = @(Get-IntuneAutopilotDevice)
@@ -1226,7 +1245,7 @@ function Invoke-IaTuiAutopilot {
                 Read-IaPause | Out-Null
             }
             'Back' { return }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1244,7 +1263,7 @@ function Invoke-IaTuiSecurityBaselines {
             'Delete a baseline',
             'Back'
         )
-        switch -Wildcard ($pick) {
+        try { switch -Wildcard ($pick) {
             'List all*' {
                 Invoke-IaStatus -Spinner 'Dots2' -Title 'Loading…' -Color $Accent -ScriptBlock {
                     $script:_baselines = @(Get-IntuneSecurityBaseline)
@@ -1301,7 +1320,7 @@ function Invoke-IaTuiSecurityBaselines {
                 }
             }
             'Back' { return }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1322,7 +1341,7 @@ function Invoke-IaTuiPolicies {
             'Back'
         )
 
-        switch -Wildcard ($pick) {
+        try { switch -Wildcard ($pick) {
             'Configuration*'      { Invoke-IaTuiConfigPolicies  -Accent $Accent }
             'Compliance*'         { Invoke-IaTuiCompliancePol   -Accent $Accent }
             'Scripts*'            { Invoke-IaTuiScripts         -Accent $Accent }
@@ -1330,7 +1349,7 @@ function Invoke-IaTuiPolicies {
             'Assignment filters*' { Invoke-IaTuiAssignmentFilters -Accent $Accent }
             'Other profiles*'     { Invoke-IaTuiLegacyConfig    -Accent $Accent }
             'Back'                { return }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1713,8 +1732,8 @@ function Invoke-IaTuiDeviceCard {
         $cs = "$($detail.ComplianceState)"
         $cc = if ($cs -eq 'compliant') { $Accent } elseif ($cs -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
         $hdr = [System.Collections.Generic.List[string]]::new()
-        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· Device card[/]"))
-        $hdr.Add((ConvertFrom-IaMarkup "[grey]$($detail.Device)[/]  ·  [$cc]$cs[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Device card[/]"))
+        $hdr.Add((ConvertFrom-IaMarkup "[grey]$($detail.Device)[/]  [dim]│[/]  [$cc]$cs[/]"))
         $hdr.Add('')
         $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'OS',      "$($detail.OS) $($detail.OSVersion)")))
         $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-12}[/] [white]{1}[/]" -f 'Model',   "$($detail.Manufacturer) $($detail.Model)")))
@@ -1739,7 +1758,7 @@ function Invoke-IaTuiDeviceCard {
             'Back'
         )
         if (-not $sub -or $sub -eq 'Back') { return }
-        switch -Wildcard ($sub) {
+        try { switch -Wildcard ($sub) {
             'All fields*' {
                 $rows = [System.Collections.Generic.List[object]]::new()
                 foreach ($p in $detail.PSObject.Properties) {
@@ -1762,25 +1781,28 @@ function Invoke-IaTuiDeviceCard {
                 Read-IaTablePause -Data $rows.ToArray() -Stem "devcard-$Device" -Color $Accent -Title "All fields & hardware · $Device ($($rows.Count))"
             }
             'Compliance policy*' {
-                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeComplianceState).ComplianceStates })
-                $rows = $st | ForEach-Object {
+                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeComplianceState }
+                if (-not $detail) { Write-IaHost '[yellow]Could not reload device detail — try again.[/]'; Read-IaPause | Out-Null; break }
+                $rows = @($detail.ComplianceStates | ForEach-Object {
                     $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant', 'error') { 'coral' } else { 'grey' }
                     [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$c]$($_.state)[/]"; Platform = $_.platformType }
-                }
-                Read-IaTablePause -Data $rows -Stem "devcard-$Device-comp" -Color $Accent -Title "Compliance states · $Device ($($st.Count))"
+                })
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-comp" -Color $Accent -Title "Compliance states · $Device ($($rows.Count))"
             }
             'Configuration profile*' {
-                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeConfigState).ConfigStates })
-                $rows = $st | ForEach-Object {
+                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeConfigState }
+                if (-not $detail) { Write-IaHost '[yellow]Could not reload device detail — try again.[/]'; Read-IaPause | Out-Null; break }
+                $rows = @($detail.ConfigStates | ForEach-Object {
                     $c = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error', 'conflict') { 'coral' } else { 'grey' }
                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$c]$($_.state)[/]"; Version = $_.version }
-                }
-                Read-IaTablePause -Data $rows -Stem "devcard-$Device-cfg" -Color $Accent -Title "Configuration states · $Device ($($st.Count))"
+                })
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-cfg" -Color $Accent -Title "Configuration states · $Device ($($rows.Count))"
             }
             'Detected apps*' {
-                $st = @(Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { (Get-IntuneDeviceDetail -Device $Device -IncludeApps).Apps })
-                $rows = $st | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } }
-                Read-IaTablePause -Data $rows -Stem "devcard-$Device-apps" -Color $Accent -Title "Detected apps · $Device ($($st.Count))"
+                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneDeviceDetail -Device $Device -IncludeApps }
+                if (-not $detail) { Write-IaHost '[yellow]Could not reload device detail — try again.[/]'; Read-IaPause | Out-Null; break }
+                $rows = @($detail.Apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } })
+                Read-IaTablePause -Data $rows -Stem "devcard-$Device-apps" -Color $Accent -Title "Detected apps · $Device ($($rows.Count))"
             }
             'Action: Sync*'    { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Sync' }
             'Action: Restart*' { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action 'Reboot' }
@@ -1813,7 +1835,7 @@ function Invoke-IaTuiDeviceCard {
                     'EnableLostMode', 'DisableLostMode', 'Cancel')
                 if ($a -and $a -ne 'Cancel') { Invoke-IaTuiDeviceAct -Accent $Accent -Device $Device -Action $a }
             }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -1840,9 +1862,9 @@ function Invoke-IaTuiDashboard {
     # Live device-management overview for the first-page menu: KPI tiles plus
     # colour-graded bar charts, all computed from a single managedDevices read.
     param([string]$Accent)
-    $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Building device management dashboard…' -ScriptBlock {
+    $devs = try { @(Invoke-IaStatus -Spinner Dots -Title 'Building device management dashboard…' -ScriptBlock {
         Get-IntuneDeviceInventory -Top 5000
-    })
+    }) } catch { @() }
     Write-IaTuiHeader -Screen 'Device management dashboard' -Sub 'live overview · managed devices' -Accent $Accent
     if (-not $devs) { Write-IaHost '[yellow]No managed devices found.[/]'; Read-IaPause | Out-Null; return }
 
@@ -1971,7 +1993,7 @@ function Invoke-IaTuiReportView {
     # The table is selectable: Enter on any row opens its full property set ("all
     # properties for every category"). q/Esc backs out.
     param([string]$Accent, [string]$Title, [scriptblock]$Loader, [string]$Stem = 'entra', [switch]$NoExport)
-    $rows = @(Invoke-IaStatus -Spinner Dots -Title "Loading $Title…" -ScriptBlock $Loader)
+    $rows = try { @(Invoke-IaStatus -Spinner Dots -Title "Loading $Title…" -ScriptBlock $Loader) } catch { @() }
     Write-IaTuiHeader -Screen $Title -Accent $Accent
     if (-not $rows) { Write-IaHost '[yellow]No data (or the scope/license for this report is missing).[/]'; Read-IaPause | Out-Null; return }
     $hint = if ($NoExport) { 'Enter = all fields' } else { 'Enter = all fields · e export' }
@@ -1990,7 +2012,7 @@ function Invoke-IaTuiEntraDeletedItems {
         $type = Read-IaMenu -Title 'Deleted items — which type?' -Color $Accent -Choices @('Users', 'Groups', 'Applications', 'Back')
         if (-not $type -or $type -eq 'Back') { return }
         $t = switch ($type) { 'Users' { 'User' } 'Groups' { 'Group' } 'Applications' { 'Application' } }
-        $items = @(Invoke-IaStatus -Spinner Dots -Title "Loading deleted $type…" -ScriptBlock { Get-EntraDeletedItem -Type $t })
+        $items = try { @(Invoke-IaStatus -Spinner Dots -Title "Loading deleted $type…" -ScriptBlock { Get-EntraDeletedItem -Type $t }) } catch { @() }
         if (-not $items) { Write-IaHost "[$Accent]✓ Nothing recoverable in the $type recycle bin.[/]"; Read-IaPause | Out-Null; continue }
         while ($true) {
             $disp = @($items | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Identifier = $_.Identifier; Deleted = $_.Deleted; DaysLeft = $_.DaysLeft; Id = $_.Id } })
@@ -2003,7 +2025,7 @@ function Invoke-IaTuiEntraDeletedItems {
                 elseif ($act -eq 'Purge permanently' -and (Read-IaConfirm "[red]Permanently purge '$($pk.DisplayName)'? This cannot be undone.[/]")) { Remove-EntraDeletedItem -Id $pk.Id -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Purged.[/]"; Read-IaPause | Out-Null; $changed = $true }
             } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
             if ($changed) {
-                $items = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraDeletedItem -Type $t })
+                $items = try { @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraDeletedItem -Type $t }) } catch { @() }
                 if (-not $items) { break }
             }
         }
@@ -2065,7 +2087,7 @@ function Invoke-IaTuiEntraDevices {
         default     { { Get-EntraDevice -Top 1000 } }
     }
     $project = { param($list, $ac) @($list | ForEach-Object { $ec = if ($_.Enabled) { $ac } else { 'grey' }; [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Enabled = "[$ec]$($_.Enabled)[/]"; _Enabled = [bool]$_.Enabled; OS = $_.OS; Trust = $_.Trust; Compliant = $_.Compliant; DaysStale = $_.DaysStale; _DeviceId = $_.DeviceId; Id = $_.Id } }) }
-    $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading Entra devices…' -ScriptBlock $loader)
+    $devs = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading Entra devices…' -ScriptBlock $loader) } catch { @() }
     if (-not $devs) { Write-IaHost '[yellow]No matching devices.[/]'; Read-IaPause | Out-Null; return }
     $disp = @(& $project $devs $Accent)
     while ($true) {
@@ -2087,7 +2109,7 @@ function Invoke-IaTuiEntraDevices {
             }
         } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
         if ($changed) {
-            $devs = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock $loader)
+            $devs = try { @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock $loader) } catch { @() }
             if (-not $devs) { return }
             $disp = @(& $project $devs $Accent)
         }
@@ -2100,7 +2122,7 @@ function Invoke-IaTuiEntraDashboard {
     # permission/license is missing renders as '—' rather than failing the whole view.
     param([string]$Accent, [hashtable]$Data)
     Write-IaTuiHeader -Screen 'Identity dashboard' -Sub 'live overview · Entra ID' -Accent $Accent
-    $d = if ($Data) { $Data } else { Invoke-IaStatus -Spinner Dots -Title 'Building identity dashboard…' -ScriptBlock {
+    $d = if ($Data) { $Data } else { try { Invoke-IaStatus -Spinner Dots -Title 'Building identity dashboard…' -ScriptBlock {
         $enc = { param($f) [uri]::EscapeDataString($f) }
         # Hoisted: a try/catch is a statement, not a hashtable-value expression. risky is the
         # COUNT (not the array) because an empty array stored as a dict value reads back as
@@ -2118,12 +2140,13 @@ function Invoke-IaTuiEntraDashboard {
             apps     = Get-IaCount -Path 'applications/$count'
             sps      = Get-IaCount -Path 'servicePrincipals/$count'
             devices  = Get-IaCount -Path 'devices/$count'
-            expiring = @(try { Get-EntraExpiringSecret -Days 30 } catch { @() }).Count
+            expiring = @(try { Get-EntraExpiringSecret -Days 30 -IncludeExpired } catch { @() }).Count
             risky    = $risky
             score    = $score
             ca       = @(try { Get-EntraConditionalAccessPolicy } catch { @() })
         }
-    } }
+    } } catch { [ordered]@{} } }
+    if (-not $d -or $d.Count -eq 0) { Write-IaHost '[yellow]Could not load identity dashboard data.[/]'; Read-IaPause | Out-Null; return }
 
     # formatters: '—' when a count is unknown (-1) or a guarded read returned null
     $fc = { param($n) if ($null -eq $n -or ($n -is [int] -and $n -lt 0)) { '—' } else { "$n" } }
@@ -2144,7 +2167,7 @@ function Invoke-IaTuiEntraDashboard {
 
     $riskyN = if ($null -eq $d.risky) { $null } elseif ($d.risky -is [int]) { $d.risky } else { @($d.risky).Count }
     $scoreRow = if ($d.score) { @($d.score)[0] } else { $null }
-    $scorePct = if ($scoreRow) { [int]$scoreRow.Percent } else { $null }
+    $scorePct = if ($scoreRow) { ConvertTo-IaSafeInt $scoreRow.Percent } else { $null }
     $caEnabled = @($d.ca | Where-Object { $_.State -eq 'enabled' }).Count
     $caReport  = @($d.ca | Where-Object { $_.State -eq 'enabledForReportingButNotEnforced' }).Count
     $caOff     = @($d.ca | Where-Object { $_.State -eq 'disabled' }).Count
@@ -2294,7 +2317,7 @@ function Invoke-IaTuiEntraApps {
             'Back'
         )
         if (-not $m -or $m -eq 'Back') { return }
-        switch -Wildcard ($m) {
+        try { switch -Wildcard ($m) {
             'Create a new app*'          { Invoke-IaTuiEntraCreateApp -Accent $Accent }
             'Manage an app*'             { Invoke-IaTuiEntraAppManage -Accent $Accent }
             'All app*'                   { Invoke-IaTuiReportView -Accent $Accent -Title 'App registrations' -Stem 'entra-appregs' -Loader { Get-EntraAppRegistration } }
@@ -2305,7 +2328,7 @@ function Invoke-IaTuiEntraApps {
             'Credential hygiene*'        { Invoke-IaTuiReportView -Accent $Accent -Title 'App credential hygiene' -Stem 'entra-credhygiene' -Loader { Get-EntraAppCredentialSummary } }
             'App permissions*'           { Invoke-IaTuiEntraAppPerms -Accent $Accent }
             'Tenant consent audit*'      { Invoke-IaTuiEntraConsentAudit -Accent $Accent }
-        }
+        } } catch { Write-IaHost "[coral]Error:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
     }
 }
 
@@ -2313,7 +2336,7 @@ function Invoke-IaTuiEntraAppPerms {
     # Pick an enterprise app (service principal), then drill into every API permission
     # it actually holds — delegated consent grants plus granted application roles.
     param([string]$Accent)
-    $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading enterprise apps…' -ScriptBlock { Get-EntraEnterpriseApp -Top 500 })
+    $apps = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading enterprise apps…' -ScriptBlock { Get-EntraEnterpriseApp -Top 500 }) } catch { @() }
     if (-not $apps) { Write-IaHost '[yellow]No enterprise apps.[/]'; Read-IaPause | Out-Null; return }
     $disp = @($apps | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Type = $_.Type; Enabled = $_.Enabled; AppId = $_.AppId; Id = $_.Id } })
     while ($true) {
@@ -2329,7 +2352,7 @@ function Invoke-IaTuiEntraConsentAudit {
     # Selectable: Enter on a row offers to revoke that permission from the app.
     param([string]$Accent)
     while ($true) {
-        $rows = @(Invoke-IaStatus -Spinner Dots -Title 'Auditing Graph app consents…' -ScriptBlock { Get-EntraRiskyAppPermission })
+        $rows = try { @(Invoke-IaStatus -Spinner Dots -Title 'Auditing Graph app consents…' -ScriptBlock { Get-EntraRiskyAppPermission }) } catch { @() }
         if (-not $rows) { Write-IaHost "[$Accent]✓ No high-risk or unresolved Graph application permissions found.[/]"; Read-IaPause | Out-Null; return }
         # pass the markup string (not pre-rendered ANSI) so `e` export stays clean
         # grant id is masked in the table (and exports); the real id rides along in the
@@ -2352,7 +2375,7 @@ function Invoke-IaTuiEntraEnterpriseApp {
     # (delegated + application permissions), and revoke a grant. The portal's
     # "Enterprise applications → Permissions" blade, from the CLI.
     param([string]$Accent)
-    $sps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading enterprise apps…' -ScriptBlock { Get-EntraEnterpriseApp })
+    $sps = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading enterprise apps…' -ScriptBlock { Get-EntraEnterpriseApp }) } catch { @() }
     if (-not $sps) { Write-IaHost '[yellow]No enterprise apps (service principals).[/]'; Read-IaPause | Out-Null; return }
     $disp = @($sps | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; AppId = $_.AppId; Id = $_.Id } })
     while ($true) {
@@ -2419,7 +2442,7 @@ function Invoke-IaTuiEntraAppManage {
     # Pick an app registration, then add/remove API permissions, grant admin consent
     # or create its enterprise app — the portal's "API permissions" blade, from the CLI.
     param([string]$Accent)
-    $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading app registrations…' -ScriptBlock { Get-EntraAppRegistration -Top 500 })
+    $apps = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading app registrations…' -ScriptBlock { Get-EntraAppRegistration -Top 500 }) } catch { @() }
     if (-not $apps) { Write-IaHost '[yellow]No app registrations.[/]'; Read-IaPause | Out-Null; return }
     $disp = @($apps | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; AppId = $_.AppId; Audience = $_.SignInAudience; Id = $_.Id } })
     while ($true) {
@@ -2579,7 +2602,7 @@ function Invoke-IaTuiEntraCreateApp {
 function Select-IaDirectoryRole {
     # Searchable, selectable list of directory role definitions. Returns the role name.
     param([string]$Accent)
-    $roles = @(Invoke-IaStatus -Spinner Dots -Title 'Loading directory roles…' -ScriptBlock { Get-EntraDirectoryRole })
+    $roles = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading directory roles…' -ScriptBlock { Get-EntraDirectoryRole }) } catch { @() }
     if (-not $roles) { Write-IaHost '[yellow]No directory roles.[/]'; Read-IaPause | Out-Null; return $null }
     $disp = @($roles | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.Role; Description = $_.Description; BuiltIn = $_.BuiltIn } })
     $pick = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Directory roles ($($disp.Count)) · / search · Enter = pick" -Stem 'dirrole-pick'
@@ -2683,7 +2706,7 @@ function Invoke-IaTuiEntraPim {
                 'Eligible roles*' { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM eligible' -Stem 'pim-elig' -Loader { Get-EntraPimEligibility } }
                 'Active roles*'   { Invoke-IaTuiReportView -Accent $Accent -Title 'PIM active' -Stem 'pim-active' -Loader { Get-EntraPimActive } }
                 'Activate one*' {
-                    $mine = @(Invoke-IaStatus -Spinner Dots -Title 'Loading your eligible roles…' -ScriptBlock { Get-IaEligibleRoles })
+                    $mine = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading your eligible roles…' -ScriptBlock { Get-IaEligibleRoles }) } catch { @() }
                     if (-not $mine) { Write-IaHost '[yellow]You have no eligible roles (or this is an app-only sign-in).[/]'; Read-IaPause | Out-Null; continue }
                     $rd = @($mine | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.roleDefinition.displayName; Scope = $_.directoryScopeId } })
                     $pk = Read-IaTableInteractive -Data $rd -Color $Accent -Selectable -Title "Your eligible roles ($($rd.Count)) · Enter = activate" -Stem 'pim-my-elig'
@@ -2709,9 +2732,14 @@ function Invoke-IaTuiEntraPim {
                     }
                 }
                 "Remove a user's*" {
-                    $elig = @(Invoke-IaStatus -Spinner Dots -Title 'Loading eligibilities…' -ScriptBlock { Get-EntraPimEligibility -Raw })
+                    $elig = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading eligibilities…' -ScriptBlock { Get-EntraPimEligibility -Raw }) } catch { @() }
                     if (-not $elig) { Write-IaHost '[yellow]No PIM eligibilities.[/]'; Read-IaPause | Out-Null; continue }
-                    $ed = @($elig | ForEach-Object { [pscustomobject][ordered]@{ Role = $_.roleDefinition.displayName; Principal = ($_.principal.displayName ?? $_.principal.userPrincipalName); Type = ($_.principal.'@odata.type' -replace '#microsoft\.graph\.', ''); PrincipalId = $_.principal.id } })
+                    $ed = @($elig | ForEach-Object { [pscustomobject][ordered]@{
+                        Role        = if ($_.roleDefinition) { $_.roleDefinition.displayName } else { $_.roleDefinitionId }
+                        Principal   = if ($_.principal) { ($_.principal.displayName ?? $_.principal.userPrincipalName) } else { $_.principalId }
+                        Type        = if ($_.principal) { ($_.principal.'@odata.type' -replace '#microsoft\.graph\.', '') } else { $null }
+                        PrincipalId = if ($_.principal) { $_.principal.id } else { $_.principalId }
+                    } })
                     $ep = Read-IaTableInteractive -Data $ed -Color $Accent -Selectable -Title "PIM eligibilities ($($ed.Count)) · Enter = remove" -Stem 'pim-elig-rm'
                     if ($ep -and (Read-IaConfirm "[red]Remove $($ep.Principal)'s eligibility for '$($ep.Role)'?[/]")) {
                         Remove-EntraPimEligibility -User $ep.PrincipalId -Role $ep.Role -Confirm:$false | Out-Null
@@ -2726,7 +2754,7 @@ function Invoke-IaTuiEntraPim {
 function Invoke-IaTuiEntraTeamManage {
     # Pick a Team (Microsoft 365 group) → manage its channels and members.
     param([string]$Accent)
-    $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading Teams / Microsoft 365 groups…' -ScriptBlock { Get-EntraGroup -Top 500 | Where-Object { $_.Type -eq 'Microsoft 365' } })
+    $groups = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading Teams / Microsoft 365 groups…' -ScriptBlock { Get-EntraGroup -Top 500 | Where-Object { $_.Type -eq 'Microsoft 365' } }) } catch { @() }
     if (-not $groups) { Write-IaHost '[yellow]No Microsoft 365 groups / teams.[/]'; Read-IaPause | Out-Null; return }
     $disp = @($groups | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Mail = $_.Mail; Id = $_.Id } })
     while ($true) {
@@ -2882,6 +2910,7 @@ function Invoke-IaTuiEntraCreateTeam {
     if (-not $owner) { return }
     $desc = Read-IaText -Question 'Description (blank = none)'
     $vis  = Read-IaMenu -Title 'Visibility' -Color $Accent -Choices @('Private', 'Public')
+    if (-not $vis) { return }
     if (-not (Read-IaConfirm "Create $vis Team '$name' owned by ${owner}?")) { return }
     try {
         $p = @{ Name = $name; Owner = $owner; Visibility = $vis; Confirm = $false }
@@ -2901,7 +2930,7 @@ function Invoke-IaTuiEntraGroups {
         if ($action -like 'Manage a Team*') { Invoke-IaTuiEntraTeamManage -Accent $Accent; continue }
         if ($action -like 'Create a Microsoft 365 Team*') { Invoke-IaTuiEntraCreateTeam -Accent $Accent; continue }
         if ($action -like 'Create a group*') { Invoke-IaTuiEntraCreateGroup -Accent $Accent; continue }
-        $groups = @(Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock { Get-EntraGroup -Top 500 })
+        $groups = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading groups…' -ScriptBlock { Get-EntraGroup -Top 500 }) } catch { @() }
         if (-not $groups) { Write-IaHost '[yellow]No groups.[/]'; Read-IaPause | Out-Null; continue }
         $disp = @($groups | ForEach-Object { [pscustomobject][ordered]@{ DisplayName = $_.DisplayName; Type = $_.Type; Membership = $_.Membership; Mail = $_.Mail; Id = $_.Id } })
         while ($true) {
@@ -2996,7 +3025,7 @@ function Invoke-IaTuiEntraCA {
 function Invoke-IaTuiEntraCAPolicies {
     # List CA policies → change state or delete the picked one.
     param([string]$Accent)
-    $pols = @(Invoke-IaStatus -Spinner Dots -Title 'Loading CA policies…' -ScriptBlock { Get-EntraConditionalAccessPolicy })
+    $pols = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading CA policies…' -ScriptBlock { Get-EntraConditionalAccessPolicy }) } catch { @() }
     if (-not $pols) { Write-IaHost '[yellow]No Conditional Access policies (or Policy.Read.All not consented).[/]'; Read-IaPause | Out-Null; return }
     while ($true) {
         $disp = @($pols | ForEach-Object { $sc = switch ($_.State) { 'enabled' { $Accent } 'disabled' { 'grey' } default { 'yellow' } }; [pscustomobject][ordered]@{ Name = $_.Name; State = "[$sc]$($_.State)[/]"; Controls = $_.Controls; Id = $_.Id } })
@@ -3120,8 +3149,8 @@ function Invoke-IaTuiEntraNamedLocation {
 
 function Invoke-IaTuiEntraRisky {
     param([string]$Accent)
-    $users = @(Invoke-IaStatus -Spinner Dots -Title 'Loading risky users…' -ScriptBlock { Get-EntraRiskyUser })
-    if (-not $users) { Write-IaHost '[yellow]No risky users (needs IdentityRiskyUser scope + Entra ID P2).[/]'; Read-IaPause | Out-Null; return }
+    $users = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading risky users…' -ScriptBlock { Get-EntraRiskyUser }) } catch { @() }
+    if (-not $users) { Write-IaHost '[yellow]No risky users (needs IdentityRiskyUser.ReadWrite.All scope + Entra ID P2 license).[/]'; Read-IaPause | Out-Null; return }
     while ($true) {
         $disp = @($users | ForEach-Object { $sc = switch ($_.RiskState) { 'atRisk' { 'coral' } 'confirmedCompromised' { 'red' } default { 'grey' } }; [pscustomobject][ordered]@{ User = $_.User; RiskLevel = $_.RiskLevel; RiskState = "[$sc]$($_.RiskState)[/]"; Updated = $_.Updated; Id = $_.Id } })
         $picked = Read-IaTableInteractive -Data $disp -Color $Accent -Selectable -Title "Risky users ($($disp.Count)) · Enter = act" -Stem 'entra-risky'
@@ -3131,7 +3160,8 @@ function Invoke-IaTuiEntraRisky {
             if ($act -eq 'Dismiss risk' -and (Read-IaConfirm "Dismiss risk for $($picked.User)?")) { Set-EntraRiskyUser -UserId $picked.Id -Action Dismiss -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Dismissed.[/]"; Read-IaPause | Out-Null }
             elseif ($act -eq 'Confirm compromised' -and (Read-IaConfirm "[red]Confirm $($picked.User) as compromised?[/]")) { Set-EntraRiskyUser -UserId $picked.Id -Action Compromise -Confirm:$false | Out-Null; Write-IaHost "[$Accent]✓ Confirmed.[/]"; Read-IaPause | Out-Null }
         } catch { Write-IaHost "[coral]Failed:[/] $($_.Exception.Message)"; Read-IaPause | Out-Null }
-        $users = @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraRiskyUser })
+        $users = try { @(Invoke-IaStatus -Spinner Dots -Title 'Reloading…' -ScriptBlock { Get-EntraRiskyUser }) } catch { @() }
+        if (-not $users) { Write-IaHost '[yellow]No risky users remain.[/]'; Read-IaPause | Out-Null; return }
     }
 }
 
@@ -3265,9 +3295,9 @@ function Invoke-IaTuiUserLookup {
             # "Overview" can show all three together.
             $prof = Invoke-IaStatus -Spinner Dots -Title "Building help-desk profile for $upn…" -ScriptBlock {
                 [pscustomobject]@{
-                    Devices  = @(Get-IntuneUserDevice          -User $upn)
-                    Groups   = @(Get-IntuneUserGroupMembership -User $upn)
-                    Licenses = @(Get-IntuneUserLicense         -User $upn)
+                    Devices  = @(try { Get-IntuneUserDevice          -User $upn } catch { @() })
+                    Groups   = @(try { Get-IntuneUserGroupMembership -User $upn } catch { @() })
+                    Licenses = @(try { Get-IntuneUserLicense         -User $upn } catch { @() })
                 }
             }
             $uDevices  = @($prof.Devices)
@@ -3276,7 +3306,7 @@ function Invoke-IaTuiUserLookup {
             $compliant = @($uDevices | Where-Object { "$($_.Compliance)" -eq 'compliant' }).Count
 
             $hdr = [System.Collections.Generic.List[string]]::new()
-            $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· User lookup[/]"))
+            $hdr.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]User lookup[/]"))
             $hdr.Add((ConvertFrom-IaMarkup "[grey]$upn[/]"))
             $hdr.Add('')
             $hdr.Add((ConvertFrom-IaMarkup ("[grey]{0,-10}[/] [white]{1}[/]  [grey]({2} compliant)[/]" -f 'Devices',  $uDevices.Count, $compliant)))
@@ -3354,9 +3384,9 @@ function Invoke-IaTuiUserLookup {
                         else { Read-IaTablePause -Data $licRows -Stem "user-$stemU-licenses" -Color $Accent -Title "Licenses · $upn ($($uLicenses.Count))" }
                     }
                     'Sign-in*' {
-                        $si = @(Invoke-IaStatus -Spinner Dots -Title "Loading recent sign-ins for $upn…" -ScriptBlock {
+                        $si = try { @(Invoke-IaStatus -Spinner Dots -Title "Loading recent sign-ins for $upn…" -ScriptBlock {
                             Get-IntuneUserSignIn -User $upn -Top 20
-                        })
+                        }) } catch { @() }
                         if (-not $si) { Write-IaHost '[yellow]No sign-in records returned (needs AuditLog.Read.All + Entra ID P1).[/]' }
                         else {
                             # Curated columns for the on-screen table; the cmdlet keeps CA / IP /
@@ -3375,9 +3405,9 @@ function Invoke-IaTuiUserLookup {
                         }
                         # MFA methods are rendered AFTER the table viewer so its full-screen
                         # repaint can't wipe them.
-                        $mfa = @(Invoke-IaStatus -Spinner Dots -Title 'Loading registered MFA methods…' -ScriptBlock {
+                        $mfa = try { @(Invoke-IaStatus -Spinner Dots -Title 'Loading registered MFA methods…' -ScriptBlock {
                             Get-IntuneUserAuthMethod -User $upn
-                        })
+                        }) } catch { @() }
                         Write-IaRule -Title "Registered MFA methods ($($mfa.Count))" -Color $Accent
                         if (-not $mfa) { Write-IaHost '[coral]No methods registered — the user has no MFA method on file.[/]' }
                         else {
@@ -3468,6 +3498,7 @@ function Invoke-IaTuiReports {
                 'By compliance state',
                 'Group by a column (count per value)'
             )
+            if (-not $filt) { break }
             $invParams = @{}
             $groupProp = $null
             $subTitle  = $filt.ToLower()
@@ -3577,7 +3608,7 @@ function Invoke-IaTuiReports {
                         # Render the detail block into the menu's -Header so it stays on
                         # screen — Read-IaMenu repaints full-screen and would otherwise wipe it.
                         $hdr = [System.Collections.Generic.List[string]]::new()
-                        $hdr.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· Device detail[/]"))
+                        $hdr.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Device detail[/]"))
                         $hdr.Add((ConvertFrom-IaMarkup "[grey]$devName[/]"))
                         $hdr.Add('')
                         foreach ($kv in $fields.GetEnumerator()) {
@@ -3604,16 +3635,17 @@ function Invoke-IaTuiReports {
                           if (-not $sub -or $sub -eq 'Back to device list') { break }
                           switch -Wildcard ($sub) {
                             'Compliance pol*' {
-                                $cs = @(Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
-                                    (Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState).ComplianceStates
-                                })
+                                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading compliance states…' -ScriptBlock {
+                                    Get-IntuneDeviceDetail -Device $devName -IncludeComplianceState
+                                }
+                                if (-not $detail) { Write-IaHost '[yellow]Could not load compliance states — try again.[/]'; Read-IaPause | Out-Null; break }
                                 # Project to a narrow, readable table — the raw Graph state
                                 # objects carry id/userId/settingStates GUID columns that wrap.
-                                $rows = $cs | ForEach-Object {
+                                $rows = @($detail.ComplianceStates | ForEach-Object {
                                     $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'noncompliant','error') { 'coral' } else { 'grey' }
                                     [pscustomobject][ordered]@{ Policy = $_.displayName; State = "[$sc]$($_.state)[/]"; Platform = $_.platformType }
-                                }
-                                Read-IaTablePause -Data $rows -Stem "device-$devName-compliance" -Color $Accent -Title "Compliance policy states · $devName ($($cs.Count))"
+                                })
+                                Read-IaTablePause -Data $rows -Stem "device-$devName-compliance" -Color $Accent -Title "Compliance policy states · $devName ($($rows.Count))"
                             }
                             'Compliance failures*' {
                                 $cf = @(Invoke-IaStatus -Spinner Dots -Title 'Loading failing compliance settings…' -ScriptBlock {
@@ -3635,14 +3667,15 @@ function Invoke-IaTuiReports {
                                 }
                             }
                             'Configuration profile*' {
-                                $cfg = @(Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
-                                    (Get-IntuneDeviceDetail -Device $devName -IncludeConfigState).ConfigStates
-                                })
-                                $rows = $cfg | ForEach-Object {
+                                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading config states…' -ScriptBlock {
+                                    Get-IntuneDeviceDetail -Device $devName -IncludeConfigState
+                                }
+                                if (-not $detail) { Write-IaHost '[yellow]Could not load configuration states — try again.[/]'; Read-IaPause | Out-Null; break }
+                                $rows = @($detail.ConfigStates | ForEach-Object {
                                     $sc = if ($_.state -eq 'compliant') { $Accent } elseif ($_.state -in 'error','conflict') { 'coral' } else { 'grey' }
                                     [pscustomobject][ordered]@{ Profile = $_.displayName; State = "[$sc]$($_.state)[/]"; Version = $_.version }
-                                }
-                                Read-IaTablePause -Data $rows -Stem "device-$devName-config" -Color $Accent -Title "Configuration profile states · $devName ($($cfg.Count))"
+                                })
+                                Read-IaTablePause -Data $rows -Stem "device-$devName-config" -Color $Accent -Title "Configuration profile states · $devName ($($rows.Count))"
                             }
                             'Configuration conflict*' {
                                 $cc = @(Invoke-IaStatus -Spinner Dots -Title 'Looking for configuration conflicts…' -ScriptBlock {
@@ -3662,12 +3695,12 @@ function Invoke-IaTuiReports {
                                 }
                             }
                             'Detected apps*' {
-                                $apps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
-                                    (Get-IntuneDeviceDetail -Device $devName -IncludeApps).Apps
-                                })
-                                # Drop the raw detected-app Id (GUID) column — App + Version is what reads.
-                                $rows = $apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } }
-                                Read-IaTablePause -Data $rows -Stem "device-$devName-apps" -Color $Accent -Title "Detected apps · $devName ($($apps.Count))"
+                                $detail = Invoke-IaStatus -Spinner Dots -Title 'Loading detected apps…' -ScriptBlock {
+                                    Get-IntuneDeviceDetail -Device $devName -IncludeApps
+                                }
+                                if (-not $detail) { Write-IaHost '[yellow]Could not load detected apps — try again.[/]'; Read-IaPause | Out-Null; break }
+                                $rows = @($detail.Apps | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version } })
+                                Read-IaTablePause -Data $rows -Stem "device-$devName-apps" -Color $Accent -Title "Detected apps · $devName ($($rows.Count))"
                             }
                             'Managed apps*' {
                                 $mapps = @(Invoke-IaStatus -Spinner Dots -Title 'Loading managed apps…' -ScriptBlock {
@@ -3744,6 +3777,7 @@ function Invoke-IaTuiReports {
             $app = Select-IaInventoryItem -Accent $Accent -Area 'Apps' -Title 'Which app?'
             if (-not $app) { return }
             $by  = Read-IaMenu -Title 'Pivot by' -Choices @('Device', 'User') -Color $Accent
+            if (-not $by) { return }   # Esc → cancel (else -By $null fails the ValidateSet)
             Write-IaTuiHeader -Screen 'App install status' -Sub "app: $($app.Name)  ·  by: $by" -Accent $Accent
             $name = $app.Name
             $rows = Invoke-IaStatus -Spinner Dots -Title "Querying $name…" -ScriptBlock {
@@ -3788,6 +3822,7 @@ function Invoke-IaTuiReports {
         }
         'Compliance*' {
             $mode = Read-IaMenu -Title 'Compliance by' -Choices @('Tenant summary', 'Policy', 'Device') -Color $Accent
+            if (-not $mode) { break }
             Write-IaTuiHeader -Screen 'Compliance status' -Sub $mode.ToLower() -Accent $Accent
             $rows = @(switch -Wildcard ($mode) {
                 'Policy'  {
@@ -3819,8 +3854,13 @@ function Invoke-IaTuiReports {
         }
         'Deployment*' {
             $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices @('All resources', 'Scope to a group')
+            if (-not $scope) { break }   # Esc → cancel (else silently runs the all-resources summary)
             $grp   = $null
-            if ($scope -like 'Scope*') { $grp = (Select-IaGroup -Accent $Accent -Title 'Scope to group').DisplayName }
+            if ($scope -like 'Scope*') {
+                $grpObj = Select-IaGroup -Accent $Accent -Title 'Scope to group'
+                if (-not $grpObj) { break }
+                $grp = $grpObj.DisplayName
+            }
             Write-IaTuiHeader -Screen 'Deployment summary' `
                 -Sub "for everything assigned to '$(if ($grp) { $grp } else { 'all resources' })'" -Accent $Accent
             $data = @(Invoke-IaStatus -Spinner Dots -Title 'Rolling up deployment health…' -ScriptBlock {
@@ -4046,9 +4086,9 @@ function Get-IaReportPanel {
     # Build the recipe-summary header repainted above the builder menu each frame.
     param([string]$Accent, [string]$SourceName, [int]$RowCount, $Recipe)
     $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add((ConvertFrom-IaMarkup "[$Accent]≈ JustGraphIT[/]  [bold]· Custom report builder[/]"))
-    $lines.Add((ConvertFrom-IaMarkup "[grey]build a report: select · where · sort · group · export[/]"))
-    $lines.Add((ConvertFrom-IaMarkup ("[darkslategray1]" + ('─' * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
+    $lines.Add((ConvertFrom-IaMarkup "[dim][[/][$Accent]JGI[/][dim]][/] [bold]Custom report builder[/]"))
+    $lines.Add((ConvertFrom-IaMarkup "[grey]select │ where │ sort │ group │ export[/]"))
+    $lines.Add((ConvertFrom-IaMarkup ("[$Accent]" + ([string][char]0x2550 * [Math]::Min(96, [Math]::Max(40, (Get-IaInnerWidth)))) + '[/]')))
 
     $cols = if (@($Recipe.Select).Count -gt 0) { (@($Recipe.Select) -join ', ') } else { '(all)' }
     $filt = if (@($Recipe.Where | Where-Object { $_ -and $_.Prop }).Count -gt 0) {
@@ -4424,8 +4464,8 @@ function Invoke-IaTuiCloudPC {
                     User         = $_.User
                     'Plan'       = $_.ServicePlan
                     Policy       = $_.ProvisioningPolicy
-                    LastLogin    = if ($_.LastLogin) { ([datetime]$_.LastLogin).ToString('yyyy-MM-dd HH:mm') } else { '—' }
-                    GracePeriod  = if ($_.GracePeriodEnd) { ([datetime]$_.GracePeriodEnd).ToString('yyyy-MM-dd') } else { '—' }
+                    LastLogin    = & { $dt = ConvertTo-IaSafeDateTime $_.LastLogin; if ($dt) { $dt.ToString('yyyy-MM-dd HH:mm') } else { '—' } }
+                    GracePeriod  = & { $dt = ConvertTo-IaSafeDateTime $_.GracePeriodEnd; if ($dt) { $dt.ToString('yyyy-MM-dd') } else { '—' } }
                 }
             } | Format-IaTable -Color $Accent
         }
@@ -4438,6 +4478,7 @@ function Invoke-IaTuiCloudPC {
                 'Restart', 'Reprovision', 'Troubleshoot', 'EndGracePeriod',
                 'CreateSnapshot', 'Resize', 'Rename', 'Restore', 'PowerOn', 'PowerOff'
             )
+            if (-not $pcName -or -not $action) { return }   # Esc → cancel (else empty-subject confirm + Mandatory binding error)
             $extraParams = @{}
             switch ($action) {
                 'Resize' {
@@ -4488,6 +4529,7 @@ function Invoke-IaTuiCloudPC {
                 }
                 'Create*' {
                     $name  = Read-IaText -Question 'Policy name'
+                    if ([string]::IsNullOrWhiteSpace($name)) { return }   # no name → cancel
                     $imgs  = Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock { Get-IntuneCloudPCImage }
                     $imgC  = Read-IaMenu -Title 'OS image' -Color $Accent `
                         -Choices @($imgs | ForEach-Object { "$($_.Type): $($_.Name)  [$($_.OS)]" })
@@ -4496,6 +4538,7 @@ function Invoke-IaTuiCloudPC {
                     $img   = $imgs[$imgIdx]
                     $join  = Read-IaMenu -Title 'Azure AD join type' -Color $Accent `
                         -Choices @('azureADJoin', 'hybridAzureADJoin')
+                    if (-not $join) { return }   # Esc → cancel (else -DomainJoinType $null fails binding)
                     Write-IaTuiHeader -Screen 'Create provisioning policy' -Sub $name -Accent $Accent
                     New-IntuneCloudPCProvisioningPolicy -Name $name -ImageId $img.Id `
                         -ImageType ($img.Type.ToLower()) -DomainJoinType $join -WhatIf
@@ -4545,6 +4588,7 @@ function Invoke-IaTuiCloudPC {
                     $conns = Invoke-IaStatus -Spinner Dots -Title 'Loading…' -ScriptBlock { Get-IntuneCloudPCConnection }
                     $connC = Read-IaMenu -Title 'Select connection' -Color $Accent `
                         -Choices @($conns | ForEach-Object { $_.Name })
+                    if (-not $connC) { return }   # Esc → cancel (else -Connection $null binding error + false success message)
                     Test-IntuneCloudPCConnection -Connection $connC
                     Write-IaHost "[$Accent]Health check triggered.[/] Check connection status in a few minutes."
                 }
@@ -4559,6 +4603,7 @@ function Invoke-IaTuiCloudPC {
         'Images*' {
             Write-IaTuiHeader -Screen 'Cloud PC Images' -Sub 'gallery · custom' -Accent $Accent
             $type = Read-IaMenu -Title 'Image type' -Choices @('All','Gallery','Custom') -Color $Accent
+            if (-not $type) { return }   # Esc → cancel (else -Type $null fails the ValidateSet)
             Invoke-IaStatus -Spinner Dots -Title 'Loading images…' -ScriptBlock {
                 Get-IntuneCloudPCImage -Type $type
             } | Format-IaTable -Color $Accent
@@ -4573,6 +4618,7 @@ function Invoke-IaTuiCloudPC {
             Write-IaTuiHeader -Screen 'Cloud PC Snapshots' -Accent $Accent
             $pcs   = Invoke-IaStatus -Spinner Dots -Title 'Loading Cloud PCs…' -ScriptBlock { Get-IntuneCloudPC }
             $scope = Read-IaMenu -Title 'Scope' -Color $Accent -Choices (@('All Cloud PCs') + @($pcs | ForEach-Object { $_.CloudPC }))
+            if (-not $scope) { return }   # Esc → cancel
             $snaps = Invoke-IaStatus -Spinner Dots -Title 'Loading snapshots…' -ScriptBlock {
                 if ($scope -eq 'All Cloud PCs') { Get-IntuneCloudPCSnapshot }
                 else { Get-IntuneCloudPCSnapshot -CloudPC $scope }

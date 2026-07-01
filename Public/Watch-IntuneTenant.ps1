@@ -137,8 +137,8 @@ function Watch-IntuneTenant {
                 # ---- pull current compliance summary --------------------------
                 $summary = Get-IntuneTenantSummary
 
-                $totalDevices       = [int]$summary.DeviceCount
-                $nonCompliantCount  = [int]$summary.NonCompliantCount
+                $totalDevices       = ConvertTo-IaSafeInt $summary.DeviceCount 0
+                $nonCompliantCount  = ConvertTo-IaSafeInt $summary.NonCompliantCount 0
                 $nonCompliantPct    = if ($totalDevices -gt 0) {
                     [math]::Round(($nonCompliantCount / $totalDevices) * 100, 1)
                 } else { 0 }
@@ -148,11 +148,11 @@ function Watch-IntuneTenant {
                 # ---- detect newly non-compliant devices -----------------------
                 if ($OnNonCompliant) {
                     $currentNonCompliant = @(
-                        Get-IntuneComplianceStatus -Status 'noncompliant' 2>$null |
+                        Get-IntuneDeviceInventory -ComplianceState noncompliant 2>$null |
                             Select-Object -Property * -ErrorAction SilentlyContinue
                     )
                     $currentIds = [System.Collections.Generic.HashSet[string]]::new(
-                        @($currentNonCompliant | ForEach-Object { $_.Device ?? $_.DeviceName ?? $_.id })
+                        @($currentNonCompliant | ForEach-Object { $_.Device ?? $_.Id })
                     )
 
                     if ($null -eq $previousIds) {
@@ -160,7 +160,7 @@ function Watch-IntuneTenant {
                         $newDevices = $currentNonCompliant
                     } else {
                         $newDevices = @($currentNonCompliant | Where-Object {
-                            $key = $_.Device ?? $_.DeviceName ?? $_.id
+                            $key = $_.Device ?? $_.Id
                             -not $previousIds.Contains($key)
                         })
                     }

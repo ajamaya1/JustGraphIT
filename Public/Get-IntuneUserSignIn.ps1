@@ -43,7 +43,7 @@ function Get-IntuneUserSignIn {
     $resp = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri "auditLogs/signIns?`$filter=$([uri]::EscapeDataString($f))&`$top=$Top&`$orderby=createdDateTime desc")
 
     foreach ($s in @($resp.value)) {
-        $err     = [int]($s.status.errorCode)
+        $err     = ConvertTo-IaSafeInt $s.status.errorCode 0
         $blocked = @($s.appliedConditionalAccessPolicies |
             Where-Object { $_.result -eq 'failure' } |
             ForEach-Object { $_.displayName }) -join ', '

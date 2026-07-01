@@ -52,7 +52,7 @@ function Add-EntraUserPhoneMethod {
         mobile (default), alternateMobile, or office. A mobile must exist before an
         alternateMobile can be added.
     #>
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory, Position = 0)][string]$User,
         [Parameter(Mandatory, Position = 1)][string]$PhoneNumber,

@@ -68,6 +68,10 @@ function Set-IntuneUpdateRing {
 
     if ($patch.Count -eq 0) { Write-Warning 'No changes specified.'; return }
 
+    # deviceConfigurations is polymorphic — a PATCH that sets type-specific fields must
+    # name the concrete type or Graph 400s ("property X does not exist on deviceConfiguration").
+    $patch['@odata.type'] = '#microsoft.graph.windowsUpdateForBusinessConfiguration'
+
     if (-not $PSCmdlet.ShouldProcess($Id, 'Set-IntuneUpdateRing')) { return }
 
     Invoke-IaRequest -Method PATCH -Uri (Resolve-IaUri "deviceManagement/deviceConfigurations/$resolved") -Body $patch | Out-Null

@@ -94,10 +94,8 @@ function Get-IntuneDeviceInventory {
 
         $sync = $null; $days = $null
         if ($d.lastSyncDateTime) {
-            try {
-                $sync = [datetime]$d.lastSyncDateTime
-                $days = [int][math]::Floor(($now - $sync.ToUniversalTime()).TotalDays)
-            } catch { }
+            $sync = ConvertTo-IaSafeDateTime $d.lastSyncDateTime
+            if ($sync) { $days = [int][math]::Floor(($now - $sync.ToUniversalTime()).TotalDays) }
         }
         if ($PSBoundParameters.ContainsKey('StaleDays') -and ($null -eq $days -or $days -lt $StaleDays)) { continue }
 

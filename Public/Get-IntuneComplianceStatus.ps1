@@ -66,10 +66,10 @@ function Get-IntuneComplianceStatus {
         default {
             $s = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri 'deviceManagement/deviceCompliancePolicyDeviceStateSummary')
             [pscustomobject][ordered]@{
-                Compliant = [int]$s.compliantDeviceCount; Noncompliant = [int]$s.nonCompliantDeviceCount
-                Error = [int]$s.errorDeviceCount; Conflict = [int]$s.conflictDeviceCount
-                NotApplicable = [int]$s.notApplicableDeviceCount; InGracePeriod = [int]$s.inGracePeriodCount
-                RemediatedDevices = [int]$s.remediatedDeviceCount; Unknown = [int]$s.unknownDeviceCount
+                Compliant = ConvertTo-IaSafeInt $s.compliantDeviceCount 0; Noncompliant = ConvertTo-IaSafeInt $s.nonCompliantDeviceCount 0
+                Error = ConvertTo-IaSafeInt $s.errorDeviceCount 0; Conflict = ConvertTo-IaSafeInt $s.conflictDeviceCount 0
+                NotApplicable = ConvertTo-IaSafeInt $s.notApplicableDeviceCount 0; InGracePeriod = ConvertTo-IaSafeInt $s.inGracePeriodCount 0
+                RemediatedDevices = ConvertTo-IaSafeInt $s.remediatedDeviceCount 0; Unknown = ConvertTo-IaSafeInt $s.unknownDeviceCount 0
             }
         }
     }

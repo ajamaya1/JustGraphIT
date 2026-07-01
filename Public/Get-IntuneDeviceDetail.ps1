@@ -64,7 +64,7 @@ function Get-IntuneDeviceDetail {
         IPAddressV4         = $hw.ipAddressV4
         SubscriberCarrier   = $d.subscriberCarrier
         # Enrollment
-        EnrolledAt          = $d.enrolledDateTime
+        EnrolledAt          = ConvertTo-IaSafeDateTime $d.enrolledDateTime
         EnrollmentType      = $d.deviceEnrollmentType
         ManagementAgent     = $d.managementAgent
         JoinType            = $d.joinType
@@ -74,7 +74,7 @@ function Get-IntuneDeviceDetail {
         JailBroken          = $d.jailBroken
         # Compliance
         ComplianceState         = $d.complianceState
-        ComplianceGracePeriodEnd = $d.complianceGracePeriodExpirationDateTime
+        ComplianceGracePeriodEnd = ConvertTo-IaSafeDateTime $d.complianceGracePeriodExpirationDateTime
         # Azure AD
         AzureADDeviceId     = $d.azureADDeviceId
         AzureADRegistered   = $d.azureADRegistered
@@ -86,7 +86,7 @@ function Get-IntuneDeviceDetail {
         UserEmail           = $d.emailAddress
         UserPrincipalName   = $d.userPrincipalName
         # Sync
-        LastSyncAt          = $d.lastSyncDateTime
+        LastSyncAt          = ConvertTo-IaSafeDateTime $d.lastSyncDateTime
         # Full raw hardwareInformation (battery, TPM, storage, IPs, shared-device…)
         Hardware            = $hw
     }
@@ -98,12 +98,12 @@ function Get-IntuneDeviceDetail {
     }
 
     if ($IncludeConfigState) {
-        $cs = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceConfigurationStates"))
+        $cs = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceConfigurationStates") | ForEach-Object { $_ })
         $result | Add-Member -NotePropertyName ConfigStates -NotePropertyValue $cs
     }
 
     if ($IncludeComplianceState) {
-        $cp = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates"))
+        $cp = @(Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices/$id/deviceCompliancePolicyStates") | ForEach-Object { $_ })
         $result | Add-Member -NotePropertyName ComplianceStates -NotePropertyValue $cp
     }
 
