@@ -4421,3 +4421,23 @@ Describe 'Get-IntuneBitLockerEscrowGap' {
         }
     }
 }
+
+Describe 'Invoke-IntuneHealthCheck -DeviceInventory' {
+    It 'reuses the supplied fleet and never re-sweeps managedDevices' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory { throw 'must not be called when inventory is supplied' }
+            Mock Get-EntraExpiringSecret { @() }
+            Mock Get-EntraRiskyUser { @() }
+            Mock Get-EntraConditionalAccessPolicy { @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' }) }
+            Mock Get-IntuneConnectorHealth { @() }
+            $inv = @(
+                [pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true }
+                [pscustomobject]@{ Device = 'Y'; Compliance = 'compliant'; DaysSinceSync = 2; Encrypted = $true }
+            )
+            $r = @(Invoke-IntuneHealthCheck -DeviceInventory $inv)
+            $r.Count | Should -Be 7
+            ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Pass'
+            Should -Invoke Get-IntuneDeviceInventory -Times 0 -Exactly
+        }
+    }
+}

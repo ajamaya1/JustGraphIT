@@ -100,7 +100,7 @@ function Start-JustGraphIT {
             'Backup / Restore / Drift',
             'Build a group from a query (stale devices · users → group)',
             'Compare two groups',
-            'Dashboard (device management overview · live)',
+            'Dashboard (tenant overview · devices · identity · health)',
             'Elevate (PIM) — activate an eligible role',
             'Export report (HTML · Excel · Rich HTML)',
             'Graph calls (live activity log)',
@@ -1867,7 +1867,7 @@ function Invoke-IaTuiDashboard {
     $devs = try { @(Invoke-IaStatus -Spinner Dots -Title 'Building device management dashboard…' -ScriptBlock {
         Get-IntuneDeviceInventory -Top 5000
     }) } catch { @() }
-    Write-IaTuiHeader -Screen 'Device management dashboard' -Sub 'live overview · managed devices' -Accent $Accent
+    Write-IaTuiHeader -Screen 'Tenant overview' -Sub 'devices · identity · health — live' -Accent $Accent
     if (-not $devs) { Write-IaHost '[yellow]No managed devices found.[/]'; Read-IaPause | Out-Null; return }
 
     $total   = @($devs).Count
@@ -1921,6 +1921,28 @@ function Invoke-IaTuiDashboard {
     Write-IaHost (' ' + (& $tile '▎ DEVICES' $Accent) + (& $tile '▎ COMPLIANT' $cClr) + (& $tile '▎ AT RISK' $rClr) + (& $tile '▎ STALE 30d+' $sClr) + (& $tile '▎ ENCRYPTED' $eClr))
     Write-IaHost ('   ' + (& $tile $total 'white') + (& $tile "$compPct%" $cClr) + (& $tile $noncomp $rClr) + (& $tile $stale $sClr) + (& $tile "$encPct%" $eClr))
 
+    # ── Identity & security KPIs (one guarded sweep — the deep view lives in Identity·Entra) ──
+    $idn = try { Invoke-IaStatus -Spinner Dots -Title 'Reading identity KPIs…' -ScriptBlock {
+        $enc   = { param($f) [uri]::EscapeDataString($f) }
+        $risky = try { @(Get-EntraRiskyUser -AtRiskOnly).Count } catch { $null }
+        $caAll = try { @(Get-EntraConditionalAccessPolicy) } catch { @() }
+        [ordered]@{
+            users    = Get-IaCount -Path 'users/$count'
+            guests   = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "userType eq 'Guest'"))
+            risky    = $risky
+            expiring = @(try { Get-EntraExpiringSecret -Days 30 -IncludeExpired } catch { @() }).Count
+            caOn     = @($caAll | Where-Object { $_.State -eq 'enabled' }).Count
+        }
+    } } catch { $null }
+    if ($idn) {
+        $fc = { param($n) if ($null -eq $n -or ($n -is [int] -and $n -lt 0)) { '—' } else { "$n" } }
+        $riskClr = if ($null -eq $idn.risky) { 'grey' } elseif ($idn.risky -eq 0) { $Accent } else { 'coral' }
+        $expClr  = if ($idn.expiring -eq 0) { $Accent } else { 'coral' }
+        Write-IaHost ''
+        Write-IaHost (' ' + (& $tile '▎ USERS' $Accent) + (& $tile '▎ GUESTS' $Accent) + (& $tile '▎ RISKY' $riskClr) + (& $tile '▎ EXPIRING' $expClr) + (& $tile '▎ CA ON' $Accent))
+        Write-IaHost ('   ' + (& $tile (& $fc $idn.users) 'white') + (& $tile (& $fc $idn.guests) 'white') + (& $tile (& $fc $idn.risky) $riskClr) + (& $tile (& $fc $idn.expiring) $expClr) + (& $tile (& $fc $idn.caOn) 'white'))
+    }
+
     # ── Compliance gauge ───────────────────────────────────────────────────
     Write-IaHost ''
     Write-IaRule -Title 'Compliance' -Color $Accent
@@ -1948,8 +1970,22 @@ function Invoke-IaTuiDashboard {
     Write-IaRule -Title 'Top manufacturers' -Color $Accent
     & $groupBars 'Manufacturer' 'Unknown' 6 $Accent
 
+    # ── Tenant health (the scheduled morning sweep, inline — reuses the loaded fleet) ──
     Write-IaHost ''
-    Write-IaHost '[grey]Live from deviceManagement/managedDevices · press any key for the per-device list…[/]'
+    Write-IaRule -Title 'Tenant health' -Color $Accent
+    $hc = try { @(Invoke-IaStatus -Spinner Dots -Title 'Running health checks…' -ScriptBlock {
+        Invoke-IntuneHealthCheck -DeviceInventory $devs
+    }) } catch { @() }
+    if (-not $hc) { Write-IaHost '  [grey](health checks unavailable)[/]' }
+    foreach ($h in $hc) {
+        $clr  = switch ("$($h.Status)") { 'Pass' { $Accent } 'Warn' { 'yellow' } 'Fail' { 'coral' } default { 'grey' } }
+        $mark = switch ("$($h.Status)") { 'Pass' { '●' } 'Warn' { '▲' } 'Fail' { '✖' } default { '·' } }
+        $detail = "$($h.Detail)"; if ($detail.Length -gt 82) { $detail = $detail.Substring(0, 81) + '…' }
+        Write-IaHost ("  [$clr]{0} {1,-5}[/] [white]{2,-33}[/] [grey]{3}[/]" -f $mark, $h.Status, $h.Check, (Protect-IaMarkup $detail))
+    }
+
+    Write-IaHost ''
+    Write-IaHost '[grey]Live from Microsoft Graph · press any key for the per-device list…[/]'
     Read-IaPause | Out-Null
 
     # Per-device detail: OS, OS version, user (UPN), last sync — scrollable / searchable / exportable.
