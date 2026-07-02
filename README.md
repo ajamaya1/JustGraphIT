@@ -54,7 +54,7 @@ over Microsoft Graph.
   page. Groups, licenses and sign-ins come from the **beta `/users`** and **`auditLogs`**
   endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
-  multi-admin approvals, **expiring secrets & certificates** (app registrations and
+  multi-admin approvals, **discovered-app search** (which devices have X installed — the InfoSec ask), **expiring secrets & certificates** (app registrations and
   enterprise apps, with days-to-expiry), and HTML / CSV / JSON / Excel exports.
 - **Health check & change receipt** - `Invoke-IntuneHealthCheck` runs the "is anything
   on fire?" morning sweep headlessly (compliance %, stale devices, encryption, expiring
