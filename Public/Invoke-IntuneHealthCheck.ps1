@@ -25,6 +25,11 @@ function Invoke-IntuneHealthCheck {
     .PARAMETER SecretWindowDays
         Credential-expiry horizon for the app-secret check (default 30).
 
+    .PARAMETER DeviceInventory
+        A pre-fetched Get-IntuneDeviceInventory result to compute the device checks
+        from, skipping the second tenant sweep (used by the dashboard, which has
+        already loaded the fleet).
+
     .EXAMPLE
         Invoke-IntuneHealthCheck
 
@@ -42,7 +47,8 @@ function Invoke-IntuneHealthCheck {
     param(
         [int]$StaleDays = 30,
         [ValidateRange(1, 100)][int]$MinCompliancePercent = 90,
-        [int]$SecretWindowDays = 30
+        [int]$SecretWindowDays = 30,
+        [object[]]$DeviceInventory
     )
 
     function New-IaCheckRow {
@@ -50,9 +56,10 @@ function Invoke-IntuneHealthCheck {
         [pscustomobject][ordered]@{ Check = $Check; Status = $Status; Count = $Count; Detail = $Detail }
     }
 
-    # One device sweep feeds the first three checks.
+    # One device sweep feeds the first three checks (or reuse the caller's).
     $devices = $null
-    try { $devices = @(Get-IntuneDeviceInventory) } catch { }
+    if ($PSBoundParameters.ContainsKey('DeviceInventory')) { $devices = @($DeviceInventory) }
+    else { try { $devices = @(Get-IntuneDeviceInventory) } catch { } }
 
     if ($null -ne $devices) {
         $total        = $devices.Count
