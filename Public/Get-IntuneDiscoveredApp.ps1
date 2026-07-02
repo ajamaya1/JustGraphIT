@@ -23,6 +23,12 @@ function Get-IntuneDiscoveredApp {
         Expand each matching app to the devices that have it installed
         (device name, primary user, OS).
 
+    .PARAMETER BelowVersion
+        Only return versions strictly below this one — the vulnerability-response
+        filter ("CVE fixed in 126: who's still below it?"). Versions are compared
+        numerically segment by segment. A version string that cannot be parsed is
+        INCLUDED (it can't be proven patched), flagged in the row.
+
     .PARAMETER MinDeviceCount
         With the app-level view, only return apps installed on at least this many
         devices. Handy for "what's widespread in my estate".
@@ -31,6 +37,11 @@ function Get-IntuneDiscoveredApp {
         Get-IntuneDiscoveredApp -Name zscaler -Devices | Export-Csv .\zscaler-devices.csv
 
         The InfoSec report: every device with any Zscaler component, as CSV.
+
+    .EXAMPLE
+        Get-IntuneDiscoveredApp -Name chrome -BelowVersion 126 -Devices
+
+        Every device still running Chrome older than 126.
 
     .EXAMPLE
         Get-IntuneDiscoveredApp -MinDeviceCount 50 | Sort-Object DeviceCount -Descending
@@ -45,6 +56,7 @@ function Get-IntuneDiscoveredApp {
     param(
         [Parameter(Position = 0)][string]$Name,
         [switch]$Devices,
+        [string]$BelowVersion,
         [int]$MinDeviceCount
     )
 
@@ -55,6 +67,13 @@ function Get-IntuneDiscoveredApp {
     $apps = Get-IaCollection (Resolve-IaUri $path)
     $apps = @($apps)
     if ($MinDeviceCount) { $apps = @($apps | Where-Object { [int]$_.deviceCount -ge $MinDeviceCount }) }
+    if ($BelowVersion) {
+        # keep versions strictly below the bar, PLUS unparseable ones (can't prove patched)
+        $apps = @($apps | Where-Object {
+            $c = Compare-IaAppVersion -A ([string]$_.version) -B $BelowVersion
+            $null -eq $c -or $c -lt 0
+        })
+    }
 
     if (-not $Devices) {
         return @($apps | ForEach-Object {
@@ -70,11 +89,12 @@ function Get-IntuneDiscoveredApp {
     }
 
     @(foreach ($a in $apps) {
+        $vNote = if ($BelowVersion -and $null -eq (Compare-IaAppVersion -A ([string]$a.version) -B $BelowVersion)) { ' (unparseable)' } else { '' }
         $devs = Get-IaCollection (Resolve-IaUri "deviceManagement/detectedApps/$($a.id)/managedDevices?`$select=id,deviceName,userPrincipalName,emailAddress,operatingSystem")
         foreach ($d in @($devs)) {
             [pscustomobject][ordered]@{
                 App      = $a.displayName
-                Version  = $a.version
+                Version  = "$($a.version)$vNote"
                 Device   = $d.deviceName
                 User     = $d.userPrincipalName
                 OS       = $d.operatingSystem
@@ -82,4 +102,27 @@ function Get-IntuneDiscoveredApp {
             }
         }
     }) | Sort-Object App, Device
+}
+
+function Compare-IaAppVersion {
+    <#
+    .SYNOPSIS
+        Numeric segment-by-segment version compare tolerant of vendor version strings.
+        Returns -1 / 0 / 1, or $null when either side has no leading dotted-numeric
+        prefix to compare (callers decide how to treat unknowns).
+    #>
+    param([string]$A, [string]$B)
+    $rx = '^\s*[vV]?(\d+(?:\.\d+)*)'
+    if ($A -notmatch $rx) { return $null }
+    $pa = @($Matches[1] -split '\.')
+    if ($B -notmatch $rx) { return $null }
+    $pb = @($Matches[1] -split '\.')
+    $len = [Math]::Max($pa.Count, $pb.Count)
+    for ($i = 0; $i -lt $len; $i++) {
+        $x = if ($i -lt $pa.Count) { [long]$pa[$i] } else { 0 }
+        $y = if ($i -lt $pb.Count) { [long]$pb[$i] } else { 0 }
+        if ($x -lt $y) { return -1 }
+        if ($x -gt $y) { return 1 }
+    }
+    0
 }

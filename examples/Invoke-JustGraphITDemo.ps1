@@ -151,6 +151,14 @@ function global:Invoke-MgGraphRequest {
         [pscustomobject]@{ id = 'cpc1'; displayName = 'CPC-Alice'; status = 'provisioned'; userPrincipalName = 'alice@contoso.com'; servicePlanName = 'Enterprise 2vCPU/8GB/128GB'; provisioningPolicyName = 'Finance Cloud PCs'; deviceRegionName = 'westus2'; lastLoginResult = [pscustomobject]@{ time = '2026-06-26T09:00:00Z' } }
         [pscustomobject]@{ id = 'cpc2'; displayName = 'CPC-Bob'; status = 'provisioned'; userPrincipalName = 'bob@contoso.com'; servicePlanName = 'Enterprise 4vCPU/16GB/256GB'; provisioningPolicyName = 'Engineering Cloud PCs'; deviceRegionName = 'eastus'; lastLoginResult = [pscustomobject]@{ time = '2026-06-25T14:00:00Z' } }
         [pscustomobject]@{ id = 'cpc3'; displayName = 'CPC-Carol'; status = 'inGracePeriod'; userPrincipalName = 'carol@contoso.com'; servicePlanName = 'Enterprise 2vCPU/8GB/128GB'; provisioningPolicyName = 'Finance Cloud PCs'; deviceRegionName = 'westus2'; gracePeriodEndDateTime = '2026-07-01T00:00:00Z'; lastLoginResult = [pscustomobject]@{ time = '2026-06-20T08:00:00Z' } }) }
+    if ($u -match 'applePushNotificationCertificate') { return [pscustomobject]@{ appleIdentifier = 'mdm@contoso.com'; expirationDateTime = (Get-Date).AddDays(12).ToUniversalTime().ToString('o') } }
+    if ($u -match 'vppTokens') { return page @([pscustomobject]@{ id = 'vpp1'; appleId = 'vpp@contoso.com'; state = 'valid'; lastSyncStatus = 'completed'; expirationDateTime = (Get-Date).AddDays(200).ToUniversalTime().ToString('o') }) }
+    if ($u -match 'depOnboardingSettings') { return page @([pscustomobject]@{ id = 'dep1'; appleIdentifier = 'ade@contoso.com'; tokenExpirationDateTime = (Get-Date).AddDays(45).ToUniversalTime().ToString('o') }) }
+    if ($u -match 'androidManagedStoreAccountEnterpriseSettings') { return [pscustomobject]@{ bindStatus = 'notBound' } }
+    if ($u -match 'ndesConnectors') { return page @([pscustomobject]@{ id = 'ndes1'; displayName = 'NDES-01'; state = 'active'; lastConnectionDateTime = (Get-Date).AddHours(-3).ToUniversalTime().ToString('o') }) }
+    if ($u -match 'informationProtection/bitlocker/recoveryKeys') { return page @(
+        [pscustomobject]@{ id = 'bk1'; deviceId = 'aad-0001'; createdDateTime = '2026-06-01T00:00:00Z' }
+        [pscustomobject]@{ id = 'bk2'; deviceId = 'aad-0003'; createdDateTime = '2026-05-15T00:00:00Z' }) }
     if ($u -match 'detectedApps/[^/?]+/managedDevices') { return page @(
         [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01';  userPrincipalName = 'alice@contoso.com'; emailAddress = 'alice@contoso.com'; operatingSystem = 'Windows' }
         [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02';  userPrincipalName = 'bob@contoso.com';   emailAddress = 'bob@contoso.com';   operatingSystem = 'Windows' }

@@ -62,6 +62,8 @@
         'Invoke-IntuneDeviceAction',
         'Get-IntuneDeviceDetail',
         'Get-IntuneDiscoveredApp',
+        'Get-IntuneConnectorHealth',
+        'Get-IntuneBitLockerEscrowGap',
         'Get-IntuneStaleDevice',
         'Get-IntuneDeviceCategory',
         'Set-IntuneDevicePrimaryUser',

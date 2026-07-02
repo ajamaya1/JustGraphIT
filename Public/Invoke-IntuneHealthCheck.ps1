@@ -5,9 +5,10 @@ function Invoke-IntuneHealthCheck {
         one pipeable command. Read-only.
 
     .DESCRIPTION
-        Runs six checks and emits one Pass/Warn/Fail row per check: device compliance,
+        Runs seven checks and emits one Pass/Warn/Fail row per check: device compliance,
         stale devices, disk encryption, expiring/expired app credentials, users flagged
-        at risk by Identity Protection, and Conditional Access coverage. A check that
+        at risk by Identity Protection, Conditional Access coverage, and enrollment
+        connector/token health (Apple MDM push cert, VPP/DEP tokens, NDES). A check that
         cannot run (missing permission / not licensed) reports Status 'Error' with the
         reason instead of aborting the sweep — the remaining checks still run.
 
@@ -98,5 +99,15 @@ function Invoke-IntuneHealthCheck {
             $enabled.Count "$($enabled.Count) enabled / $($ca.Count) total policies"
     } catch {
         New-IaCheckRow 'Conditional Access coverage' 'Error' 0 "check failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $conn = @(Get-IntuneConnectorHealth)
+        $bad  = @($conn | Where-Object Status -eq 'Fail')
+        $iffy = @($conn | Where-Object { $_.Status -in 'Warn', 'Error' })
+        New-IaCheckRow 'Enrollment connectors & tokens' $(if ($bad.Count) { 'Fail' } elseif ($iffy.Count) { 'Warn' } else { 'Pass' }) `
+            ($bad.Count + $iffy.Count) $(if ($bad.Count + $iffy.Count) { (@($bad + $iffy | Select-Object -First 4 | ForEach-Object { "$($_.Connector): $($_.Status)" }) -join ', ') } else { 'Apple push / VPP / DEP / MGP / NDES all healthy or unused' })
+    } catch {
+        New-IaCheckRow 'Enrollment connectors & tokens' 'Error' 0 "check failed: $($_.Exception.Message)"
     }
 }

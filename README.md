@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-341%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-346%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
@@ -54,11 +54,11 @@ over Microsoft Graph.
   page. Groups, licenses and sign-ins come from the **beta `/users`** and **`auditLogs`**
   endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
-  multi-admin approvals, **discovered-app search** (which devices have X installed — the InfoSec ask), **expiring secrets & certificates** (app registrations and
+  multi-admin approvals, **discovered-app search** (which devices have X installed, or below a patched version — the InfoSec ask), **connector & token health** (Apple MDM push cert, VPP/DEP tokens, NDES — the silent outages), **BitLocker escrow gaps** (encrypted, no key in Entra), **expiring secrets & certificates** (app registrations and
   enterprise apps, with days-to-expiry), and HTML / CSV / JSON / Excel exports.
 - **Health check & change receipt** - `Invoke-IntuneHealthCheck` runs the "is anything
   on fire?" morning sweep headlessly (compliance %, stale devices, encryption, expiring
-  app credentials, risky users, Conditional Access coverage) — schedule it and alert on
+  app credentials, risky users, Conditional Access coverage, connector/token health) — schedule it and alert on
   anything not `Pass`. `Export-IntuneChangeLog` writes an audit receipt of every change
   the session made (method, path, status) for the change ticket.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
