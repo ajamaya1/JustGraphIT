@@ -4233,13 +4233,17 @@ Describe 'Invoke-IntuneHealthCheck' {
                 [pscustomobject]@{ Name = 'MFA all'; State = 'enabled' }
                 [pscustomobject]@{ Name = 'Legacy block'; State = 'enabled' }
             ) }
+            Mock Get-IntuneConnectorHealth { @(
+                [pscustomobject]@{ Connector = 'Apple MDM push certificate'; Name = 'x'; Status = 'OK' }
+            ) }
             $r = @(Invoke-IntuneHealthCheck -StaleDays 30 -MinCompliancePercent 90)
-            $r.Count | Should -Be 6
+            $r.Count | Should -Be 7
             ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Fail'      # 67% < 90
             ($r | Where-Object Check -like 'Stale devices*').Status  | Should -Be 'Fail'      # 1/3 > 10%
             ($r | Where-Object Check -like 'App credentials*').Status| Should -Be 'Fail'      # expired cred
             ($r | Where-Object Check -like 'Risky users*').Status    | Should -Be 'Pass'
             ($r | Where-Object Check -like 'Conditional Access*').Status | Should -Be 'Pass'  # 2 enabled
+            ($r | Where-Object Check -like 'Enrollment connectors*').Status | Should -Be 'Pass'
         }
     }
 
@@ -4249,9 +4253,10 @@ Describe 'Invoke-IntuneHealthCheck' {
             Mock Get-EntraExpiringSecret { throw '403' }
             Mock Get-EntraRiskyUser { throw 'needs P2' }
             Mock Get-EntraConditionalAccessPolicy { throw '403' }
+            Mock Get-IntuneConnectorHealth { throw '403' }
             $r = @(Invoke-IntuneHealthCheck)
-            $r.Count | Should -Be 6
-            @($r | Where-Object Status -eq 'Error').Count | Should -Be 6
+            $r.Count | Should -Be 7
+            @($r | Where-Object Status -eq 'Error').Count | Should -Be 7
         }
     }
 }
@@ -4333,6 +4338,86 @@ Describe 'Get-IntuneDiscoveredApp' {
             Mock Invoke-IaRequest { $script:cap = $Uri; @{ value = @() } }
             $null = Get-IntuneDiscoveredApp -Name "O'Brien"
             $script:cap | Should -Match "O%27%27Brien"         # doubled + percent-encoded
+        }
+    }
+}
+
+Describe 'Get-IntuneDiscoveredApp -BelowVersion' {
+    It 'keeps versions strictly below the bar and includes unparseable ones' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a'; displayName = 'Chrome'; version = '125.0.6422'; publisher = 'G'; platform = 'windows'; deviceCount = 3 }
+                [pscustomobject]@{ id = 'b'; displayName = 'Chrome'; version = '126.0.6478'; publisher = 'G'; platform = 'windows'; deviceCount = 5 }
+                [pscustomobject]@{ id = 'c'; displayName = 'Chrome'; version = 'dev-build';  publisher = 'G'; platform = 'windows'; deviceCount = 1 }) } }
+            $rows = @(Get-IntuneDiscoveredApp -Name chrome -BelowVersion 126)
+            @($rows | ForEach-Object Version) | Should -Not -Contain '126.0.6478'   # at/above bar excluded
+            @($rows | Where-Object Version -eq '125.0.6422').Count | Should -Be 1   # below kept
+            @($rows | Where-Object Version -eq 'dev-build').Count  | Should -Be 1   # unparseable kept (can't prove patched)
+        }
+    }
+
+    It 'compares numerically, not lexically (9 < 10)' {
+        InModuleScope JustGraphIT {
+            (Compare-IaAppVersion -A '9.9' -B '10.0')   | Should -Be -1
+            (Compare-IaAppVersion -A '4.3' -B '4.3.0')  | Should -Be 0
+            (Compare-IaAppVersion -A 'v2.1' -B '2.0.5') | Should -Be 1
+            (Compare-IaAppVersion -A 'beta' -B '1.0')   | Should -BeNullOrEmpty
+        }
+    }
+}
+
+Describe 'Get-IntuneConnectorHealth' {
+    It 'flags an expiring Apple push cert and an invalid VPP token; unused connectors are NotConfigured' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'applePushNotificationCertificate') { return [pscustomobject]@{ appleIdentifier = 'mdm@x'; expirationDateTime = (Get-Date).AddDays(10).ToUniversalTime().ToString('o') } }
+                if ($Uri -match 'vppTokens') { return @{ value = @([pscustomobject]@{ id = 'v1'; appleId = 'vpp@x'; state = 'expired'; lastSyncStatus = 'completed'; expirationDateTime = (Get-Date).AddDays(-3).ToUniversalTime().ToString('o') }) } }
+                if ($Uri -match 'depOnboardingSettings') { return @{ value = @() } }
+                if ($Uri -match 'androidManagedStore') { return [pscustomobject]@{ bindStatus = 'notBound' } }
+                if ($Uri -match 'ndesConnectors') { return @{ value = @() } }
+                @{ value = @() }
+            }
+            $rows = @(Get-IntuneConnectorHealth -WarnDays 30)
+            ($rows | Where-Object Connector -eq 'Apple MDM push certificate').Status | Should -Be 'Warn'   # 10d out
+            ($rows | Where-Object Connector -eq 'Apple VPP token').Status            | Should -Be 'Fail'   # expired/invalid
+            ($rows | Where-Object Connector -eq 'Apple DEP/ADE token').Status        | Should -Be 'NotConfigured'
+            ($rows | Where-Object Connector -eq 'Managed Google Play').Status        | Should -Be 'NotConfigured'
+        }
+    }
+
+    It 'degrades to an Error row when a probe throws unexpectedly' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { throw 'insufficient privileges' }
+            $rows = @(Get-IntuneConnectorHealth)
+            @($rows | Where-Object Status -eq 'Error').Count | Should -BeGreaterThan 0
+            $rows.Count | Should -Be 5   # one row per connector family, none missing
+        }
+    }
+}
+
+Describe 'Get-IntuneBitLockerEscrowGap' {
+    It 'returns only encrypted Windows devices with no escrowed key' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'managedDevices') { return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; deviceName = 'W-OK';    operatingSystem = 'Windows'; isEncrypted = $true;  azureADDeviceId = 'aad-1'; userPrincipalName = 'a@x'; lastSyncDateTime = '2026-06-25T10:00:00Z' }
+                    [pscustomobject]@{ id = 'd2'; deviceName = 'W-GAP';   operatingSystem = 'Windows'; isEncrypted = $true;  azureADDeviceId = 'aad-2'; userPrincipalName = 'b@x'; lastSyncDateTime = '2026-06-25T10:00:00Z' }
+                    [pscustomobject]@{ id = 'd3'; deviceName = 'W-PLAIN'; operatingSystem = 'Windows'; isEncrypted = $false; azureADDeviceId = 'aad-3'; userPrincipalName = 'c@x'; lastSyncDateTime = '2026-06-25T10:00:00Z' }
+                    [pscustomobject]@{ id = 'd4'; deviceName = 'MAC';     operatingSystem = 'macOS';   isEncrypted = $true;  azureADDeviceId = 'aad-4'; userPrincipalName = 'd@x'; lastSyncDateTime = '2026-06-25T10:00:00Z' }) } }
+                if ($Uri -match 'recoveryKeys') {
+                    $Uri | Should -Not -Match 'select=.*key(&|$)'   # never request key values
+                    return @{ value = @([pscustomobject]@{ id = 'k1'; deviceId = 'aad-1'; createdDateTime = '2026-06-01T00:00:00Z' }) }
+                }
+                @{ value = @() }
+            }
+            $gap = @(Get-IntuneBitLockerEscrowGap)
+            $gap.Count       | Should -Be 1
+            $gap[0].Device   | Should -Be 'W-GAP'
+            $all = @(Get-IntuneBitLockerEscrowGap -IncludeHealthy)
+            $all.Count       | Should -Be 3            # macOS excluded, Windows all listed
+            ($all | Where-Object Device -eq 'W-OK').KeyEscrowed | Should -BeTrue
         }
     }
 }

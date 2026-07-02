@@ -3434,6 +3434,8 @@ function Invoke-IaTuiReports {
         'Deployment summary (success / fail, by group)',
         'Custom report builder (select · where · sort · group · export)',
         'Discovered apps (which devices have X installed)',
+        'Connector & token health (Apple push · VPP · DEP · NDES)',
+        'BitLocker escrow gaps (encrypted · no key in Entra)',
         'Audit log (who changed what)',
         'Multi Admin Approval requests',
         'PIM activations',
@@ -3905,8 +3907,22 @@ function Invoke-IaTuiReports {
         'Discovered apps*' {
             $q = Read-IaText -Question "App name contains (e.g. zscaler)"
             if ([string]::IsNullOrWhiteSpace($q)) { return }
-            Invoke-IaTuiReportView -Accent $Accent -Title "Devices with '$q' installed" `
-                -Stem "discovered-$($q -replace '\W+','-')" -Loader { Get-IntuneDiscoveredApp -Name $q -Devices }
+            $bv = Read-IaText -Question 'Only versions below (blank = all versions)' -DefaultAnswer ''
+            $title = if ($bv) { "Devices with '$q' below $bv" } else { "Devices with '$q' installed" }
+            Invoke-IaTuiReportView -Accent $Accent -Title $title `
+                -Stem "discovered-$($q -replace '\W+','-')" -Loader {
+                    $p = @{ Name = $q; Devices = $true }
+                    if ($bv) { $p.BelowVersion = $bv }
+                    Get-IntuneDiscoveredApp @p
+                }
+        }
+        'Connector & token*' {
+            Invoke-IaTuiReportView -Accent $Accent -Title 'Connector & token health' `
+                -Stem 'connector-health' -Loader { Get-IntuneConnectorHealth }
+        }
+        'BitLocker escrow*' {
+            Invoke-IaTuiReportView -Accent $Accent -Title 'BitLocker escrow gaps (encrypted, no key in Entra)' `
+                -Stem 'bitlocker-escrow-gap' -Loader { Get-IntuneBitLockerEscrowGap }
         }
         'Audit*' {
             $sincePick = Read-IaMenu -Title 'Since' -Color $Accent -Choices @('24h','7d','30d','90d','✎ Custom…')
