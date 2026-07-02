@@ -151,6 +151,19 @@ function global:Invoke-MgGraphRequest {
         [pscustomobject]@{ id = 'cpc1'; displayName = 'CPC-Alice'; status = 'provisioned'; userPrincipalName = 'alice@contoso.com'; servicePlanName = 'Enterprise 2vCPU/8GB/128GB'; provisioningPolicyName = 'Finance Cloud PCs'; deviceRegionName = 'westus2'; lastLoginResult = [pscustomobject]@{ time = '2026-06-26T09:00:00Z' } }
         [pscustomobject]@{ id = 'cpc2'; displayName = 'CPC-Bob'; status = 'provisioned'; userPrincipalName = 'bob@contoso.com'; servicePlanName = 'Enterprise 4vCPU/16GB/256GB'; provisioningPolicyName = 'Engineering Cloud PCs'; deviceRegionName = 'eastus'; lastLoginResult = [pscustomobject]@{ time = '2026-06-25T14:00:00Z' } }
         [pscustomobject]@{ id = 'cpc3'; displayName = 'CPC-Carol'; status = 'inGracePeriod'; userPrincipalName = 'carol@contoso.com'; servicePlanName = 'Enterprise 2vCPU/8GB/128GB'; provisioningPolicyName = 'Finance Cloud PCs'; deviceRegionName = 'westus2'; gracePeriodEndDateTime = '2026-07-01T00:00:00Z'; lastLoginResult = [pscustomobject]@{ time = '2026-06-20T08:00:00Z' } }) }
+    if ($u -match 'detectedApps/[^/?]+/managedDevices') { return page @(
+        [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01';  userPrincipalName = 'alice@contoso.com'; emailAddress = 'alice@contoso.com'; operatingSystem = 'Windows' }
+        [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02';  userPrincipalName = 'bob@contoso.com';   emailAddress = 'bob@contoso.com';   operatingSystem = 'Windows' }
+        [pscustomobject]@{ id = 'd4'; deviceName = 'CPC-12345';  userPrincipalName = 'dave@contoso.com';  emailAddress = 'dave@contoso.com';  operatingSystem = 'Windows' }) }
+    if ($u -match 'deviceManagement/detectedApps') {
+        $apps = @(
+            [pscustomobject]@{ id = 'da1'; displayName = 'Zscaler Client Connector'; version = '4.3.2.157';   publisher = 'Zscaler Inc.';  platform = 'windows'; deviceCount = 3 }
+            [pscustomobject]@{ id = 'da2'; displayName = 'Zscaler Client Connector'; version = '4.2.1.90';    publisher = 'Zscaler Inc.';  platform = 'windows'; deviceCount = 1 }
+            [pscustomobject]@{ id = 'da3'; displayName = 'Google Chrome';            version = '126.0.6478';  publisher = 'Google LLC';    platform = 'windows'; deviceCount = 4 }
+            [pscustomobject]@{ id = 'da4'; displayName = 'Slack';                    version = '4.39.90';     publisher = 'Slack';         platform = 'macOS';   deviceCount = 2 })
+        if ($u -match "contains\(displayName,'([^']+)'\)") { $needle = $Matches[1]; $apps = @($apps | Where-Object { $_.displayName -like "*$needle*" }) }
+        return page $apps
+    }
     if ($u -match 'managedDevices/[^/?]+\?\$select=hardwareInformation') { return [pscustomobject]@{ hardwareInformation = [pscustomobject]@{ ipAddressV4 = '10.2.14.88'; serialNumber = 'SN002'; wifiMac = 'AA:BB:CC:DD:EE:FF' } } }
     if ($u -match 'managedDevices') {
         $devs = @(

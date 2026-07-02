@@ -61,6 +61,7 @@
         # --- device actions & detail ---
         'Invoke-IntuneDeviceAction',
         'Get-IntuneDeviceDetail',
+        'Get-IntuneDiscoveredApp',
         'Get-IntuneStaleDevice',
         'Get-IntuneDeviceCategory',
         'Set-IntuneDevicePrimaryUser',

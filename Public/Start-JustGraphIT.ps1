@@ -3433,6 +3433,7 @@ function Invoke-IaTuiReports {
         'Compliance status',
         'Deployment summary (success / fail, by group)',
         'Custom report builder (select · where · sort · group · export)',
+        'Discovered apps (which devices have X installed)',
         'Audit log (who changed what)',
         'Multi Admin Approval requests',
         'PIM activations',
@@ -3900,6 +3901,12 @@ function Invoke-IaTuiReports {
         }
         'Custom report*' {
             Invoke-IaTuiReportBuilder -Accent $Accent
+        }
+        'Discovered apps*' {
+            $q = Read-IaText -Question "App name contains (e.g. zscaler)"
+            if ([string]::IsNullOrWhiteSpace($q)) { return }
+            Invoke-IaTuiReportView -Accent $Accent -Title "Devices with '$q' installed" `
+                -Stem "discovered-$($q -replace '\W+','-')" -Loader { Get-IntuneDiscoveredApp -Name $q -Devices }
         }
         'Audit*' {
             $sincePick = Read-IaMenu -Title 'Since' -Color $Accent -Choices @('24h','7d','30d','90d','✎ Custom…')

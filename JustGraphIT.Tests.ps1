@@ -4290,3 +4290,49 @@ Describe 'Export-IntuneChangeLog' {
         }
     }
 }
+
+Describe 'Get-IntuneDiscoveredApp' {
+    It 'searches by name and expands matching apps to their devices' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'detectedApps/da1/managedDevices') { return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01'; userPrincipalName = 'alice@x'; operatingSystem = 'Windows' }
+                    [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02'; userPrincipalName = 'bob@x';   operatingSystem = 'Windows' }) } }
+                if ($Uri -match 'detectedApps\?') {
+                    $Uri | Should -Match "contains\(displayName,'zscaler'\)"   # server-side filter used
+                    return @{ value = @(
+                        [pscustomobject]@{ id = 'da1'; displayName = 'Zscaler Client Connector'; version = '4.3.2'; publisher = 'Zscaler Inc.'; platform = 'windows'; deviceCount = 2 }) }
+                }
+                @{ value = @() }
+            }
+            $rows = @(Get-IntuneDiscoveredApp -Name zscaler -Devices)
+            $rows.Count      | Should -Be 2
+            $rows[0].App     | Should -Be 'Zscaler Client Connector'
+            $rows[0].Device  | Should -Be 'LAPTOP-01'
+            $rows[1].User    | Should -Be 'bob@x'
+        }
+    }
+
+    It 'app-level view sorts by device count and honors -MinDeviceCount' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = 'a'; displayName = 'Slack';  version = '1'; publisher = 'S'; platform = 'macOS';   deviceCount = 2 }
+                [pscustomobject]@{ id = 'b'; displayName = 'Chrome'; version = '1'; publisher = 'G'; platform = 'windows'; deviceCount = 40 }
+                [pscustomobject]@{ id = 'c'; displayName = 'Rare';   version = '1'; publisher = 'R'; platform = 'windows'; deviceCount = 1 }) } }
+            $rows = @(Get-IntuneDiscoveredApp -MinDeviceCount 2)
+            $rows.Count          | Should -Be 2                # 'Rare' filtered out
+            $rows[0].App         | Should -Be 'Chrome'         # most widespread first
+            $rows[0].DeviceCount | Should -Be 40
+        }
+    }
+
+    It 'escapes an apostrophe in the search term' {
+        InModuleScope JustGraphIT {
+            $script:cap = $null
+            Mock Invoke-IaRequest { $script:cap = $Uri; @{ value = @() } }
+            $null = Get-IntuneDiscoveredApp -Name "O'Brien"
+            $script:cap | Should -Match "O%27%27Brien"         # doubled + percent-encoded
+        }
+    }
+}
