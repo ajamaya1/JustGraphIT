@@ -3471,6 +3471,7 @@ function Invoke-IaTuiReports {
         'Custom report builder (select · where · sort · group · export)',
         'Discovered apps (which devices have X installed)',
         'Connector & token health (Apple push · VPP · DEP · NDES)',
+        'MFA registration gaps (not capable · admins first)',
         'BitLocker escrow gaps (encrypted · no key in Entra)',
         'Audit log (who changed what)',
         'Multi Admin Approval requests',
@@ -3955,6 +3956,10 @@ function Invoke-IaTuiReports {
         'Connector & token*' {
             Invoke-IaTuiReportView -Accent $Accent -Title 'Connector & token health' `
                 -Stem 'connector-health' -Loader { Get-IntuneConnectorHealth }
+        }
+        'MFA registration*' {
+            Invoke-IaTuiReportView -Accent $Accent -Title 'MFA registration gaps (not MFA-capable)' `
+                -Stem 'mfa-gaps' -Loader { Get-EntraMfaRegistration -GapsOnly }
         }
         'BitLocker escrow*' {
             Invoke-IaTuiReportView -Accent $Accent -Title 'BitLocker escrow gaps (encrypted, no key in Entra)' `

@@ -4236,14 +4236,16 @@ Describe 'Invoke-IntuneHealthCheck' {
             Mock Get-IntuneConnectorHealth { @(
                 [pscustomobject]@{ Connector = 'Apple MDM push certificate'; Name = 'x'; Status = 'OK' }
             ) }
+            Mock Get-EntraMfaRegistration { @() }
             $r = @(Invoke-IntuneHealthCheck -StaleDays 30 -MinCompliancePercent 90)
-            $r.Count | Should -Be 7
+            $r.Count | Should -Be 8
             ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Fail'      # 67% < 90
             ($r | Where-Object Check -like 'Stale devices*').Status  | Should -Be 'Fail'      # 1/3 > 10%
             ($r | Where-Object Check -like 'App credentials*').Status| Should -Be 'Fail'      # expired cred
             ($r | Where-Object Check -like 'Risky users*').Status    | Should -Be 'Pass'
             ($r | Where-Object Check -like 'Conditional Access*').Status | Should -Be 'Pass'  # 2 enabled
             ($r | Where-Object Check -like 'Enrollment connectors*').Status | Should -Be 'Pass'
+            ($r | Where-Object Check -eq 'Admins without MFA').Status | Should -Be 'Pass'
         }
     }
 
@@ -4254,9 +4256,10 @@ Describe 'Invoke-IntuneHealthCheck' {
             Mock Get-EntraRiskyUser { throw 'needs P2' }
             Mock Get-EntraConditionalAccessPolicy { throw '403' }
             Mock Get-IntuneConnectorHealth { throw '403' }
+            Mock Get-EntraMfaRegistration { throw 'needs P1' }
             $r = @(Invoke-IntuneHealthCheck)
-            $r.Count | Should -Be 7
-            @($r | Where-Object Status -eq 'Error').Count | Should -Be 7
+            $r.Count | Should -Be 8
+            @($r | Where-Object Status -eq 'Error').Count | Should -Be 8
         }
     }
 }
@@ -4430,14 +4433,74 @@ Describe 'Invoke-IntuneHealthCheck -DeviceInventory' {
             Mock Get-EntraRiskyUser { @() }
             Mock Get-EntraConditionalAccessPolicy { @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' }) }
             Mock Get-IntuneConnectorHealth { @() }
+            Mock Get-EntraMfaRegistration { @() }
             $inv = @(
                 [pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true }
                 [pscustomobject]@{ Device = 'Y'; Compliance = 'compliant'; DaysSinceSync = 2; Encrypted = $true }
             )
             $r = @(Invoke-IntuneHealthCheck -DeviceInventory $inv)
-            $r.Count | Should -Be 7
+            $r.Count | Should -Be 8
             ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Pass'
             Should -Invoke Get-IntuneDeviceInventory -Times 0 -Exactly
+        }
+    }
+}
+
+Describe 'Get-EntraMfaRegistration' {
+    It 'maps the registration report and filters gaps / admins' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest { @{ value = @(
+                [pscustomobject]@{ id = '1'; userDisplayName = 'Admin OK';  userPrincipalName = 'a@x'; isAdmin = $true;  isMfaRegistered = $true;  isMfaCapable = $true;  isSsprRegistered = $true;  isSsprCapable = $true;  methodsRegistered = @('push'); defaultMfaMethod = 'push'; userType = 'member' }
+                [pscustomobject]@{ id = '2'; userDisplayName = 'Admin GAP'; userPrincipalName = 'b@x'; isAdmin = $true;  isMfaRegistered = $true;  isMfaCapable = $false; isSsprRegistered = $false; isSsprCapable = $false; methodsRegistered = @('phone'); defaultMfaMethod = $null; userType = 'member' }
+                [pscustomobject]@{ id = '3'; userDisplayName = 'User GAP';  userPrincipalName = 'c@x'; isAdmin = $false; isMfaRegistered = $false; isMfaCapable = $false; isSsprRegistered = $false; isSsprCapable = $false; methodsRegistered = @(); defaultMfaMethod = $null; userType = 'member' }) } }
+            $all = @(Get-EntraMfaRegistration)
+            $all.Count | Should -Be 3
+            $all[0].UPN | Should -Be 'b@x'      # unprotected admin sorts first
+            $gaps = @(Get-EntraMfaRegistration -GapsOnly)
+            @($gaps | ForEach-Object UPN) | Should -Not -Contain 'a@x'
+            $fire = @(Get-EntraMfaRegistration -GapsOnly -AdminsOnly)
+            $fire.Count | Should -Be 1
+            $fire[0].UPN | Should -Be 'b@x'
+        }
+    }
+}
+
+Describe 'Export-IntuneHealthReport' {
+    It 'writes a self-contained HTML with verdicts, offenders and no secret queries' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory { @(
+                [pscustomobject]@{ Device = 'A'; User = 'a@x'; OS = 'Windows'; Compliance = 'compliant';    DaysSinceSync = 1;  Encrypted = $true }
+                [pscustomobject]@{ Device = 'B'; User = 'b@x'; OS = 'Windows'; Compliance = 'noncompliant'; DaysSinceSync = 44; Encrypted = $false }) }
+            Mock Invoke-IntuneHealthCheck { @([pscustomobject]@{ Check = 'Device compliance'; Status = 'Fail'; Count = 1; Detail = '50% compliant' }) }
+            Mock Get-EntraExpiringSecret { @([pscustomobject]@{ Type = 'App registration'; App = 'Pipeline'; Kind = 'Secret'; Name = 's'; Expires = Get-Date; DaysLeft = 3; Status = 'Critical' }) }
+            Mock Get-IntuneConnectorHealth { @([pscustomobject]@{ Connector = 'Apple MDM push certificate'; Name = 'x'; Status = 'Warn'; Expires = Get-Date; DaysLeft = 12; Detail = 'expires in 12d' }) }
+            $out = Join-Path ([IO.Path]::GetTempPath()) "jgi-health-$PID.html"
+            try {
+                $p = Export-IntuneHealthReport -Path $out
+                $p | Should -Be $out
+                $html = Get-Content $out -Raw
+                $html | Should -Match 'Device compliance'
+                $html | Should -Match 'Noncompliant devices'
+                $html | Should -Match 'Pipeline'                      # expiring cred listed
+                $html | Should -Match 'Apple MDM push certificate'
+                $html | Should -Not -Match 'passwordBase64|Reveal'     # no secret material paths
+                Should -Invoke Invoke-IntuneHealthCheck -Times 1 -Exactly   # reuses one sweep
+            } finally { Remove-Item $out -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'still writes the report when every probe fails' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory { throw '403' }
+            Mock Invoke-IntuneHealthCheck { throw '403' }
+            Mock Get-EntraExpiringSecret { throw '403' }
+            Mock Get-IntuneConnectorHealth { throw '403' }
+            $out = Join-Path ([IO.Path]::GetTempPath()) "jgi-health-err-$PID.html"
+            try {
+                $p = Export-IntuneHealthReport -Path $out
+                Test-Path $out | Should -BeTrue
+                (Get-Content $out -Raw) | Should -Match 'unavailable'
+            } finally { Remove-Item $out -ErrorAction SilentlyContinue }
         }
     }
 }
