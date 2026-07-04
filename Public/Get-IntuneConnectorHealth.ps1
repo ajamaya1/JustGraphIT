@@ -59,6 +59,12 @@ function Get-IntuneConnectorHealth {
 
     function Test-IaNotConfigured { param($Err) "$Err" -match '404|Not Found|ResourceNotFound|does not exist' }
 
+    function New-IaProbeFailRow {
+        param([string]$Connector, $Err)
+        if (Test-IaNotConfigured $Err) { New-IaConnRow $Connector '—' 'NotConfigured' $null $null 'not configured' }
+        else { New-IaConnRow $Connector '—' 'Error' $null $null "probe failed: $($Err.Exception.Message)" }
+    }
+
     # ── Apple MDM push certificate (tenant-wide iOS/macOS management) ─────────
     try {
         $apns = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri 'deviceManagement/applePushNotificationCertificate')
@@ -69,10 +75,7 @@ function Get-IntuneConnectorHealth {
         } else {
             New-IaConnRow 'Apple MDM push certificate' '—' 'NotConfigured' $null $null 'no certificate uploaded (no Apple devices managed)'
         }
-    } catch {
-        if (Test-IaNotConfigured $_) { New-IaConnRow 'Apple MDM push certificate' '—' 'NotConfigured' $null $null 'not configured' }
-        else { New-IaConnRow 'Apple MDM push certificate' '—' 'Error' $null $null "probe failed: $($_.Exception.Message)" }
-    }
+    } catch { New-IaProbeFailRow 'Apple MDM push certificate' $_ }
 
     # ── Apple VPP tokens (app licensing) ───────────────────────────────────────
     try {
@@ -86,10 +89,7 @@ function Get-IntuneConnectorHealth {
             elseif ("$($t.lastSyncStatus)" -and $t.lastSyncStatus -notin 'completed', 'success') { if ($status -eq 'OK') { $status = 'Warn' }; $note = "lastSync=$($t.lastSyncStatus); $note" }
             New-IaConnRow 'Apple VPP token' ($t.appleId ?? $t.displayName ?? $t.id) $status $exp $s.Days $note
         }
-    } catch {
-        if (Test-IaNotConfigured $_) { New-IaConnRow 'Apple VPP token' '—' 'NotConfigured' $null $null 'not configured' }
-        else { New-IaConnRow 'Apple VPP token' '—' 'Error' $null $null "probe failed: $($_.Exception.Message)" }
-    }
+    } catch { New-IaProbeFailRow 'Apple VPP token' $_ }
 
     # ── Apple DEP / Automated Device Enrollment tokens ─────────────────────────
     try {
@@ -100,24 +100,18 @@ function Get-IntuneConnectorHealth {
             $s = Get-IaExpiryStatus ($exp ? $exp.ToUniversalTime() : $null)
             New-IaConnRow 'Apple DEP/ADE token' ($t.appleIdentifier ?? $t.tokenName ?? $t.id) $s.Status $exp $s.Days "$($s.Note) — expiry stalls Automated Device Enrollment"
         }
-    } catch {
-        if (Test-IaNotConfigured $_) { New-IaConnRow 'Apple DEP/ADE token' '—' 'NotConfigured' $null $null 'not configured' }
-        else { New-IaConnRow 'Apple DEP/ADE token' '—' 'Error' $null $null "probe failed: $($_.Exception.Message)" }
-    }
+    } catch { New-IaProbeFailRow 'Apple DEP/ADE token' $_ }
 
     # ── Managed Google Play binding ────────────────────────────────────────────
     try {
         $mgp = Invoke-IaRequest -Method GET -Uri (Resolve-IaUri 'deviceManagement/androidManagedStoreAccountEnterpriseSettings')
-        if ($mgp -and $mgp.bindStatus -eq 'bound') {
+        if ($mgp -and $mgp.bindStatus -in 'bound', 'boundAndValidated') {
             $status = if ("$($mgp.lastAppSyncStatus)" -and $mgp.lastAppSyncStatus -ne 'success') { 'Warn' } else { 'OK' }
-            New-IaConnRow 'Managed Google Play' ($mgp.ownerUserPrincipalName ?? '(bound)') $status $null $null "bindStatus=bound, lastAppSync=$($mgp.lastAppSyncStatus)"
+            New-IaConnRow 'Managed Google Play' ($mgp.ownerUserPrincipalName ?? '(bound)') $status $null $null "bindStatus=$($mgp.bindStatus), lastAppSync=$($mgp.lastAppSyncStatus)"
         } else {
             New-IaConnRow 'Managed Google Play' '—' 'NotConfigured' $null $null "bindStatus=$($mgp.bindStatus ?? 'notBound')"
         }
-    } catch {
-        if (Test-IaNotConfigured $_) { New-IaConnRow 'Managed Google Play' '—' 'NotConfigured' $null $null 'not configured' }
-        else { New-IaConnRow 'Managed Google Play' '—' 'Error' $null $null "probe failed: $($_.Exception.Message)" }
-    }
+    } catch { New-IaProbeFailRow 'Managed Google Play' $_ }
 
     # ── NDES certificate connectors ────────────────────────────────────────────
     try {
@@ -130,8 +124,5 @@ function Get-IntuneConnectorHealth {
             if ($status -eq 'OK' -and $last -and $now.Subtract($last.ToUniversalTime()).TotalDays -gt 2) { $status = 'Warn' }
             New-IaConnRow 'NDES connector' ($c.displayName ?? $c.id) $status $null $null "state=$($c.state), $ago"
         }
-    } catch {
-        if (Test-IaNotConfigured $_) { New-IaConnRow 'NDES connector' '—' 'NotConfigured' $null $null 'not configured' }
-        else { New-IaConnRow 'NDES connector' '—' 'Error' $null $null "probe failed: $($_.Exception.Message)" }
-    }
+    } catch { New-IaProbeFailRow 'NDES connector' $_ }
 }

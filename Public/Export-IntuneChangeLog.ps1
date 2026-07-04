@@ -56,7 +56,7 @@ function Export-IntuneChangeLog {
         [pscustomobject][ordered]@{
             Time    = $_.Time
             Method  = $_.Method
-            Uri     = if ($_.Full) { $_.Full } else { $_.Uri }
+            Uri     = $_.Full
             Status  = $_.Status
             Ms      = $_.Ms
             Error   = $_.Error

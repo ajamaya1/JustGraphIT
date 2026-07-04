@@ -4354,8 +4354,8 @@ Describe 'Get-IntuneDiscoveredApp -BelowVersion' {
                 [pscustomobject]@{ id = 'c'; displayName = 'Chrome'; version = 'dev-build';  publisher = 'G'; platform = 'windows'; deviceCount = 1 }) } }
             $rows = @(Get-IntuneDiscoveredApp -Name chrome -BelowVersion 126)
             @($rows | ForEach-Object Version) | Should -Not -Contain '126.0.6478'   # at/above bar excluded
-            @($rows | Where-Object Version -eq '125.0.6422').Count | Should -Be 1   # below kept
-            @($rows | Where-Object Version -eq 'dev-build').Count  | Should -Be 1   # unparseable kept (can't prove patched)
+            @($rows | Where-Object Version -eq '125.0.6422').Count | Should -Be 1   # below kept, no flag
+            @($rows | Where-Object Version -eq 'dev-build (unparseable)').Count | Should -Be 1   # unparseable kept AND flagged in the app view
         }
     }
 
@@ -4485,6 +4485,10 @@ Describe 'Export-IntuneHealthReport' {
                 $html | Should -Match 'Apple MDM push certificate'
                 $html | Should -Not -Match 'passwordBase64|Reveal'     # no secret material paths
                 Should -Invoke Invoke-IntuneHealthCheck -Times 1 -Exactly   # reuses one sweep
+                # …and hands its own fetches to the health check instead of letting it re-sweep
+                Should -Invoke Invoke-IntuneHealthCheck -Times 1 -Exactly -ParameterFilter {
+                    $null -ne $CredentialInventory -and $null -ne $ConnectorInventory -and $null -ne $DeviceInventory
+                }
             } finally { Remove-Item $out -ErrorAction SilentlyContinue }
         }
     }
@@ -4501,6 +4505,87 @@ Describe 'Export-IntuneHealthReport' {
                 Test-Path $out | Should -BeTrue
                 (Get-Content $out -Raw) | Should -Match 'unavailable'
             } finally { Remove-Item $out -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+Describe 'Quality-control review fixes' {
+    It 'Managed Google Play: boundAndValidated counts as bound (OK), not NotConfigured' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'androidManagedStore') { return [pscustomobject]@{ bindStatus = 'boundAndValidated'; lastAppSyncStatus = 'success'; ownerUserPrincipalName = 'mgp@x' } }
+                if ($Uri -match 'applePushNotificationCertificate') { return $null }
+                @{ value = @() }
+            }
+            $mgp = @(Get-IntuneConnectorHealth) | Where-Object Connector -eq 'Managed Google Play'
+            $mgp.Status | Should -Be 'OK'
+            $mgp.Detail | Should -Match 'boundAndValidated'   # detail reports the real bind status
+        }
+    }
+
+    It 'health check reuses every supplied inventory and calls no fetcher twice' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory        { throw 'must not re-sweep' }
+            Mock Get-EntraExpiringSecret          { throw 'must not re-sweep' }
+            Mock Get-EntraRiskyUser               { throw 'must not re-sweep' }
+            Mock Get-EntraConditionalAccessPolicy { throw 'must not re-sweep' }
+            Mock Get-IntuneConnectorHealth        { throw 'must not re-sweep' }
+            Mock Get-EntraMfaRegistration         { @() }
+            $inv = @([pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true })
+            $ca  = @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' })
+            $r = @(Invoke-IntuneHealthCheck -DeviceInventory $inv -CredentialInventory @() `
+                    -RiskyUserInventory @() -CaPolicyInventory $ca -ConnectorInventory @())
+            $r.Count | Should -Be 8
+            @($r | Where-Object Status -ne 'Pass').Count | Should -Be 0
+            Should -Invoke Get-IntuneDeviceInventory        -Times 0 -Exactly
+            Should -Invoke Get-EntraExpiringSecret          -Times 0 -Exactly
+            Should -Invoke Get-EntraRiskyUser               -Times 0 -Exactly
+            Should -Invoke Get-EntraConditionalAccessPolicy -Times 0 -Exactly
+            Should -Invoke Get-IntuneConnectorHealth        -Times 0 -Exactly
+        }
+    }
+
+    It 'MFA registration pushes -AdminsOnly/-GapsOnly into a server-side $filter' {
+        InModuleScope JustGraphIT {
+            $script:mfaUri = $null
+            Mock Invoke-IaRequest { $script:mfaUri = $Uri; @{ value = @() } }
+            $null = Get-EntraMfaRegistration -GapsOnly -AdminsOnly
+            $script:mfaUri | Should -Match ([regex]::Escape("isAdmin eq true and isMfaCapable eq false"))
+            $null = Get-EntraMfaRegistration
+            $script:mfaUri | Should -Not -Match 'filter'      # unfiltered when no subset requested
+        }
+    }
+
+    It 'BitLocker escrow gap filters to Windows server-side, not just client-side' {
+        InModuleScope JustGraphIT {
+            $script:devUri = $null
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'managedDevices') { $script:devUri = $Uri }
+                @{ value = @() }
+            }
+            $null = Get-IntuneBitLockerEscrowGap
+            $script:devUri | Should -Match ([regex]::Escape("operatingSystem eq 'Windows'"))
+        }
+    }
+
+    It 'discovered-app device expansion skips apps with deviceCount 0' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'detectedApps/ghost/managedDevices') { throw 'must not expand a zero-count app' }
+                if ($Uri -match 'detectedApps/live/managedDevices') { return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; deviceName = 'PC-1'; userPrincipalName = 'a@x'; operatingSystem = 'Windows' }) } }
+                if ($Uri -match 'detectedApps\?') { return @{ value = @(
+                    [pscustomobject]@{ id = 'live';  displayName = 'App'; version = '1.0'; publisher = 'P'; platform = 'windows'; deviceCount = 1 }
+                    [pscustomobject]@{ id = 'ghost'; displayName = 'App'; version = '0.9'; publisher = 'P'; platform = 'windows'; deviceCount = 0 }) } }
+                @{ value = @() }
+            }
+            $rows = @(Get-IntuneDiscoveredApp -Name app -Devices)
+            $rows.Count     | Should -Be 1
+            $rows[0].Device | Should -Be 'PC-1'
+            Should -Invoke Invoke-IaRequest -Times 0 -Exactly -ParameterFilter { $Uri -match 'ghost/managedDevices' }
         }
     }
 }

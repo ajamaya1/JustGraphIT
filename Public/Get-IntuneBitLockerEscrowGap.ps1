@@ -36,8 +36,8 @@ function Get-IntuneBitLockerEscrowGap {
     param([switch]$IncludeHealthy)
 
     $sel  = 'id,deviceName,operatingSystem,isEncrypted,azureADDeviceId,userPrincipalName,lastSyncDateTime'
-    $devs = Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices?`$select=$sel")
-    $devs = @($devs | Where-Object { $_.operatingSystem -eq 'Windows' })
+    $devs = Get-IaCollection (Resolve-IaUri "deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=$sel")
+    $devs = @($devs | Where-Object { $_.operatingSystem -eq 'Windows' })   # belt-and-braces re-filter
 
     # Key METADATA only — no $select=key, so the key values are never requested.
     $keys = Get-IaCollection (Resolve-IaUri "informationProtection/bitlocker/recoveryKeys?`$select=id,deviceId,createdDateTime")

@@ -1923,21 +1923,24 @@ function Invoke-IaTuiDashboard {
 
     # ── Identity & security KPIs (one guarded sweep — the deep view lives in Identity·Entra) ──
     $idn = try { Invoke-IaStatus -Spinner Dots -Title 'Reading identity KPIs…' -ScriptBlock {
-        $enc   = { param($f) [uri]::EscapeDataString($f) }
-        $risky = try { @(Get-EntraRiskyUser -AtRiskOnly).Count } catch { $null }
-        $caAll = try { @(Get-EntraConditionalAccessPolicy) } catch { @() }
+        $enc       = { param($f) [uri]::EscapeDataString($f) }
+        # Keep the lists, not just counts — the health check below reuses them.
+        $riskyList = try { @(Get-EntraRiskyUser -AtRiskOnly) } catch { $null }
+        $caList    = try { @(Get-EntraConditionalAccessPolicy) } catch { $null }
+        $credList  = try { @(Get-EntraExpiringSecret -Days 30 -IncludeExpired) } catch { $null }
         [ordered]@{
-            users    = Get-IaCount -Path 'users/$count'
-            guests   = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "userType eq 'Guest'"))
-            risky    = $risky
-            expiring = @(try { Get-EntraExpiringSecret -Days 30 -IncludeExpired } catch { @() }).Count
-            caOn     = @($caAll | Where-Object { $_.State -eq 'enabled' }).Count
+            users     = Get-IaCount -Path 'users/$count'
+            guests    = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "userType eq 'Guest'"))
+            risky     = ($null -eq $riskyList) ? $null : $riskyList.Count
+            expiring  = ($null -eq $credList)  ? $null : $credList.Count
+            caOn      = ($null -eq $caList)    ? $null : @($caList | Where-Object { $_.State -eq 'enabled' }).Count
+            riskyList = $riskyList; credList = $credList; caList = $caList
         }
     } } catch { $null }
     if ($idn) {
         $fc = { param($n) if ($null -eq $n -or ($n -is [int] -and $n -lt 0)) { '—' } else { "$n" } }
         $riskClr = if ($null -eq $idn.risky) { 'grey' } elseif ($idn.risky -eq 0) { $Accent } else { 'coral' }
-        $expClr  = if ($idn.expiring -eq 0) { $Accent } else { 'coral' }
+        $expClr  = if ($null -eq $idn.expiring) { 'grey' } elseif ($idn.expiring -eq 0) { $Accent } else { 'coral' }
         Write-IaHost ''
         Write-IaHost (' ' + (& $tile '▎ USERS' $Accent) + (& $tile '▎ GUESTS' $Accent) + (& $tile '▎ RISKY' $riskClr) + (& $tile '▎ EXPIRING' $expClr) + (& $tile '▎ CA ON' $Accent))
         Write-IaHost ('   ' + (& $tile (& $fc $idn.users) 'white') + (& $tile (& $fc $idn.guests) 'white') + (& $tile (& $fc $idn.risky) $riskClr) + (& $tile (& $fc $idn.expiring) $expClr) + (& $tile (& $fc $idn.caOn) 'white'))
@@ -1974,7 +1977,13 @@ function Invoke-IaTuiDashboard {
     Write-IaHost ''
     Write-IaRule -Title 'Tenant health' -Color $Accent
     $hc = try { @(Invoke-IaStatus -Spinner Dots -Title 'Running health checks…' -ScriptBlock {
-        Invoke-IntuneHealthCheck -DeviceInventory $devs
+        $hcp = @{ DeviceInventory = $devs }   # reuse the identity sweep where it succeeded
+        if ($idn) {
+            if ($null -ne $idn.credList)  { $hcp.CredentialInventory = @($idn.credList) }
+            if ($null -ne $idn.riskyList) { $hcp.RiskyUserInventory  = @($idn.riskyList) }
+            if ($null -ne $idn.caList)    { $hcp.CaPolicyInventory   = @($idn.caList) }
+        }
+        Invoke-IntuneHealthCheck @hcp
     }) } catch { @() }
     if (-not $hc) { Write-IaHost '  [grey](health checks unavailable)[/]' }
     foreach ($h in $hc) {

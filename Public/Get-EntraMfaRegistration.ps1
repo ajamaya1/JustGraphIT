@@ -43,7 +43,15 @@ function Get-EntraMfaRegistration {
         [switch]$AdminsOnly
     )
 
-    $rows = Get-IaCollection (Resolve-IaUri 'reports/authenticationMethods/userRegistrationDetails')
+    # Server-side $filter narrows the download when a subset is requested; the
+    # client-side filters below still apply, so behaviour is identical either way.
+    $path = 'reports/authenticationMethods/userRegistrationDetails'
+    $clauses = @()
+    if ($AdminsOnly) { $clauses += 'isAdmin eq true' }
+    if ($GapsOnly)   { $clauses += 'isMfaCapable eq false' }
+    if ($clauses.Count) { $path += "?`$filter=$($clauses -join ' and ')" }
+
+    $rows = Get-IaCollection (Resolve-IaUri $path)
     $rows = @($rows)
 
     $out = foreach ($u in $rows) {

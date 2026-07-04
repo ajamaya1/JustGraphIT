@@ -31,6 +31,21 @@ function Invoke-IntuneHealthCheck {
         from, skipping the second tenant sweep (used by the dashboard, which has
         already loaded the fleet).
 
+    .PARAMETER CredentialInventory
+        A pre-fetched 'Get-EntraExpiringSecret -Days <SecretWindowDays> -IncludeExpired'
+        result for the app-credential check — fetch it with the same window you pass
+        in -SecretWindowDays. Skips re-enumerating every application and service
+        principal when the caller already has the list (dashboard, HTML report).
+
+    .PARAMETER RiskyUserInventory
+        A pre-fetched 'Get-EntraRiskyUser -AtRiskOnly' result for the risky-user check.
+
+    .PARAMETER CaPolicyInventory
+        A pre-fetched Get-EntraConditionalAccessPolicy result for the CA-coverage check.
+
+    .PARAMETER ConnectorInventory
+        A pre-fetched Get-IntuneConnectorHealth result for the connector/token check.
+
     .EXAMPLE
         Invoke-IntuneHealthCheck
 
@@ -49,7 +64,11 @@ function Invoke-IntuneHealthCheck {
         [int]$StaleDays = 30,
         [ValidateRange(1, 100)][int]$MinCompliancePercent = 90,
         [int]$SecretWindowDays = 30,
-        [object[]]$DeviceInventory
+        [object[]]$DeviceInventory,
+        [object[]]$CredentialInventory,
+        [object[]]$RiskyUserInventory,
+        [object[]]$CaPolicyInventory,
+        [object[]]$ConnectorInventory
     )
 
     function New-IaCheckRow {
@@ -84,7 +103,8 @@ function Invoke-IntuneHealthCheck {
     }
 
     try {
-        $creds    = @(Get-EntraExpiringSecret -Days $SecretWindowDays -IncludeExpired)
+        $creds    = if ($PSBoundParameters.ContainsKey('CredentialInventory')) { @($CredentialInventory) }
+                    else { @(Get-EntraExpiringSecret -Days $SecretWindowDays -IncludeExpired) }
         $urgent   = @($creds | Where-Object { $_.Status -in 'Expired', 'Critical' })
         New-IaCheckRow "App credentials (${SecretWindowDays}d window)" $(if ($urgent.Count) { 'Fail' } elseif ($creds.Count) { 'Warn' } else { 'Pass' }) `
             $creds.Count $(if ($creds.Count) { "$($urgent.Count) expired/critical, $($creds.Count - $urgent.Count) upcoming — worst: " + (@($creds | Select-Object -First 3 | ForEach-Object { "$($_.App) ($($_.DaysLeft)d)" }) -join ', ') } else { 'no secrets or certificates expiring in the window' })
@@ -93,7 +113,8 @@ function Invoke-IntuneHealthCheck {
     }
 
     try {
-        $risky = @(Get-EntraRiskyUser -AtRiskOnly)
+        $risky = if ($PSBoundParameters.ContainsKey('RiskyUserInventory')) { @($RiskyUserInventory) }
+                 else { @(Get-EntraRiskyUser -AtRiskOnly) }
         New-IaCheckRow 'Risky users (Identity Protection)' $(if ($risky.Count) { 'Fail' } else { 'Pass' }) `
             $risky.Count $(if ($risky.Count) { 'users at risk — review in Identity Protection' } else { 'no users currently flagged at risk' })
     } catch {
@@ -101,7 +122,8 @@ function Invoke-IntuneHealthCheck {
     }
 
     try {
-        $ca      = @(Get-EntraConditionalAccessPolicy)
+        $ca      = if ($PSBoundParameters.ContainsKey('CaPolicyInventory')) { @($CaPolicyInventory) }
+                   else { @(Get-EntraConditionalAccessPolicy) }
         $enabled = @($ca | Where-Object { $_.State -eq 'enabled' })
         New-IaCheckRow 'Conditional Access coverage' $(if (-not $enabled.Count) { 'Fail' } elseif ($enabled.Count -lt 2) { 'Warn' } else { 'Pass' }) `
             $enabled.Count "$($enabled.Count) enabled / $($ca.Count) total policies"
@@ -110,7 +132,8 @@ function Invoke-IntuneHealthCheck {
     }
 
     try {
-        $conn = @(Get-IntuneConnectorHealth)
+        $conn = if ($PSBoundParameters.ContainsKey('ConnectorInventory')) { @($ConnectorInventory) }
+                else { @(Get-IntuneConnectorHealth) }
         $bad  = @($conn | Where-Object Status -eq 'Fail')
         $iffy = @($conn | Where-Object { $_.Status -in 'Warn', 'Error' })
         New-IaCheckRow 'Enrollment connectors & tokens' $(if ($bad.Count) { 'Fail' } elseif ($iffy.Count) { 'Warn' } else { 'Pass' }) `

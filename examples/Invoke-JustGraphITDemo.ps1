@@ -161,9 +161,8 @@ function global:Invoke-MgGraphRequest {
     if ($u -match 'depOnboardingSettings') { return page @([pscustomobject]@{ id = 'dep1'; appleIdentifier = 'ade@contoso.com'; tokenExpirationDateTime = (Get-Date).AddDays(45).ToUniversalTime().ToString('o') }) }
     if ($u -match 'androidManagedStoreAccountEnterpriseSettings') { return [pscustomobject]@{ bindStatus = 'notBound' } }
     if ($u -match 'ndesConnectors') { return page @([pscustomobject]@{ id = 'ndes1'; displayName = 'NDES-01'; state = 'active'; lastConnectionDateTime = (Get-Date).AddHours(-3).ToUniversalTime().ToString('o') }) }
-    if ($u -match 'informationProtection/bitlocker/recoveryKeys') { return page @(
-        [pscustomobject]@{ id = 'bk1'; deviceId = 'aad-0001'; createdDateTime = '2026-06-01T00:00:00Z' }
-        [pscustomobject]@{ id = 'bk2'; deviceId = 'aad-0003'; createdDateTime = '2026-05-15T00:00:00Z' }) }
+    # (informationProtection/bitlocker/recoveryKeys is served by the earlier
+    #  'bitlocker/recoveryKeys' matcher above — keys escrowed for aad-0001 only.)
     if ($u -match 'detectedApps/[^/?]+/managedDevices') { return page @(
         [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01';  userPrincipalName = 'alice@contoso.com'; emailAddress = 'alice@contoso.com'; operatingSystem = 'Windows' }
         [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02';  userPrincipalName = 'bob@contoso.com';   emailAddress = 'bob@contoso.com';   operatingSystem = 'Windows' }
