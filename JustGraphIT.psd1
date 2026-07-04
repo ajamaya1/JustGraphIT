@@ -64,6 +64,8 @@
         'Get-IntuneDiscoveredApp',
         'Get-IntuneConnectorHealth',
         'Get-IntuneBitLockerEscrowGap',
+        'Get-EntraMfaRegistration',
+        'Export-IntuneHealthReport',
         'Get-IntuneStaleDevice',
         'Get-IntuneDeviceCategory',
         'Set-IntuneDevicePrimaryUser',

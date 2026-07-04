@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-346%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-350%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
@@ -14,7 +14,7 @@ plus users, groups, app consent, directory roles, Conditional Access and identit
 over Microsoft Graph.
 
 <p align="center">
-  <img src="docs/img/main-menu.png" width="760" alt="JustGraphIT main menu with the live Graph-call log">
+  <img src="docs/img/tenant-overview.png" width="820" alt="The Tenant overview dashboard: device and identity KPIs plus the live eight-point health check">
 </p>
 
 ## Features
@@ -54,12 +54,13 @@ over Microsoft Graph.
   page. Groups, licenses and sign-ins come from the **beta `/users`** and **`auditLogs`**
   endpoints.
 - **Reporting** - Tenant dashboard, deployment/install/compliance status, audit log,
-  multi-admin approvals, **discovered-app search** (which devices have X installed, or below a patched version — the InfoSec ask), **connector & token health** (Apple MDM push cert, VPP/DEP tokens, NDES — the silent outages), **BitLocker escrow gaps** (encrypted, no key in Entra), **expiring secrets & certificates** (app registrations and
+  multi-admin approvals, **discovered-app search** (which devices have X installed, or below a patched version — the InfoSec ask), **connector & token health** (Apple MDM push cert, VPP/DEP tokens, NDES — the silent outages), **BitLocker escrow gaps** (encrypted, no key in Entra), **MFA registration gaps** (not MFA-capable, unprotected admins first), **expiring secrets & certificates** (app registrations and
   enterprise apps, with days-to-expiry), and HTML / CSV / JSON / Excel exports.
 - **Health check & change receipt** - `Invoke-IntuneHealthCheck` runs the "is anything
   on fire?" morning sweep headlessly (compliance %, stale devices, encryption, expiring
-  app credentials, risky users, Conditional Access coverage, connector/token health) — schedule it and alert on
-  anything not `Pass`. `Export-IntuneChangeLog` writes an audit receipt of every change
+  app credentials, risky users, Conditional Access coverage, connector/token health,
+  admins without MFA) — schedule it and alert on anything not `Pass`, or render the whole
+  thing as a portable HTML page with `Export-IntuneHealthReport` for the Monday email. `Export-IntuneChangeLog` writes an audit receipt of every change
   the session made (method, path, status) for the change ticket.
 - **Backup, restore & drift** - Snapshot and restore assignments or the full config
   (one file per object), and diff current state against a snapshot.

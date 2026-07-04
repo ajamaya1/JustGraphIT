@@ -5,10 +5,11 @@ function Invoke-IntuneHealthCheck {
         one pipeable command. Read-only.
 
     .DESCRIPTION
-        Runs seven checks and emits one Pass/Warn/Fail row per check: device compliance,
+        Runs eight checks and emits one Pass/Warn/Fail row per check: device compliance,
         stale devices, disk encryption, expiring/expired app credentials, users flagged
-        at risk by Identity Protection, Conditional Access coverage, and enrollment
-        connector/token health (Apple MDM push cert, VPP/DEP tokens, NDES). A check that
+        at risk by Identity Protection, Conditional Access coverage, enrollment
+        connector/token health (Apple MDM push cert, VPP/DEP tokens, NDES), and admin
+        accounts that cannot satisfy an MFA challenge. A check that
         cannot run (missing permission / not licensed) reports Status 'Error' with the
         reason instead of aborting the sweep — the remaining checks still run.
 
@@ -116,5 +117,13 @@ function Invoke-IntuneHealthCheck {
             ($bad.Count + $iffy.Count) $(if ($bad.Count + $iffy.Count) { (@($bad + $iffy | Select-Object -First 4 | ForEach-Object { "$($_.Connector): $($_.Status)" }) -join ', ') } else { 'Apple push / VPP / DEP / MGP / NDES all healthy or unused' })
     } catch {
         New-IaCheckRow 'Enrollment connectors & tokens' 'Error' 0 "check failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $adminGaps = @(Get-EntraMfaRegistration -GapsOnly -AdminsOnly)
+        New-IaCheckRow 'Admins without MFA' $(if ($adminGaps.Count) { 'Fail' } else { 'Pass' }) `
+            $adminGaps.Count $(if ($adminGaps.Count) { 'admin accounts not MFA-capable: ' + (@($adminGaps | Select-Object -First 5 | ForEach-Object UPN) -join ', ') + $(if ($adminGaps.Count -gt 5) { '…' }) } else { 'every admin account is MFA-capable' })
+    } catch {
+        New-IaCheckRow 'Admins without MFA' 'Error' 0 "check failed (needs Entra P1 + Reports.Read.All): $($_.Exception.Message)"
     }
 }
