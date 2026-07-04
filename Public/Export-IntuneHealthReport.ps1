@@ -49,11 +49,15 @@ function Export-IntuneHealthReport {
 
     if (-not $Path) { $Path = Join-Path (Get-Location) ("intune-health-{0:yyyyMMdd-HHmm}.html" -f (Get-Date)) }
 
+    # One fetch per data set — the health check reuses these instead of re-sweeping.
     $devs   = try { @(Get-IntuneDeviceInventory) } catch { $null }
-    $checks = try { @(if ($null -ne $devs) { Invoke-IntuneHealthCheck -StaleDays $StaleDays -SecretWindowDays $SecretWindowDays -DeviceInventory $devs }
-                     else                  { Invoke-IntuneHealthCheck -StaleDays $StaleDays -SecretWindowDays $SecretWindowDays }) } catch { @() }
     $creds  = try { @(Get-EntraExpiringSecret -Days $SecretWindowDays -IncludeExpired) } catch { $null }
     $conn   = try { @(Get-IntuneConnectorHealth) } catch { $null }
+    $hcp = @{ StaleDays = $StaleDays; SecretWindowDays = $SecretWindowDays }
+    if ($null -ne $devs)  { $hcp.DeviceInventory     = $devs }
+    if ($null -ne $creds) { $hcp.CredentialInventory = $creds }
+    if ($null -ne $conn)  { $hcp.ConnectorInventory  = $conn }
+    $checks = try { @(Invoke-IntuneHealthCheck @hcp) } catch { @() }
 
     function esc { param($s) [System.Net.WebUtility]::HtmlEncode("$s") }
     function badge { param($status)

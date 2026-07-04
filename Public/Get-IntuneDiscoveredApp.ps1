@@ -67,10 +67,12 @@ function Get-IntuneDiscoveredApp {
     $apps = Get-IaCollection (Resolve-IaUri $path)
     $apps = @($apps)
     if ($MinDeviceCount) { $apps = @($apps | Where-Object { [int]$_.deviceCount -ge $MinDeviceCount }) }
+    $unparseable = @{}
     if ($BelowVersion) {
         # keep versions strictly below the bar, PLUS unparseable ones (can't prove patched)
         $apps = @($apps | Where-Object {
             $c = Compare-IaAppVersion -A ([string]$_.version) -B $BelowVersion
+            if ($null -eq $c) { $unparseable["$($_.id)"] = $true }
             $null -eq $c -or $c -lt 0
         })
     }
@@ -79,7 +81,7 @@ function Get-IntuneDiscoveredApp {
         return @($apps | ForEach-Object {
             [pscustomobject][ordered]@{
                 App         = $_.displayName
-                Version     = $_.version
+                Version     = "$($_.version)$(if ($unparseable["$($_.id)"]) { ' (unparseable)' })"
                 Publisher   = $_.publisher
                 Platform    = $_.platform
                 DeviceCount = $_.deviceCount
@@ -89,7 +91,8 @@ function Get-IntuneDiscoveredApp {
     }
 
     @(foreach ($a in $apps) {
-        $vNote = if ($BelowVersion -and $null -eq (Compare-IaAppVersion -A ([string]$a.version) -B $BelowVersion)) { ' (unparseable)' } else { '' }
+        if ($null -ne $a.deviceCount -and [int]$a.deviceCount -eq 0) { continue }   # nothing to expand
+        $vNote = if ($unparseable["$($a.id)"]) { ' (unparseable)' } else { '' }
         $devs = Get-IaCollection (Resolve-IaUri "deviceManagement/detectedApps/$($a.id)/managedDevices?`$select=id,deviceName,userPrincipalName,emailAddress,operatingSystem")
         foreach ($d in @($devs)) {
             [pscustomobject][ordered]@{
