@@ -2861,7 +2861,8 @@ function Invoke-IaTuiBuildGroupFromQuery {
     # inactive users), review it, then add the whole set to a new or existing group.
     param([string]$Accent)
     $src = Read-IaMenu -Title 'Build a group from…' -Color $Accent -PageSize 6 -Choices @(
-        'Devices not synced in N days', 'Users by display-name prefix', 'Inactive users (no sign-in in N days)', 'Back')
+        'Devices not synced in N days', 'Devices with a discovered app (Zscaler · Chrome < 126)',
+        'Users by display-name prefix', 'Inactive users (no sign-in in N days)', 'Back')
     if (-not $src -or $src -eq 'Back') { return }
 
     $objIds = @(); $what = ''
@@ -2878,6 +2879,24 @@ function Invoke-IaTuiBuildGroupFromQuery {
                 $what = "$($devs.Count) device(s) not synced > $days days"
                 if (-not (Read-IaConfirm "Add these $($devs.Count) device(s) to a group?")) { return }
                 $objIds = @(Invoke-IaStatus -Spinner Dots -Title 'Resolving device objects…' -ScriptBlock { $devs | ForEach-Object { Resolve-EntraDeviceObjectId -AzureAdDeviceId $_.AzureAdDeviceId } | Where-Object { $_ } })
+            }
+            'Devices with a discovered*' {
+                $q = Read-IaText -Question 'App name contains (e.g. zscaler)'
+                if ([string]::IsNullOrWhiteSpace($q)) { return }
+                $bv = Read-IaText -Question 'Only versions below (blank = any version)' -DefaultAnswer ''
+                $ap = @{ Name = $q; Devices = $true }
+                if ($bv) { $ap.BelowVersion = $bv }
+                $qSafe = Protect-IaMarkup $(if ($bv) { "'$q' below $bv" } else { "'$q'" })
+                $rows = @(Invoke-IaStatus -Spinner Dots -Title "Finding devices with $qSafe…" -ScriptBlock { Get-IntuneDiscoveredApp @ap })
+                if (-not $rows) { Write-IaHost "[$Accent]✓ No devices carry $qSafe.[/]"; Read-IaPause | Out-Null; return }
+                $disp = @($rows | ForEach-Object { [pscustomobject][ordered]@{ App = $_.App; Version = $_.Version; Device = $_.Device; User = $_.User; OS = $_.OS } })
+                Read-IaTablePause -Data $disp -Color $Accent -Title "Devices with $qSafe ($($rows.Count))" -Stem 'q2g-app' | Out-Null
+                $what = "$($rows.Count) device row(s) with $qSafe"
+                if (-not (Read-IaConfirm 'Add these devices to a group?')) { return }
+                $objIds = @(Invoke-IaStatus -Spinner Dots -Title 'Resolving device objects…' -ScriptBlock {
+                    $rows | ForEach-Object AzureAdDeviceId | Where-Object { $_ } | Select-Object -Unique |
+                        ForEach-Object { try { Resolve-EntraDeviceObjectId -AzureAdDeviceId $_ } catch { $null } } | Where-Object { $_ }
+                })
             }
             'Users by display-name*' {
                 $prefix = Read-IaText -Question 'Display name starts with'
