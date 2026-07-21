@@ -114,6 +114,7 @@ function global:Invoke-MgGraphRequest {
                 [pscustomobject]@{ id = 'p2'; displayName = 'Edge Baseline (legacy)' }) }
             [pscustomobject]@{ setting = 'power.sleepTimeout'; settingName = 'Sleep timeout'; state = 'compliant'; currentValue = '15'; sources = @() }) }
         [pscustomobject]@{ id = 'cfs2'; displayName = 'Wi-Fi Corporate'; state = 'compliant'; settingStates = @() }) }
+    if ($u -match 'users/\$count') { if ($u -match "userType eq 'Guest'") { return 0 }; return 4 }
     if ($u -match '/users/') { return [pscustomobject]@{ id = 'u-alice'; displayName = 'Alice Anderson'; userPrincipalName = 'alice@contoso.com' } }
     if ($u -match 'roleEligibilityScheduleInstances') { return page @(
         [pscustomobject]@{ roleDefinitionId = 'r1'; directoryScopeId = '/'; memberType = 'Direct'; endDateTime = $null; roleDefinition = [pscustomobject]@{ displayName = 'Intune Administrator' } }
@@ -161,6 +162,17 @@ function global:Invoke-MgGraphRequest {
     if ($u -match 'depOnboardingSettings') { return page @([pscustomobject]@{ id = 'dep1'; appleIdentifier = 'ade@contoso.com'; tokenExpirationDateTime = (Get-Date).AddDays(45).ToUniversalTime().ToString('o') }) }
     if ($u -match 'androidManagedStoreAccountEnterpriseSettings') { return [pscustomobject]@{ bindStatus = 'notBound' } }
     if ($u -match 'ndesConnectors') { return page @([pscustomobject]@{ id = 'ndes1'; displayName = 'NDES-01'; state = 'active'; lastConnectionDateTime = (Get-Date).AddHours(-3).ToUniversalTime().ToString('o') }) }
+    if ($u -match 'configurationMonitoringResults') { return page @(
+        [pscustomobject]@{ id = 'run1'; monitorId = 'cm1'; runStatus = 'successful'; driftsCount = 1; runInitiationDateTime = (Get-Date).AddHours(-7).ToUniversalTime().ToString('o'); runCompletionDateTime = (Get-Date).AddHours(-7).AddMinutes(4).ToUniversalTime().ToString('o'); errorDetails = @() }) }
+    if ($u -match 'configurationDrifts') { return page @(
+        [pscustomobject]@{ id = 'cd1'; monitorId = 'cm1'; baselineResourceDisplayName = 'Require MFA for admins'; resourceType = 'conditionalAccessPolicy'; status = 'active'; firstReportedDateTime = '2026-06-26T21:10:00Z'; resourceInstanceIdentifier = [pscustomobject]@{ policyId = 'ca-101' }; driftedProperties = @(
+            [pscustomobject]@{ propertyName = 'state'; desiredValue = 'enabled'; currentValue = 'disabled' }) }
+        [pscustomobject]@{ id = 'cd2'; monitorId = 'cm1'; baselineResourceDisplayName = 'Named location: HQ egress'; resourceType = 'namedLocation'; status = 'fixed'; firstReportedDateTime = '2026-06-20T09:00:00Z'; resourceInstanceIdentifier = [pscustomobject]@{ locationId = 'nl-7' }; driftedProperties = @(
+            [pscustomobject]@{ propertyName = 'ipRanges'; desiredValue = @('203.0.113.0/24'); currentValue = @('203.0.113.0/24', '198.51.100.0/24') }) }) }
+    if ($u -match 'configurationMonitors') { return page @(
+        [pscustomobject]@{ id = 'cm1'; displayName = 'Conditional Access baseline'; description = 'Prod CA posture'; mode = 'monitorOnly'; status = 'active'; monitorRunFrequencyInHours = 24; createdDateTime = '2026-05-01T12:00:00Z'; lastModifiedDateTime = '2026-06-01T12:00:00Z'; createdBy = [pscustomobject]@{ user = [pscustomobject]@{ displayName = 'Alice Anderson' } }; lastModifiedBy = [pscustomobject]@{ user = [pscustomobject]@{ displayName = 'Alice Anderson' } }; baseline = [pscustomobject]@{ displayName = 'CA baseline'; description = 'Prod CA posture'; resources = @(
+            [pscustomobject]@{ displayName = 'Require MFA for admins'; resourceType = 'conditionalAccessPolicy'; properties = $null }
+            [pscustomobject]@{ displayName = 'Named location: HQ egress'; resourceType = 'namedLocation'; properties = $null }) } }) }
     # (informationProtection/bitlocker/recoveryKeys is served by the earlier
     #  'bitlocker/recoveryKeys' matcher above — keys escrowed for aad-0001 only.)
     if ($u -match 'detectedApps/[^/?]+/managedDevices') { return page @(

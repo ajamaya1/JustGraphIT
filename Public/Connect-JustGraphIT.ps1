@@ -51,7 +51,8 @@ function Connect-JustGraphIT {
             'Application.Read.All',
             'RoleManagement.Read.Directory',
             'SecurityEvents.Read.All',
-            'Reports.Read.All'
+            'Reports.Read.All',
+            'ConfigurationMonitoring.Read.All'
         )
     )
 

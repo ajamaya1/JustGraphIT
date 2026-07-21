@@ -4218,7 +4218,7 @@ Describe 'Get-EntraExpiringSecret' {
 }
 
 Describe 'Invoke-IntuneHealthCheck' {
-    It 'emits six rows and computes Pass/Warn/Fail from mocked data' {
+    It 'emits nine rows and computes Pass/Warn/Fail from mocked data' {
         InModuleScope JustGraphIT {
             Mock Get-IntuneDeviceInventory { @(
                 [pscustomobject]@{ Device = 'A'; Compliance = 'compliant';    DaysSinceSync = 1;  Encrypted = $true  }
@@ -4237,8 +4237,10 @@ Describe 'Invoke-IntuneHealthCheck' {
                 [pscustomobject]@{ Connector = 'Apple MDM push certificate'; Name = 'x'; Status = 'OK' }
             ) }
             Mock Get-EntraMfaRegistration { @() }
+            Mock Get-TenantConfigMonitor { @() }
+            Mock Get-TenantConfigDrift { @() }
             $r = @(Invoke-IntuneHealthCheck -StaleDays 30 -MinCompliancePercent 90)
-            $r.Count | Should -Be 8
+            $r.Count | Should -Be 9
             ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Fail'      # 67% < 90
             ($r | Where-Object Check -like 'Stale devices*').Status  | Should -Be 'Fail'      # 1/3 > 10%
             ($r | Where-Object Check -like 'App credentials*').Status| Should -Be 'Fail'      # expired cred
@@ -4257,9 +4259,11 @@ Describe 'Invoke-IntuneHealthCheck' {
             Mock Get-EntraConditionalAccessPolicy { throw '403' }
             Mock Get-IntuneConnectorHealth { throw '403' }
             Mock Get-EntraMfaRegistration { throw 'needs P1' }
+            Mock Get-TenantConfigMonitor { throw '403' }
+            Mock Get-TenantConfigDrift { throw '403' }
             $r = @(Invoke-IntuneHealthCheck)
-            $r.Count | Should -Be 8
-            @($r | Where-Object Status -eq 'Error').Count | Should -Be 8
+            $r.Count | Should -Be 9
+            @($r | Where-Object Status -eq 'Error').Count | Should -Be 9
         }
     }
 }
@@ -4434,12 +4438,14 @@ Describe 'Invoke-IntuneHealthCheck -DeviceInventory' {
             Mock Get-EntraConditionalAccessPolicy { @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' }) }
             Mock Get-IntuneConnectorHealth { @() }
             Mock Get-EntraMfaRegistration { @() }
+            Mock Get-TenantConfigMonitor { @() }
+            Mock Get-TenantConfigDrift { @() }
             $inv = @(
                 [pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true }
                 [pscustomobject]@{ Device = 'Y'; Compliance = 'compliant'; DaysSinceSync = 2; Encrypted = $true }
             )
             $r = @(Invoke-IntuneHealthCheck -DeviceInventory $inv)
-            $r.Count | Should -Be 8
+            $r.Count | Should -Be 9
             ($r | Where-Object Check -eq 'Device compliance').Status | Should -Be 'Pass'
             Should -Invoke Get-IntuneDeviceInventory -Times 0 -Exactly
         }
@@ -4493,6 +4499,27 @@ Describe 'Export-IntuneHealthReport' {
         }
     }
 
+    It 'treats an empty-but-reachable tenant as data, not as failed probes' {
+        InModuleScope JustGraphIT {
+            # Empty @() results must survive the try-capture (AutomationNull regression):
+            # the report should render zeros/none, never the 'unavailable' fallbacks.
+            Mock Get-IntuneDeviceInventory { @() }
+            Mock Get-EntraExpiringSecret   { @() }
+            Mock Get-IntuneConnectorHealth { @() }
+            Mock Invoke-IntuneHealthCheck  { @([pscustomobject]@{ Check = 'Device compliance'; Status = 'Pass'; Count = 0; Detail = 'ok' }) }
+            $out = Join-Path ([IO.Path]::GetTempPath()) "jgi-health-empty-$PID.html"
+            try {
+                $null = Export-IntuneHealthReport -Path $out
+                $html = Get-Content $out -Raw
+                $html | Should -Not -Match 'unavailable'          # every section rendered from real (empty) data
+                $html | Should -Match 'Noncompliant devices'      # offender sections present with 'none'
+                Should -Invoke Invoke-IntuneHealthCheck -Times 1 -Exactly -ParameterFilter {
+                    $null -ne $DeviceInventory -and $null -ne $CredentialInventory -and $null -ne $ConnectorInventory
+                }
+            } finally { Remove-Item $out -ErrorAction SilentlyContinue }
+        }
+    }
+
     It 'still writes the report when every probe fails' {
         InModuleScope JustGraphIT {
             Mock Get-IntuneDeviceInventory { throw '403' }
@@ -4532,11 +4559,13 @@ Describe 'Quality-control review fixes' {
             Mock Get-EntraConditionalAccessPolicy { throw 'must not re-sweep' }
             Mock Get-IntuneConnectorHealth        { throw 'must not re-sweep' }
             Mock Get-EntraMfaRegistration         { @() }
+            Mock Get-TenantConfigMonitor          { @() }
+            Mock Get-TenantConfigDrift            { @() }
             $inv = @([pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true })
             $ca  = @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' })
             $r = @(Invoke-IntuneHealthCheck -DeviceInventory $inv -CredentialInventory @() `
                     -RiskyUserInventory @() -CaPolicyInventory $ca -ConnectorInventory @())
-            $r.Count | Should -Be 8
+            $r.Count | Should -Be 9
             @($r | Where-Object Status -ne 'Pass').Count | Should -Be 0
             Should -Invoke Get-IntuneDeviceInventory        -Times 0 -Exactly
             Should -Invoke Get-EntraExpiringSecret          -Times 0 -Exactly
@@ -4586,6 +4615,152 @@ Describe 'Quality-control review fixes' {
             $rows.Count     | Should -Be 1
             $rows[0].Device | Should -Be 'PC-1'
             Should -Invoke Invoke-IaRequest -Times 0 -Exactly -ParameterFilter { $Uri -match 'ghost/managedDevices' }
+        }
+    }
+}
+
+Describe 'Tenant config drift (beta)' {
+    It 'lists monitors with expanded baseline and joins the most recent run' {
+        InModuleScope JustGraphIT {
+            $script:monUri = $null
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'configurationMonitoringResults') { return @{ value = @(
+                    [pscustomobject]@{ id = 'r1'; monitorId = 'cm1'; runStatus = 'successful'; driftsCount = 2; runInitiationDateTime = '2026-07-01T05:00:00Z'; runCompletionDateTime = '2026-07-01T05:05:00Z'; errorDetails = @() }
+                    [pscustomobject]@{ id = 'r0'; monitorId = 'cm1'; runStatus = 'failed';     driftsCount = 0; runInitiationDateTime = '2026-06-30T05:00:00Z'; runCompletionDateTime = '2026-06-30T05:01:00Z'; errorDetails = @([pscustomobject]@{ message = 'timeout' }) }) } }
+                if ($Uri -match 'configurationMonitors') { $script:monUri = $Uri; return @{ value = @(
+                    [pscustomobject]@{ id = 'cm1'; displayName = 'CA baseline'; mode = 'monitorOnly'; status = 'active'; monitorRunFrequencyInHours = 24; lastModifiedDateTime = '2026-06-01T12:00:00Z'; createdBy = [pscustomobject]@{ user = [pscustomobject]@{ displayName = 'Alice' } }; baseline = [pscustomobject]@{ resources = @(
+                        [pscustomobject]@{ displayName = 'P1'; resourceType = 'conditionalAccessPolicy' }
+                        [pscustomobject]@{ displayName = 'P2'; resourceType = 'namedLocation' }) } }) } }
+                @{ value = @() }
+            }
+            $m = @(Get-TenantConfigMonitor)
+            $m.Count               | Should -Be 1
+            $script:monUri         | Should -Match '\$expand=baseline'
+            $m[0].Monitor          | Should -Be 'CA baseline'
+            $m[0].BaselineResources| Should -Be 2
+            $m[0].LastRunStatus    | Should -Be 'successful'    # newest run wins, not the failed older one
+            $m[0].LastDriftCount   | Should -Be 2
+            $m[0].CreatedBy        | Should -Be 'Alice'
+        }
+    }
+
+    It 'drift report is active-only by default and -IncludeFixed adds resolved rows' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'configurationDrifts') { return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; monitorId = 'cm1'; baselineResourceDisplayName = 'Require MFA for admins'; resourceType = 'conditionalAccessPolicy'; status = 'active'; firstReportedDateTime = '2026-06-26T21:10:00Z'; driftedProperties = @(
+                        [pscustomobject]@{ propertyName = 'state'; desiredValue = 'enabled'; currentValue = 'disabled' }) }
+                    [pscustomobject]@{ id = 'd2'; monitorId = 'cm1'; baselineResourceDisplayName = 'HQ location'; resourceType = 'namedLocation'; status = 'fixed'; firstReportedDateTime = '2026-06-20T09:00:00Z'; driftedProperties = @(
+                        [pscustomobject]@{ propertyName = 'ipRanges'; desiredValue = @('203.0.113.0/24'); currentValue = @('203.0.113.0/24', '198.51.100.0/24') }) }) } }
+                if ($Uri -match 'configurationMonitors') { return @{ value = @([pscustomobject]@{ id = 'cm1'; displayName = 'CA baseline' }) } }
+                @{ value = @() }
+            }
+            $active = @(Get-TenantConfigDrift)
+            $active.Count         | Should -Be 1
+            $active[0].Monitor    | Should -Be 'CA baseline'     # id joined to display name
+            $active[0].Properties | Should -Be 'state'
+            $active[0].Drifts     | Should -Be 1
+            @(Get-TenantConfigDrift -IncludeFixed).Count | Should -Be 2
+        }
+    }
+
+    It '-Detail expands per property and stringifies non-scalar values as JSON' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'configurationDrifts') { return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; monitorId = 'cm1'; baselineResourceDisplayName = 'Require MFA for admins'; resourceType = 'conditionalAccessPolicy'; status = 'active'; firstReportedDateTime = '2026-06-26T21:10:00Z'; driftedProperties = @(
+                        [pscustomobject]@{ propertyName = 'state'; desiredValue = 'enabled'; currentValue = 'disabled' }) }
+                    [pscustomobject]@{ id = 'd2'; monitorId = 'cm1'; baselineResourceDisplayName = 'HQ location'; resourceType = 'namedLocation'; status = 'fixed'; firstReportedDateTime = '2026-06-20T09:00:00Z'; driftedProperties = @(
+                        [pscustomobject]@{ propertyName = 'ipRanges'; desiredValue = @('203.0.113.0/24'); currentValue = @('203.0.113.0/24', '198.51.100.0/24') }) }) } }
+                if ($Uri -match 'configurationMonitors') { return @{ value = @([pscustomobject]@{ id = 'cm1'; displayName = 'CA baseline' }) } }
+                @{ value = @() }
+            }
+            $d = @(Get-TenantConfigDrift -Detail -IncludeFixed)
+            $d.Count | Should -Be 2
+            $mfa = $d | Where-Object Property -eq 'state'
+            $mfa.Desired | Should -Be 'enabled'
+            $mfa.Current | Should -Be 'disabled'
+            $ips = $d | Where-Object Property -eq 'ipRanges'
+            $ips.Current | Should -Match '198\.51\.100\.0/24'
+            $ips.Current | Should -Match '^\['                   # arrays render as compact JSON
+        }
+    }
+
+    It '-Monitor filters by name substring or exact id, and warns on no match' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'configurationDrifts') { return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; monitorId = 'cm1'; baselineResourceDisplayName = 'R1'; resourceType = 't'; status = 'active'; firstReportedDateTime = '2026-06-26T21:10:00Z'; driftedProperties = @([pscustomobject]@{ propertyName = 'p'; desiredValue = 1; currentValue = 2 }) }
+                    [pscustomobject]@{ id = 'd2'; monitorId = 'cm2'; baselineResourceDisplayName = 'R2'; resourceType = 't'; status = 'active'; firstReportedDateTime = '2026-06-26T21:10:00Z'; driftedProperties = @([pscustomobject]@{ propertyName = 'p'; desiredValue = 1; currentValue = 3 }) }) } }
+                if ($Uri -match 'configurationMonitors') { return @{ value = @(
+                    [pscustomobject]@{ id = 'cm1'; displayName = 'CA baseline' }
+                    [pscustomobject]@{ id = 'cm2'; displayName = 'Intune baseline' }) } }
+                @{ value = @() }
+            }
+            @(Get-TenantConfigDrift -Monitor 'CA base').Count | Should -Be 1
+            @(Get-TenantConfigDrift -Monitor 'cm2').Count     | Should -Be 1   # exact id works too
+            @(Get-TenantConfigDrift -Monitor 'nope' -WarningAction SilentlyContinue).Count | Should -Be 0
+        }
+    }
+
+    It 'monitor run history maps status, drift count and errors, newest first' {
+        InModuleScope JustGraphIT {
+            Mock Invoke-IaRequest {
+                param($Method, $Uri, $Headers, $Body)
+                if ($Uri -match 'configurationMonitoringResults') { return @{ value = @(
+                    [pscustomobject]@{ id = 'r0'; monitorId = 'cm1'; runStatus = 'failed';     driftsCount = 0; runInitiationDateTime = '2026-06-30T05:00:00Z'; runCompletionDateTime = '2026-06-30T05:01:00Z'; errorDetails = @([pscustomobject]@{ message = 'timeout' }) }
+                    [pscustomobject]@{ id = 'r1'; monitorId = 'cm1'; runStatus = 'successful'; driftsCount = 1; runInitiationDateTime = '2026-07-01T05:00:00Z'; runCompletionDateTime = '2026-07-01T05:05:00Z'; errorDetails = @() }) } }
+                if ($Uri -match 'configurationMonitors') { return @{ value = @([pscustomobject]@{ id = 'cm1'; displayName = 'CA baseline' }) } }
+                @{ value = @() }
+            }
+            $r = @(Get-TenantConfigMonitorResult)
+            $r.Count        | Should -Be 2
+            $r[0].RunStatus | Should -Be 'successful'            # newest first
+            $r[0].Drifts    | Should -Be 1
+            $r[1].Errors    | Should -Be 'timeout'
+            $r[0].Monitor   | Should -Be 'CA baseline'
+        }
+    }
+
+    It 'health check: active drift makes the ninth row Fail with the drift count' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory        { @([pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true }) }
+            Mock Get-EntraExpiringSecret          { @() }
+            Mock Get-EntraRiskyUser               { @() }
+            Mock Get-EntraConditionalAccessPolicy { @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' }) }
+            Mock Get-IntuneConnectorHealth        { @() }
+            Mock Get-EntraMfaRegistration         { @() }
+            Mock Get-TenantConfigMonitor          { @([pscustomobject]@{ Monitor = 'CA baseline'; Status = 'active' }) }
+            Mock Get-TenantConfigDrift            { @([pscustomobject]@{ Monitor = 'CA baseline'; Resource = 'Require MFA for admins'; Drifts = 1 }) }
+            $row = @(Invoke-IntuneHealthCheck) | Where-Object Check -eq 'Configuration drift (M365 baselines)'
+            $row.Status | Should -Be 'Fail'
+            $row.Count  | Should -Be 1
+            $row.Detail | Should -Match 'Require MFA for admins'
+        }
+    }
+
+    It 'health check: no monitors is a Pass (not in use); probe failure names the scope' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDeviceInventory        { @([pscustomobject]@{ Device = 'X'; Compliance = 'compliant'; DaysSinceSync = 1; Encrypted = $true }) }
+            Mock Get-EntraExpiringSecret          { @() }
+            Mock Get-EntraRiskyUser               { @() }
+            Mock Get-EntraConditionalAccessPolicy { @([pscustomobject]@{ Name = 'a'; State = 'enabled' }, [pscustomobject]@{ Name = 'b'; State = 'enabled' }) }
+            Mock Get-IntuneConnectorHealth        { @() }
+            Mock Get-EntraMfaRegistration         { @() }
+            Mock Get-TenantConfigMonitor          { @() }
+            Mock Get-TenantConfigDrift            { @() }
+            $row = @(Invoke-IntuneHealthCheck) | Where-Object Check -eq 'Configuration drift (M365 baselines)'
+            $row.Status | Should -Be 'Pass'
+            $row.Detail | Should -Match 'not in use'
+
+            Mock Get-TenantConfigMonitor { throw 'Insufficient privileges' }
+            $row = @(Invoke-IntuneHealthCheck) | Where-Object Check -eq 'Configuration drift (M365 baselines)'
+            $row.Status | Should -Be 'Error'
+            $row.Detail | Should -Match 'ConfigurationMonitoring\.Read\.All'
         }
     }
 }
