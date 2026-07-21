@@ -4308,9 +4308,11 @@ Describe 'Get-IntuneDiscoveredApp' {
         InModuleScope JustGraphIT {
             Mock Invoke-IaRequest {
                 param($Method, $Uri, $Headers, $Body)
-                if ($Uri -match 'detectedApps/da1/managedDevices') { return @{ value = @(
-                    [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01'; userPrincipalName = 'alice@x'; operatingSystem = 'Windows' }
-                    [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02'; userPrincipalName = 'bob@x';   operatingSystem = 'Windows' }) } }
+                if ($Uri -match 'detectedApps/da1/managedDevices') {
+                    $Uri | Should -Match 'azureADDeviceId'          # selected so group sync can resolve devices
+                    return @{ value = @(
+                    [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01'; userPrincipalName = 'alice@x'; operatingSystem = 'Windows'; azureADDeviceId = 'aad-1' }
+                    [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02'; userPrincipalName = 'bob@x';   operatingSystem = 'Windows'; azureADDeviceId = 'aad-2' }) } }
                 if ($Uri -match 'detectedApps\?') {
                     $Uri | Should -Match "contains\(displayName,'zscaler'\)"   # server-side filter used
                     return @{ value = @(
@@ -4323,6 +4325,7 @@ Describe 'Get-IntuneDiscoveredApp' {
             $rows[0].App     | Should -Be 'Zscaler Client Connector'
             $rows[0].Device  | Should -Be 'LAPTOP-01'
             $rows[1].User    | Should -Be 'bob@x'
+            $rows[0].AzureAdDeviceId | Should -Be 'aad-1'
         }
     }
 
@@ -4761,6 +4764,128 @@ Describe 'Tenant config drift (beta)' {
             $row = @(Invoke-IntuneHealthCheck) | Where-Object Check -eq 'Configuration drift (M365 baselines)'
             $row.Status | Should -Be 'Error'
             $row.Detail | Should -Match 'ConfigurationMonitoring\.Read\.All'
+        }
+    }
+}
+
+Describe 'Sync-IntuneDiscoveredAppGroup' {
+    It 'creates the group on first run and adds every resolved device (deduped)' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDiscoveredApp { @(
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC1'; AzureAdDeviceId = 'aad-1' }
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC2'; AzureAdDeviceId = 'aad-2' }
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.3'; Device = 'PC2'; AzureAdDeviceId = 'aad-2' }   # second component, same device
+            ) }
+            Mock Resolve-EntraDeviceObjectId { param($AzureAdDeviceId) "obj-$AzureAdDeviceId" }
+            Mock Resolve-EntraGroupId { throw "No Entra group found matching 'sec-z'." }
+            Mock New-EntraGroup { [pscustomobject]@{ Id = 'g-new'; DisplayName = 'sec-z' } }
+            Mock Get-EntraGroupMember { @() }
+            Mock Add-EntraGroupMemberBulk { param($Group, $MemberId) [pscustomobject]@{ Requested = @($MemberId).Count; Added = @($MemberId).Count; Failed = 0 } }
+            Mock Remove-EntraGroupMember { }
+            $r = Sync-IntuneDiscoveredAppGroup -Name zscaler -GroupName 'sec-z' -Confirm:$false
+            $r.Created        | Should -BeTrue
+            $r.MatchedDevices | Should -Be 2          # duplicate device rows collapse
+            $r.Resolved       | Should -Be 2
+            $r.Added          | Should -Be 2
+            $r.InSync         | Should -BeTrue
+            Should -Invoke New-EntraGroup -Times 1 -Exactly
+            Should -Invoke Add-EntraGroupMemberBulk -Times 1 -Exactly -ParameterFilter { @($MemberId).Count -eq 2 }
+        }
+    }
+
+    It 'reuses an existing group and only adds the missing devices' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDiscoveredApp { @(
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC1'; AzureAdDeviceId = 'aad-1' }
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC2'; AzureAdDeviceId = 'aad-2' }
+            ) }
+            Mock Resolve-EntraDeviceObjectId { param($AzureAdDeviceId) "obj-$AzureAdDeviceId" }
+            Mock Resolve-EntraGroupId { 'g-1' }
+            Mock Invoke-IaRequest { [pscustomobject]@{ id = 'g-1'; groupTypes = @() } }
+            Mock New-EntraGroup { throw 'must not create' }
+            Mock Get-EntraGroupMember { @(
+                [pscustomobject]@{ Name = 'PC1';      Type = 'device'; Id = 'obj-aad-1' }
+                [pscustomobject]@{ Name = 'Some user'; Type = 'user';  Id = 'u-9' }
+                [pscustomobject]@{ Name = 'HealedPC'; Type = 'device'; Id = 'obj-aad-9' }
+            ) }
+            Mock Add-EntraGroupMemberBulk { param($Group, $MemberId) [pscustomobject]@{ Requested = @($MemberId).Count; Added = @($MemberId).Count; Failed = 0 } }
+            Mock Remove-EntraGroupMember { }
+            $r = Sync-IntuneDiscoveredAppGroup -Name zscaler -GroupName 'sec-z' -Confirm:$false
+            $r.Created | Should -BeFalse
+            $r.Added   | Should -Be 1                 # only obj-aad-2 is new
+            $r.Removed | Should -Be 0                 # no -RemoveHealed → nothing removed
+            Should -Invoke Add-EntraGroupMemberBulk -Times 1 -Exactly -ParameterFilter { @($MemberId) -contains 'obj-aad-2' -and @($MemberId).Count -eq 1 }
+            Should -Invoke Remove-EntraGroupMember -Times 0 -Exactly
+        }
+    }
+
+    It '-RemoveHealed removes healed DEVICE members only — user members are never touched' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDiscoveredApp { @([pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC1'; AzureAdDeviceId = 'aad-1' }) }
+            Mock Resolve-EntraDeviceObjectId { param($AzureAdDeviceId) "obj-$AzureAdDeviceId" }
+            Mock Resolve-EntraGroupId { 'g-1' }
+            Mock Invoke-IaRequest { [pscustomobject]@{ id = 'g-1'; groupTypes = @() } }
+            Mock Get-EntraGroupMember { @(
+                [pscustomobject]@{ Name = 'PC1';      Type = 'device'; Id = 'obj-aad-1' }
+                [pscustomobject]@{ Name = 'Some user'; Type = 'user';  Id = 'u-9' }
+                [pscustomobject]@{ Name = 'HealedPC'; Type = 'device'; Id = 'obj-aad-9' }
+            ) }
+            Mock Add-EntraGroupMemberBulk { [pscustomobject]@{ Requested = 0; Added = 0; Failed = 0 } }
+            Mock Remove-EntraGroupMember { }
+            $r = Sync-IntuneDiscoveredAppGroup -Name zscaler -GroupName 'sec-z' -RemoveHealed -Confirm:$false
+            $r.Removed | Should -Be 1
+            $r.InSync  | Should -BeTrue
+            Should -Invoke Remove-EntraGroupMember -Times 1 -Exactly -ParameterFilter { $Member -eq 'obj-aad-9' }
+            Should -Invoke Add-EntraGroupMemberBulk -Times 0 -Exactly    # nothing to add
+        }
+    }
+
+    It 'refuses to sync a dynamic group' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDiscoveredApp { @([pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC1'; AzureAdDeviceId = 'aad-1' }) }
+            Mock Resolve-EntraDeviceObjectId { 'obj-aad-1' }
+            Mock Resolve-EntraGroupId { 'g-dyn' }
+            Mock Invoke-IaRequest { [pscustomobject]@{ id = 'g-dyn'; groupTypes = @('DynamicMembership') } }
+            { Sync-IntuneDiscoveredAppGroup -Name zscaler -GroupName 'dyn-group' -Confirm:$false } | Should -Throw '*dynamic*'
+        }
+    }
+
+    It '-WhatIf reports the plan and performs no writes' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDiscoveredApp { @(
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC1'; AzureAdDeviceId = 'aad-1' }
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC2'; AzureAdDeviceId = 'aad-2' }
+            ) }
+            Mock Resolve-EntraDeviceObjectId { param($AzureAdDeviceId) "obj-$AzureAdDeviceId" }
+            Mock Resolve-EntraGroupId { throw "No Entra group found matching 'sec-z'." }
+            Mock New-EntraGroup { throw 'must not create under -WhatIf' }
+            Mock Add-EntraGroupMemberBulk { throw 'must not add under -WhatIf' }
+            $r = Sync-IntuneDiscoveredAppGroup -Name zscaler -GroupName 'sec-z' -WhatIf
+            $r.Created  | Should -BeFalse
+            $r.Resolved | Should -Be 2
+            $r.Added    | Should -Be 0
+            $r.InSync   | Should -BeFalse
+            Should -Invoke New-EntraGroup -Times 0 -Exactly
+            Should -Invoke Add-EntraGroupMemberBulk -Times 0 -Exactly
+        }
+    }
+
+    It 'counts devices that cannot be resolved to Entra objects without failing the run' {
+        InModuleScope JustGraphIT {
+            Mock Get-IntuneDiscoveredApp { @(
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'PC1'; AzureAdDeviceId = 'aad-1' }
+                [pscustomobject]@{ App = 'Zscaler'; Version = '4.2'; Device = 'GHOST'; AzureAdDeviceId = 'aad-ghost' }
+            ) }
+            Mock Resolve-EntraDeviceObjectId { param($AzureAdDeviceId) if ($AzureAdDeviceId -eq 'aad-ghost') { $null } else { "obj-$AzureAdDeviceId" } }
+            Mock Resolve-EntraGroupId { throw "No Entra group found matching 'sec-z'." }
+            Mock New-EntraGroup { [pscustomobject]@{ Id = 'g-new'; DisplayName = 'sec-z' } }
+            Mock Get-EntraGroupMember { @() }
+            Mock Add-EntraGroupMemberBulk { param($Group, $MemberId) [pscustomobject]@{ Requested = @($MemberId).Count; Added = @($MemberId).Count; Failed = 0 } }
+            $r = Sync-IntuneDiscoveredAppGroup -Name zscaler -GroupName 'sec-z' -Confirm:$false -WarningAction SilentlyContinue
+            $r.MatchedDevices | Should -Be 2
+            $r.Resolved       | Should -Be 1
+            $r.Unresolved     | Should -Be 1
+            $r.Added          | Should -Be 1
         }
     }
 }

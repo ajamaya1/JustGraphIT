@@ -50,7 +50,8 @@ function Get-IntuneDiscoveredApp {
 
     .OUTPUTS
         App view:    PSCustomObject App, Version, Publisher, Platform, DeviceCount, Id.
-        Device view: PSCustomObject App, Version, Device, User, OS, DeviceId.
+        Device view: PSCustomObject App, Version, Device, User, OS, DeviceId,
+        AzureAdDeviceId (feeds Sync-IntuneDiscoveredAppGroup / Entra group targeting).
     #>
     [CmdletBinding()]
     param(
@@ -93,15 +94,16 @@ function Get-IntuneDiscoveredApp {
     @(foreach ($a in $apps) {
         if ($null -ne $a.deviceCount -and [int]$a.deviceCount -eq 0) { continue }   # nothing to expand
         $vNote = if ($unparseable["$($a.id)"]) { ' (unparseable)' } else { '' }
-        $devs = Get-IaCollection (Resolve-IaUri "deviceManagement/detectedApps/$($a.id)/managedDevices?`$select=id,deviceName,userPrincipalName,emailAddress,operatingSystem")
+        $devs = Get-IaCollection (Resolve-IaUri "deviceManagement/detectedApps/$($a.id)/managedDevices?`$select=id,deviceName,userPrincipalName,emailAddress,operatingSystem,azureADDeviceId")
         foreach ($d in @($devs)) {
             [pscustomobject][ordered]@{
-                App      = $a.displayName
-                Version  = "$($a.version)$vNote"
-                Device   = $d.deviceName
-                User     = $d.userPrincipalName
-                OS       = $d.operatingSystem
-                DeviceId = $d.id
+                App             = $a.displayName
+                Version         = "$($a.version)$vNote"
+                Device          = $d.deviceName
+                User            = $d.userPrincipalName
+                OS              = $d.operatingSystem
+                DeviceId        = $d.id
+                AzureAdDeviceId = $d.azureADDeviceId
             }
         }
     }) | Sort-Object App, Device

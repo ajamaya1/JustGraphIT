@@ -57,6 +57,7 @@ function global:Invoke-MgGraphRequest {
         $nm = @{ g1 = 'All Pilot Devices'; g2 = 'Finance Users'; g3 = 'HR Department' }[$Matches[1]]
         return [pscustomobject]@{ id = $Matches[1]; displayName = $nm; membershipRule = $null }
     }
+    if ($u -match "groups\?.*displayName eq '") { return page @() }   # name resolver: mock can't filter, so report not-found
     if ($u -match '/groups(\?|$|/)') { return page @(
         [pscustomobject]@{ id = 'g1'; displayName = 'All Pilot Devices' }
         [pscustomobject]@{ id = 'g2'; displayName = 'Finance Users' }
@@ -176,9 +177,9 @@ function global:Invoke-MgGraphRequest {
     # (informationProtection/bitlocker/recoveryKeys is served by the earlier
     #  'bitlocker/recoveryKeys' matcher above — keys escrowed for aad-0001 only.)
     if ($u -match 'detectedApps/[^/?]+/managedDevices') { return page @(
-        [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01';  userPrincipalName = 'alice@contoso.com'; emailAddress = 'alice@contoso.com'; operatingSystem = 'Windows' }
-        [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02';  userPrincipalName = 'bob@contoso.com';   emailAddress = 'bob@contoso.com';   operatingSystem = 'Windows' }
-        [pscustomobject]@{ id = 'd4'; deviceName = 'CPC-12345';  userPrincipalName = 'dave@contoso.com';  emailAddress = 'dave@contoso.com';  operatingSystem = 'Windows' }) }
+        [pscustomobject]@{ id = 'd1'; deviceName = 'LAPTOP-01';  userPrincipalName = 'alice@contoso.com'; emailAddress = 'alice@contoso.com'; operatingSystem = 'Windows'; azureADDeviceId = 'aad-0001' }
+        [pscustomobject]@{ id = 'd2'; deviceName = 'LAPTOP-02';  userPrincipalName = 'bob@contoso.com';   emailAddress = 'bob@contoso.com';   operatingSystem = 'Windows'; azureADDeviceId = 'aad-0002' }
+        [pscustomobject]@{ id = 'd4'; deviceName = 'CPC-12345';  userPrincipalName = 'dave@contoso.com';  emailAddress = 'dave@contoso.com';  operatingSystem = 'Windows'; azureADDeviceId = 'aad-0004' }) }
     if ($u -match 'deviceManagement/detectedApps') {
         $apps = @(
             [pscustomobject]@{ id = 'da1'; displayName = 'Zscaler Client Connector'; version = '4.3.2.157';   publisher = 'Zscaler Inc.';  platform = 'windows'; deviceCount = 3 }
@@ -204,6 +205,7 @@ function global:Invoke-MgGraphRequest {
         [pscustomobject]@{ id = 'g1'; displayName = 'All Pilot Devices'; membershipRule = $null }
         [pscustomobject]@{ id = 'g2'; displayName = 'Windows Autopilot Devices'; membershipRule = '(device.devicePhysicalIds -any (_ -contains "[ZTDId]"))' }
         [pscustomobject]@{ id = 'g3'; displayName = 'Finance Devices'; membershipRule = '(device.deviceOSType -eq "Windows")' }) }
+    if ($u -match "/devices\?.*deviceId eq '([^']+)'") { return page @([pscustomobject]@{ id = "devobj-$($Matches[1])" }) }
     if ($u -match '/devices\?\$filter=displayName') { if ($u -match "displayName eq '([^']+)'") { return page @([pscustomobject]@{ id = 'devobj-1'; displayName = $Matches[1] }) }; return page @() }
     if ($u -match '\$select=id|/intents|provisioningPolicies|enrollmentConfigurations') { return page (items @('Sample Item One', 'Sample Item Two', 'Sample Item Three') 'displayName' -withAsg) }
     return page @()

@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white)](https://github.com/PowerShell/PowerShell)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](#cross-platform)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft%20Graph-beta-0078D4?logo=microsoft)](https://learn.microsoft.com/graph/)
-[![Tests](https://img.shields.io/badge/Pester-363%20passing-3FB950)](JustGraphIT.Tests.ps1)
+[![Tests](https://img.shields.io/badge/Pester-369%20passing-3FB950)](JustGraphIT.Tests.ps1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A cross-platform **PowerShell 7 module and interactive terminal UI** that reads **and acts on**
@@ -408,7 +408,18 @@ Anything you'd normally open the portal for, from the command line:
 | `Get-/Restore-/Remove-EntraDeletedItem` | Directory recycle bin — restore or purge soft-deleted users / groups / apps |
 | `Get-/Set-EntraUserMfaState` · `Add-EntraUserPhoneMethod` | Per-user MFA state (disabled/enabled/enforced) and admin-registered phone methods |
 
-**Query → group:** the main-menu *"Build a group from a query"* flow filters a population — devices not synced in *N* days (`Get-IntuneStaleDevice`), users by display-name prefix, or inactive users — then bulk-adds the set to a new or existing group. Same for any `Get-EntraUser -Filter "startswith(displayName,'EX')"` result.
+**Query → group:** the main-menu *"Build a group from a query"* flow filters a population — devices not synced in *N* days (`Get-IntuneStaleDevice`), **devices carrying a discovered app** (Zscaler, Chrome below a patched build…), users by display-name prefix, or inactive users — then bulk-adds the set to a new or existing group. Same for any `Get-EntraUser -Filter "startswith(displayName,'EX')"` result.
+
+**Discovered app → group, for runbooks:** `Sync-IntuneDiscoveredAppGroup` keeps an Entra
+security group in lock-step with a discovered-app query — creates the group on first run,
+adds matching devices idempotently, and with `-RemoveHealed` drops devices as they're
+remediated. Schedule it (Azure Automation / scheduled task, app-only auth) and point
+remediations, required-app deployments or Conditional Access at the group:
+
+```powershell
+Sync-IntuneDiscoveredAppGroup -Name zscaler -BelowVersion 4.3 `
+    -GroupName 'sec-zscaler-below-4.3' -RemoveHealed -Confirm:$false
+```
 
 **All of the above is reachable from the menus**, not just the CLI. Under **Identity · Entra**:
 

@@ -62,6 +62,7 @@
         'Invoke-IntuneDeviceAction',
         'Get-IntuneDeviceDetail',
         'Get-IntuneDiscoveredApp',
+        'Sync-IntuneDiscoveredAppGroup',
         'Get-IntuneConnectorHealth',
         'Get-IntuneBitLockerEscrowGap',
         'Get-EntraMfaRegistration',
