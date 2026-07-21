@@ -256,6 +256,24 @@ if (-not $ManualOnly) {
         $true
     }
 
+    Check "Get-TenantConfigDrift is implemented with the documented shape" {
+        $cmd = Get-Command Get-TenantConfigDrift -ErrorAction Stop
+        foreach ($p in 'Monitor', 'IncludeFixed', 'Detail') {
+            if ($p -notin $cmd.Parameters.Keys) { throw "missing -$p parameter" }
+        }
+        # Empty tenants (no monitors) legitimately return nothing; 403 means the
+        # ConfigurationMonitoring.Read.All scope has not been consented yet.
+        $d = @(Get-TenantConfigDrift -IncludeFixed)
+        if ($d.Count -gt 0) {
+            foreach ($col in 'Monitor', 'Resource', 'Type', 'Status', 'FirstReported', 'Drifts', 'Properties') {
+                if ($col -notin $d[0].PSObject.Properties.Name) { throw "missing column $col" }
+            }
+        }
+        $mon = @(Get-TenantConfigMonitor)
+        Write-Host "     config monitors: $($mon.Count) · drift rows (incl. fixed): $($d.Count)" -ForegroundColor Gray
+        $true
+    }
+
     Warn "Expiring-secret dashboard tile resolves (was silently 0 — function was missing)" {
         $n = @(Get-EntraExpiringSecret -Days 30 -IncludeExpired).Count
         Write-Host "     secrets/certs expiring within 30 days (incl. expired): $n" -ForegroundColor Gray
@@ -388,6 +406,12 @@ if (-not $AutoOnly) {
         "Loads a table (App, Kind, Name, Expires, DaysLeft, Status). No 'command not found' error."
     Manual 45 "Identity → Reports → 'Expiring incl. enterprise apps (90d)'" `
         "Loads and includes service-principal credentials and already-expired entries."
+
+    Section "CONFIG DRIFT (M365 baselines)"
+    Manual 46 "Reports → 'Config drift (Microsoft 365 baselines · what changed)' → 'Active drifts (property detail)'" `
+        "Loads Desired vs Current per property (or a clean 'no rows' if no monitors are defined). Esc on the sub-menu backs out, no crash."
+    Manual 47 "Dashboard → Tenant health section" `
+        "Shows a ninth row 'Configuration drift (M365 baselines)' — Pass, Fail with a count, or Error naming ConfigurationMonitoring.Read.All."
 
     Write-Host "`n─── End of validation checklist ─────────────────────────────────────────────`n"
 }

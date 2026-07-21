@@ -5,11 +5,12 @@ function Invoke-IntuneHealthCheck {
         one pipeable command. Read-only.
 
     .DESCRIPTION
-        Runs eight checks and emits one Pass/Warn/Fail row per check: device compliance,
+        Runs nine checks and emits one Pass/Warn/Fail row per check: device compliance,
         stale devices, disk encryption, expiring/expired app credentials, users flagged
         at risk by Identity Protection, Conditional Access coverage, enrollment
-        connector/token health (Apple MDM push cert, VPP/DEP tokens, NDES), and admin
-        accounts that cannot satisfy an MFA challenge. A check that
+        connector/token health (Apple MDM push cert, VPP/DEP tokens, NDES), admin
+        accounts that cannot satisfy an MFA challenge, and Microsoft-detected
+        configuration drift against M365 baselines. A check that
         cannot run (missing permission / not licensed) reports Status 'Error' with the
         reason instead of aborting the sweep — the remaining checks still run.
 
@@ -148,5 +149,20 @@ function Invoke-IntuneHealthCheck {
             $adminGaps.Count $(if ($adminGaps.Count) { 'admin accounts not MFA-capable: ' + (@($adminGaps | Select-Object -First 5 | ForEach-Object UPN) -join ', ') + $(if ($adminGaps.Count -gt 5) { '…' }) } else { 'every admin account is MFA-capable' })
     } catch {
         New-IaCheckRow 'Admins without MFA' 'Error' 0 "check failed (needs Entra P1 + Reports.Read.All): $($_.Exception.Message)"
+    }
+
+    try {
+        $cfgMon   = @(Get-TenantConfigMonitor)
+        $cfgDrift = @(Get-TenantConfigDrift)   # active drift only
+        if (-not $cfgMon.Count) {
+            New-IaCheckRow 'Configuration drift (M365 baselines)' 'Pass' 0 'no configuration monitors defined (M365 config monitoring not in use)'
+        } elseif (-not $cfgDrift.Count) {
+            New-IaCheckRow 'Configuration drift (M365 baselines)' 'Pass' 0 "$($cfgMon.Count) monitor$(if ($cfgMon.Count -ne 1) { 's' }), no active drift"
+        } else {
+            New-IaCheckRow 'Configuration drift (M365 baselines)' 'Fail' $cfgDrift.Count `
+                ('drifted: ' + (@($cfgDrift | Select-Object -First 4 | ForEach-Object { "$($_.Resource) ($($_.Drifts))" }) -join ', ') + $(if ($cfgDrift.Count -gt 4) { '…' }))
+        }
+    } catch {
+        New-IaCheckRow 'Configuration drift (M365 baselines)' 'Error' 0 "check failed (needs ConfigurationMonitoring.Read.All): $($_.Exception.Message)"
     }
 }

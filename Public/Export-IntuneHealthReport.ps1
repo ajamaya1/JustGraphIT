@@ -7,7 +7,7 @@ function Export-IntuneHealthReport {
 
     .DESCRIPTION
         Runs the same probes as the TUI Tenant overview (device inventory once,
-        the eight-point health check, expiring credentials, connector health) and
+        the nine-point health check, expiring credentials, connector health) and
         renders them as a single portable HTML file: no external assets, no
         JavaScript, safe to email. Sections that cannot load (permission/licence)
         are shown as "unavailable" rather than breaking the report.
@@ -50,14 +50,20 @@ function Export-IntuneHealthReport {
     if (-not $Path) { $Path = Join-Path (Get-Location) ("intune-health-{0:yyyyMMdd-HHmm}.html" -f (Get-Date)) }
 
     # One fetch per data set — the health check reuses these instead of re-sweeping.
-    $devs   = try { @(Get-IntuneDeviceInventory) } catch { $null }
-    $creds  = try { @(Get-EntraExpiringSecret -Days $SecretWindowDays -IncludeExpired) } catch { $null }
-    $conn   = try { @(Get-IntuneConnectorHealth) } catch { $null }
+    # Assign INSIDE try: `$x = try { @(...) }` captures the block's pipeline output,
+    # so an empty result would unroll to AutomationNull and read as "probe failed".
+    $devs = $null; $creds = $null; $conn = $null
+    try { $devs  = @(Get-IntuneDeviceInventory) } catch { }
+    try { $creds = @(Get-EntraExpiringSecret -Days $SecretWindowDays -IncludeExpired) } catch { }
+    try { $conn  = @(Get-IntuneConnectorHealth) } catch { }
     $hcp = @{ StaleDays = $StaleDays; SecretWindowDays = $SecretWindowDays }
     if ($null -ne $devs)  { $hcp.DeviceInventory     = $devs }
     if ($null -ne $creds) { $hcp.CredentialInventory = $creds }
     if ($null -ne $conn)  { $hcp.ConnectorInventory  = $conn }
-    $checks = try { @(Invoke-IntuneHealthCheck @hcp) } catch { @() }
+    # Assign inside try, and keep the array wrapper: rows carry their own 'Count'
+    # property, so an unrolled scalar row would shadow the collection count.
+    $checks = @()
+    try { $checks = @(Invoke-IntuneHealthCheck @hcp) } catch { }
 
     function esc { param($s) [System.Net.WebUtility]::HtmlEncode("$s") }
     function badge { param($status)

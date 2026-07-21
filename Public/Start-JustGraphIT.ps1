@@ -1925,9 +1925,12 @@ function Invoke-IaTuiDashboard {
     $idn = try { Invoke-IaStatus -Spinner Dots -Title 'Reading identity KPIs…' -ScriptBlock {
         $enc       = { param($f) [uri]::EscapeDataString($f) }
         # Keep the lists, not just counts — the health check below reuses them.
-        $riskyList = try { @(Get-EntraRiskyUser -AtRiskOnly) } catch { $null }
-        $caList    = try { @(Get-EntraConditionalAccessPolicy) } catch { $null }
-        $credList  = try { @(Get-EntraExpiringSecret -Days 30 -IncludeExpired) } catch { $null }
+        # Assign INSIDE try ($x = try { @(...) } would unroll an empty @() to
+        # AutomationNull, making a healthy-but-empty tenant look like a failed probe).
+        $riskyList = $null; $caList = $null; $credList = $null
+        try { $riskyList = @(Get-EntraRiskyUser -AtRiskOnly) } catch { }
+        try { $caList    = @(Get-EntraConditionalAccessPolicy) } catch { }
+        try { $credList  = @(Get-EntraExpiringSecret -Days 30 -IncludeExpired) } catch { }
         [ordered]@{
             users     = Get-IaCount -Path 'users/$count'
             guests    = Get-IaCount -Path ('users/$count?$filter=' + (& $enc "userType eq 'Guest'"))
@@ -1990,7 +1993,7 @@ function Invoke-IaTuiDashboard {
         $clr  = switch ("$($h.Status)") { 'Pass' { $Accent } 'Warn' { 'yellow' } 'Fail' { 'coral' } default { 'grey' } }
         $mark = switch ("$($h.Status)") { 'Pass' { '●' } 'Warn' { '▲' } 'Fail' { '✖' } default { '·' } }
         $detail = "$($h.Detail)"; if ($detail.Length -gt 82) { $detail = $detail.Substring(0, 81) + '…' }
-        Write-IaHost ("  [$clr]{0} {1,-5}[/] [white]{2,-33}[/] [grey]{3}[/]" -f $mark, $h.Status, $h.Check, (Protect-IaMarkup $detail))
+        Write-IaHost ("  [$clr]{0} {1,-5}[/] [white]{2,-36}[/] [grey]{3}[/]" -f $mark, $h.Status, $h.Check, (Protect-IaMarkup $detail))
     }
 
     Write-IaHost ''
@@ -3482,6 +3485,7 @@ function Invoke-IaTuiReports {
         'Connector & token health (Apple push · VPP · DEP · NDES)',
         'MFA registration gaps (not capable · admins first)',
         'BitLocker escrow gaps (encrypted · no key in Entra)',
+        'Config drift (Microsoft 365 baselines · what changed)',
         'Audit log (who changed what)',
         'Multi Admin Approval requests',
         'PIM activations',
@@ -3973,6 +3977,28 @@ function Invoke-IaTuiReports {
         'BitLocker escrow*' {
             Invoke-IaTuiReportView -Accent $Accent -Title 'BitLocker escrow gaps (encrypted, no key in Entra)' `
                 -Stem 'bitlocker-escrow-gap' -Loader { Get-IntuneBitLockerEscrowGap }
+        }
+        'Config drift*' {
+            $view = Read-IaMenu -Title 'Config drift' -Color $Accent -Choices @(
+                'Active drifts (property detail — desired vs current)',
+                'Active drifts (summary by resource)',
+                'Monitors & last runs'
+            )
+            if (-not $view) { return }
+            switch -Wildcard ($view) {
+                'Active drifts (property*' {
+                    Invoke-IaTuiReportView -Accent $Accent -Title 'Config drift — desired vs current' `
+                        -Stem 'config-drift-detail' -Loader { Get-TenantConfigDrift -Detail }
+                }
+                'Active drifts (summary*' {
+                    Invoke-IaTuiReportView -Accent $Accent -Title 'Config drift — active by resource' `
+                        -Stem 'config-drift' -Loader { Get-TenantConfigDrift }
+                }
+                'Monitors*' {
+                    Invoke-IaTuiReportView -Accent $Accent -Title 'Configuration monitors & last runs' `
+                        -Stem 'config-monitors' -Loader { Get-TenantConfigMonitor }
+                }
+            }
         }
         'Audit*' {
             $sincePick = Read-IaMenu -Title 'Since' -Color $Accent -Choices @('24h','7d','30d','90d','✎ Custom…')
